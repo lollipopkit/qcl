@@ -31,19 +31,6 @@ pub enum Token {
     Id(String),  // identifier
 }
 
-impl Token {
-    pub fn same_type(&self, other: &Token) -> bool {
-        std::mem::discriminant(self) == std::mem::discriminant(other)
-    }
-
-    pub fn has_value(&self) -> bool {
-        match self {
-            Token::Str(_) | Token::Int(_) | Token::Float(_) | Token::Bool(_) | Token::Id(_) => true,
-            _ => false,
-        }
-    }
-}
-
 /// [chars] and [idx] can be used for syntax error reporting.
 pub struct Tokenizer {
     chars: Vec<char>,

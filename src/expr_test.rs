@@ -1,62 +1,30 @@
 #[cfg(test)]
 mod test {
-    use crate::{expr::{BinOp, Expr, Parser}, token::{Token, Tokenizer}, val::Val};
+    use anyhow::{anyhow, Result};
+
+    use crate::{expr::{BinOp, Expr}, val::Val};
 
     #[test]
-    fn basic() {
-        let tokens = vec![
-            Token::At,
-            Token::Id("req".to_string()),
-            Token::Dot,
-            Token::Id("user".to_string()),
-            Token::Dot,
-            Token::Id("age".to_string()),
-            Token::Gt,
-            Token::Int(18),
-        ];
+    fn basic() -> Result<()> {
         let expr = Expr::Bin(
-            Box::new(Expr::At(vec![
-                Val::Str("req".to_string()),
-                Val::Str("user".to_string()),
-                Val::Str("age".to_string()),
-            ])),
+            Box::new(Expr::Int(1)),
             BinOp::Gt,
-            Box::new(Expr::Int(18)),
+            Box::new(Expr::Float(0.1)),
         );
-        let parsed = Parser::new(tokens).parse().unwrap();
-        println!("{:?}", parsed);
-        assert_eq!(parsed, expr);
-    }
-
-    #[test]
-    fn paren() {
-        let r = r#"
-        (
-            true
-            ||
-            false
-        )
-        "#;
-
-        let t = Tokenizer::new(r).parse().unwrap();
-        let parsed = Parser::new(t).parse().unwrap();
-        println!("{:?}", parsed);
-    }
-
-    #[test]
-    fn and_or() {
-        let r = r#"
-        (
-            @time != 0 
-            ||
-            @col.pub == true
-        )
-        &&
-        @random > 0.5
-        "#;
-
-        let t = Tokenizer::new(r).parse().unwrap();
-        let parsed = Parser::new(t).parse().unwrap();
-        println!("{:?}", parsed);
+        match expr.exec(&Val::Nil) {
+            Ok(v) => {
+                match v {
+                    Val::Bool(v) => match v {
+                        true => {
+                            println!("{:?}", v);
+                            Ok(())
+                        },
+                        false => Err(anyhow!("Expected true, got {:?}", v)),
+                    }
+                    _ => Err(anyhow!("Invalid result {:?}", v),)
+                }
+            }
+            Err(e) => Err(e),
+        }
     }
 }

@@ -1,6 +1,6 @@
 ## QCL
 
-Query - Check - Language -> QCL is a simple language that allows you to query and check the eval result of a query.
+`Query Check Language - QCL` is a simple language that allows you to query and check the eval result of a query.
 
 ### Example
 
@@ -32,4 +32,19 @@ let query = "@req.user.name == 'bar' && @record.published == true";
 
 let qcl = QCL::new();
 assert_eq!(qcl.eval(query, context).unwrap(), true.into());
+```
+
+### Grammar
+```ebnf
+exp     ::= paren
+paren   ::= {‘(’} or {‘)’}
+or      ::= and {’||’ and}
+and     ::= cmp {’&&’ cmp}
+cmp     ::= addsub {(‘<’ | ‘>’ | ‘<=’ | ‘>=’ | ‘!=’ | ‘==’) addsub}
+addsub  ::= muldiv {(‘+’ | ‘-’) muldiv}
+muldiv  ::= unary {(‘*’ | ‘/’ | ‘%’) unary}
+unary   ::= {‘!’} primary
+primary ::= nil | false | true | int | float | string | at
+at      ::= ‘@’ field {‘.’ field}
+field   ::= id | int
 ```
