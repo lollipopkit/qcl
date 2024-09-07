@@ -26,11 +26,34 @@ impl core::fmt::Display for Val {
 }
 
 impl Val {
-    pub fn access(&self, field: &Val) -> &Val {
+    pub(crate) fn access(&self, field: &Val) -> &Val {
         match (self, field) {
             (Val::Map(m), Val::Str(s)) => m.get(s).unwrap_or(&Val::Nil),
             (Val::List(l), Val::Int(i)) => l.get(*i as usize).unwrap_or(&Val::Nil),
             _ => &Val::Nil,
+        }
+    }
+
+    pub fn from_json(val: serde_json::Value) -> Val {
+        match val {
+            serde_json::Value::String(s) => Val::Str(s),
+            serde_json::Value::Number(n) => {
+                if n.is_i64() {
+                    Val::Int(n.as_i64().unwrap())
+                } else if n.is_f64() {
+                    Val::Float(n.as_f64().unwrap())
+                } else {
+                    Val::Nil
+                }
+            }
+            serde_json::Value::Bool(b) => Val::Bool(b),
+            serde_json::Value::Array(a) => Val::List(a.into_iter().map(Val::from_json).collect()),
+            serde_json::Value::Object(o) => Val::Map(
+                o.into_iter()
+                    .map(|(k, v)| (k, Val::from_json(v)))
+                    .collect(),
+            ),
+            serde_json::Value::Null => Val::Nil,
         }
     }
 }
