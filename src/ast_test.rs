@@ -23,7 +23,7 @@ mod test {
             BinOp::Gt,
             Box::new(Expr::Int(18)),
         );
-        let parsed = Parser::new(tokens).parse().unwrap();
+        let parsed = Parser::new(&tokens).parse().unwrap();
         println!("{:?}", parsed);
         assert_eq!(parsed, expr);
     }
@@ -38,8 +38,8 @@ mod test {
         )
         "#;
 
-        let t = Tokenizer::new(r).unwrap();
-        let parsed = Parser::new(t).parse().unwrap();
+        let ts = Tokenizer::new(r).unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
         println!("{:?}", parsed);
     }
 
@@ -55,8 +55,8 @@ mod test {
         @random > 0.5
         "#;
 
-        let t = Tokenizer::new(r).unwrap();
-        let parsed = Parser::new(t).parse().unwrap();
+        let ts = Tokenizer::new(r).unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
         println!("{:?}", parsed);
     }
 
@@ -64,8 +64,8 @@ mod test {
     fn access_str_int_str() {
         let r = "@list.0.name";
 
-        let t = Tokenizer::new(r).unwrap();
-        let parsed = Parser::new(t).parse().unwrap();
+        let ts = Tokenizer::new(r).unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
         println!("{:?}", parsed);
     }
 }

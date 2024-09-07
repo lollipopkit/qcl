@@ -47,7 +47,7 @@ mod test {
 
     fn with_ctx(rule: &str, ctx: serde_json::Value) -> Result<Val> {
         let expr = Expr::try_from(rule)?;
-        let ctx = Val::from_json(ctx.clone());
+        let ctx = Val::from(ctx.clone());
         expr.exec(&ctx)
     }
 

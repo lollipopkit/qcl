@@ -320,7 +320,7 @@ pub trait IntoExpr {
 impl<S: AsRef<str>> IntoExpr for S {
     fn into_expr(self) -> Result<Expr, anyhow::Error> {
         let tokens = Tokenizer::new(self.as_ref())?;
-        let expr = Parser::new(tokens).parse()?;
+        let expr = Parser::new(&tokens).parse()?;
         Ok(expr)
     }
 }

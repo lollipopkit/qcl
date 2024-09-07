@@ -16,7 +16,8 @@ fn main() -> anyhow::Result<()> {
         .join("\n");
     let expr = args[1..].join(" ");
 
-    let ctx = Val::from_json(serde_json::from_str(&raw)?);
+    let json: serde_json::Value = serde_json::from_str(&raw)?;
+    let ctx = Val::from(json);
     let val = Expr::try_from(expr.as_ref())?;
     let res = val.exec(&ctx)?;
     println!("{}", res);

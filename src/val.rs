@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Val {
     Str(String),
     Int(i64),
@@ -33,8 +33,10 @@ impl Val {
             _ => None,
         }
     }
+}
 
-    pub fn from_json(val: serde_json::Value) -> Val {
+impl From<serde_json::Value> for Val {
+    fn from(val: serde_json::Value) -> Self {
         match val {
             serde_json::Value::String(s) => Val::Str(s),
             serde_json::Value::Number(n) => {
@@ -47,12 +49,10 @@ impl Val {
                 }
             }
             serde_json::Value::Bool(b) => Val::Bool(b),
-            serde_json::Value::Array(a) => Val::List(a.into_iter().map(Val::from_json).collect()),
-            serde_json::Value::Object(o) => Val::Map(
-                o.into_iter()
-                    .map(|(k, v)| (k, Val::from_json(v)))
-                    .collect(),
-            ),
+            serde_json::Value::Array(a) => Val::List(a.into_iter().map(Val::from).collect()),
+            serde_json::Value::Object(o) => {
+                Val::Map(o.into_iter().map(|(k, v)| (k, Val::from(v))).collect())
+            }
             serde_json::Value::Null => Val::Nil,
         }
     }

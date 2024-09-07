@@ -1,14 +1,14 @@
 use crate::{expr::{BinOp, Expr, UnaryOp}, token::Token, val::Val};
 use anyhow::{anyhow, Result};
 
-pub(crate) struct Parser {
-    tokens: Vec<Token>,
+pub(crate) struct Parser<'a> {
+    tokens: &'a [Token],
     pos: usize,
     len: usize,
     exp: Expr,
 }
 
-impl Parser {
+impl<'a> Parser<'a> {
     pub fn parse(&mut self) -> Result<Expr> {
         while !self.eof() {
             self.exp = self.parse_or()?;
@@ -192,8 +192,8 @@ impl Parser {
     }
 }
 
-impl Parser {
-    pub(crate) fn new(tokens: Vec<Token>) -> Self {
+impl<'a> Parser<'a> {
+    pub(crate) fn new(tokens: &'a [Token]) -> Self {
         let len = tokens.len();
         Self {
             tokens,

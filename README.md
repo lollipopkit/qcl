@@ -58,8 +58,7 @@ assert!(result);
 
 ### Grammar
 ```ebnf
-exp     ::= paren
-paren   ::= {‘(’} or {‘)’}
+exp     ::= or
 or      ::= and {’||’ and}
 and     ::= cmp {’&&’ cmp}
 cmp     ::= addsub {(‘<’ | ‘>’ | ‘<=’ | ‘>=’ | ‘!=’ | ‘==’) addsub}
@@ -67,6 +66,7 @@ addsub  ::= muldiv {(‘+’ | ‘-’) muldiv}
 muldiv  ::= unary {(‘*’ | ‘/’ | ‘%’) unary}
 unary   ::= {‘!’} primary
 primary ::= nil | false | true | int | float | string | at
+paren   ::= {‘(’} or {‘)’}
 at      ::= ‘@’ field {‘.’ field}
 field   ::= id | int
 ```
