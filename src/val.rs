@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Val {
     Str(String),
     Int(i64),
@@ -26,11 +26,11 @@ impl core::fmt::Display for Val {
 }
 
 impl Val {
-    pub(crate) fn access(&self, field: &Val) -> &Val {
+    pub(crate) fn access(&self, field: &Val) -> Option<&Val> {
         match (self, field) {
-            (Val::Map(m), Val::Str(s)) => m.get(s).unwrap_or(&Val::Nil),
-            (Val::List(l), Val::Int(i)) => l.get(*i as usize).unwrap_or(&Val::Nil),
-            _ => &Val::Nil,
+            (Val::Map(m), Val::Str(s)) => m.get(s),
+            (Val::List(l), Val::Int(i)) => l.get(*i as usize),
+            _ => None,
         }
     }
 

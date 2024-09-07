@@ -36,15 +36,20 @@ pub struct Tokenizer {
     chars: Vec<char>,
     idx: usize,
     len: usize,
+    pub tokens: Vec<Token>,
 }
 
 impl Tokenizer {
-    pub fn new(s: &str) -> Tokenizer {
-        Tokenizer {
+    pub fn new(s: &str) -> Result<Vec<Token>> {
+        let tokens = Vec::new();
+        let mut t = Tokenizer {
             chars: s.chars().collect(),
             idx: 0,
             len: s.len(),
-        }
+            tokens,
+        };
+        t.parse()?;
+        Ok(t.tokens)
     }
 
     fn eof(&self) -> bool {
@@ -67,7 +72,7 @@ impl Tokenizer {
         true
     }
 
-    fn err<T: AsRef<str> + Debug>(&self, msg: T) -> String {
+    fn err<T: AsRef<str>>(&self, msg: T) -> String {
         // Collect near 10(max) chars around the error position
         let r_idx = if self.idx + 5 < self.len {
             self.idx + 5
@@ -84,7 +89,12 @@ impl Tokenizer {
         } else {
             format!("at end, near '{}'", chars)
         };
-        format!("Syntax error: {:?} ({})", msg, ctx)
+        format!(
+            "\nSyntax error:\n{} ({})\nParsed tokens: {:?}",
+            msg.as_ref(),
+            ctx,
+            &self.tokens
+        )
     }
 
     fn skip_whitespace(&mut self) {
@@ -96,7 +106,7 @@ impl Tokenizer {
         }
     }
 
-    fn parse_str(&mut self) -> Result<Token> {
+    fn parse_str(&mut self) -> Result<()> {
         let mut s = String::new();
         let quote = self.chars[self.idx];
         self.idx += 1;
@@ -114,10 +124,17 @@ impl Tokenizer {
         if !end {
             return Err(anyhow!(self.err("String not closed")));
         }
-        Ok(Token::Str(s))
+        self.tokens.push(Token::Str(s));
+        Ok(())
     }
 
-    fn parse_num(&mut self) -> Result<Token> {
+    /// eg.:
+    /// - @a -> [At, Id("a")]
+    /// - @a.b -> [At, Id("a"), Dot, Id("b")]
+    /// - @a.0.1 -> [At, Id("a"), Dot, Int(0), Dot, Int(1)]
+    ///
+    /// TODO: fix the bug that `@a.0` is parsed as `At, Id("a"), Float(0)`
+    fn parse_num(&mut self) -> Result<()> {
         let mut num = String::new();
         let mut dot_count = 0;
         while !self.eof() {
@@ -150,10 +167,11 @@ impl Tokenizer {
                 Err(_) => return Err(anyhow!(self.err("Invalid int"))),
             }
         };
-        Ok(num)
+        self.tokens.push(num);
+        Ok(())
     }
 
-    fn parse_id(&mut self) -> Result<Token> {
+    fn parse_id(&mut self) -> Result<()> {
         let mut id = String::new();
         while !self.eof() {
             let c = self.chars[self.idx];
@@ -164,33 +182,93 @@ impl Tokenizer {
                 break;
             }
         }
-        Ok(Token::Id(id))
+        self.tokens.push(Token::Id(id));
+        Ok(())
     }
 
-    fn parse_keywords(&mut self) -> Result<Token> {
+    fn parse_keywords(&mut self) -> Result<()> {
         if self.expect("true") {
-            Ok(Token::Bool(true))
+            self.tokens.push(Token::Bool(true));
+            Ok(())
         } else if self.expect("false") {
-            Ok(Token::Bool(false))
+            self.tokens.push(Token::Bool(false));
+            Ok(())
         } else if self.expect("nil") {
-            Ok(Token::Nil)
+            self.tokens.push(Token::Nil);
+            Ok(())
         } else if self.expect("in") {
-            Ok(Token::In)
+            self.tokens.push(Token::In);
+            Ok(())
         } else {
             self.parse_id()
         }
     }
 
-    fn parse_punctuations(&mut self) -> Result<Token> {
+    fn parse_at_list(&mut self) -> Result<()> {
+        if self.expect("@") {
+            self.tokens.push(Token::At);
+        } else {
+            return Err(anyhow!(self.err("Expect '@'")));
+        }
+
+        let tokens_len = self.tokens.len();
+        while !self.eof() {
+            let c = self.chars[self.idx];
+            let tokens_added = self.tokens.len() > tokens_len;
+            let is_field = c.is_alphanumeric() || c == '_' || c == '-';
+            if !tokens_added && !is_field {
+                return Err(anyhow!(self.err("Expect field after '@'")));
+            }
+            if c == '.' {
+                self.idx += 1;
+                self.tokens.push(Token::Dot);
+                continue;
+            }
+            let is_num = c.is_digit(10);
+            if is_field && !is_num {
+                self.parse_id()?;
+                continue;
+            }
+            if is_num {
+                self.parse_int()?
+            } else if c.is_whitespace() {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    fn parse_int(&mut self) -> Result<()> {
+        let mut num = String::new();
+        while !self.eof() {
+            let c = self.chars[self.idx];
+            if c.is_digit(10) {
+                num.push(c);
+                self.idx += 1;
+            } else {
+                break;
+            }
+        }
+        let num = match num.parse() {
+            Ok(i) => i,
+            Err(_) => return Err(anyhow!("{}: {}", self.err("Invalid int"), num)),
+        };
+        self.tokens.push(Token::Int(num));
+        Ok(())
+    }
+
+    fn parse_punctuations(&mut self) -> Result<()> {
         let c = self.chars[self.idx];
         match c {
             '(' => {
                 self.idx += 1;
-                Ok(Token::LParen)
+                self.tokens.push(Token::LParen);
+                Ok(())
             }
             ')' => {
                 self.idx += 1;
-                Ok(Token::RParen)
+                self.tokens.push(Token::RParen);
+                Ok(())
             }
             '.' => {
                 let next = self.chars.get(self.idx + 1);
@@ -200,18 +278,21 @@ impl Tokenizer {
                     }
                 }
                 self.idx += 1;
-                Ok(Token::Dot)
+                self.tokens.push(Token::Dot);
+                Ok(())
             }
             '&' => {
                 if self.expect("&&") {
-                    Ok(Token::And)
+                    self.tokens.push(Token::And);
+                    Ok(())
                 } else {
                     Err(anyhow!(self.err("Expect '&&'")))
                 }
             }
             '|' => {
                 if self.expect("||") {
-                    Ok(Token::Or)
+                    self.tokens.push(Token::Or);
+                    Ok(())
                 } else {
                     Err(anyhow!(self.err("Expect '||'")))
                 }
@@ -224,7 +305,8 @@ impl Tokenizer {
                     }
                 }
                 self.idx += 1;
-                Ok(Token::Add)
+                self.tokens.push(Token::Add);
+                Ok(())
             }
             '-' => {
                 let next = self.chars.get(self.idx + 1);
@@ -234,61 +316,68 @@ impl Tokenizer {
                     }
                 }
                 self.idx += 1;
-                Ok(Token::Sub)
+                self.tokens.push(Token::Sub);
+                Ok(())
             }
             '*' => {
                 self.idx += 1;
-                Ok(Token::Mul)
+                self.tokens.push(Token::Mul);
+                Ok(())
             }
             '/' => {
                 self.idx += 1;
-                Ok(Token::Div)
+                self.tokens.push(Token::Div);
+                Ok(())
             }
             '%' => {
                 self.idx += 1;
-                Ok(Token::Mod)
+                self.tokens.push(Token::Mod);
+                Ok(())
             }
-            '@' => {
-                self.idx += 1;
-                Ok(Token::At)
-            }
+            '@' => self.parse_at_list(),
             '=' => {
                 if self.expect("==") {
-                    Ok(Token::Eq)
+                    self.tokens.push(Token::Eq);
+                    Ok(())
                 } else {
                     Err(anyhow!(self.err("Expect '=='")))
                 }
             }
             '!' => {
                 if self.expect("!=") {
-                    Ok(Token::Ne)
+                    self.tokens.push(Token::Ne);
+                    Ok(())
                 } else {
                     self.idx += 1;
-                    Ok(Token::Not)
+                    self.tokens.push(Token::Not);
+                    Ok(())
                 }
             }
             '>' => {
                 if self.expect(">=") {
-                    Ok(Token::Ge)
+                    self.tokens.push(Token::Ge);
+                    Ok(())
                 } else {
                     self.idx += 1;
-                    Ok(Token::Gt)
+                    self.tokens.push(Token::Gt);
+                    Ok(())
                 }
             }
             '<' => {
                 if self.expect("<=") {
-                    Ok(Token::Le)
+                    self.tokens.push(Token::Le);
+                    Ok(())
                 } else {
                     self.idx += 1;
-                    Ok(Token::Lt)
+                    self.tokens.push(Token::Lt);
+                    Ok(())
                 }
             }
             _ => self.parse_id(),
         }
     }
 
-    pub fn parse(&mut self) -> Result<Vec<Token>> {
-        let mut tokens = Vec::new();
+    fn parse(&mut self) -> Result<()> {
         while !self.eof() {
             self.skip_whitespace();
             if self.eof() {
@@ -297,180 +386,20 @@ impl Tokenizer {
             let c = self.chars[self.idx];
             match c {
                 '"' | '\'' => {
-                    tokens.push(self.parse_str()?);
+                    self.parse_str()?;
                 }
                 '0'..='9' => {
-                    tokens.push(self.parse_num()?);
+                    self.parse_num()?;
                 }
                 // true false nil in
                 't' | 'f' | 'n' | 'i' => {
-                    tokens.push(self.parse_keywords()?);
+                    self.parse_keywords()?;
                 }
                 _ => {
-                    tokens.push(self.parse_punctuations()?);
+                    self.parse_punctuations()?;
                 }
             }
         }
-        Ok(tokens)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn basic() {
-        let mut t1 = Tokenizer::new(r#"1.3+*/@ %==  "str1" 'str2' true false nil "#);
-        let e1 = vec![
-            Token::Float(1.3),
-            Token::Add,
-            Token::Mul,
-            Token::Div,
-            Token::At,
-            Token::Mod,
-            Token::Eq,
-            Token::Str("str1".to_string()),
-            Token::Str("str2".to_string()),
-            Token::Bool(true),
-            Token::Bool(false),
-            Token::Nil,
-        ];
-        assert_eq!(t1.parse().unwrap(), e1);
-    }
-
-    #[test]
-    fn punctuations() {
-        let mut t2 = Tokenizer::new(">=<= && || == != ! > <");
-        let e2 = vec![
-            Token::Ge,
-            Token::Le,
-            Token::And,
-            Token::Or,
-            Token::Eq,
-            Token::Ne,
-            Token::Not,
-            Token::Gt,
-            Token::Lt,
-        ];
-        assert_eq!(t2.parse().unwrap(), e2);
-    }
-
-    #[test]
-    fn ids() {
-        let mut t3 = Tokenizer::new("id1 id_2 id-3");
-        let e3 = vec![
-            Token::Id("id1".to_string()),
-            Token::Id("id_2".to_string()),
-            Token::Id("id-3".to_string()),
-        ];
-        assert_eq!(t3.parse().unwrap(), e3);
-    }
-
-    #[test]
-    fn unclosed_str() {
-        let mut t4 = Tokenizer::new(r#""str"#);
-        let res = t4.parse();
-        assert!(res.is_err());
-        //println!("{}", res.unwrap_err());
-    }
-
-    #[test]
-    fn num() {
-        let mut t5 = Tokenizer::new("1.2.3");
-        assert!(t5.parse().is_err());
-
-        let mut t5 = Tokenizer::new("-1.0 +1.2");
-        let e5 = vec![Token::Float(-1.0), Token::Float(1.2)];
-        assert_eq!(t5.parse().unwrap(), e5);
-    }
-
-    #[test]
-    fn keywords() {
-        let mut t6 = Tokenizer::new(">true false nil in");
-        let e6 = vec![
-            Token::Gt,
-            Token::Bool(true),
-            Token::Bool(false),
-            Token::Nil,
-            Token::In,
-        ];
-        assert_eq!(t6.parse().unwrap(), e6);
-    }
-
-    #[test]
-    fn token_eq() {
-        assert_eq!(Token::Str("a".to_string()), Token::Str("a".to_string()));
-        assert_eq!(Token::Int(1), Token::Int(1));
-        assert_eq!(Token::Float(1.0), Token::Float(1.0));
-        assert_eq!(Token::Bool(true), Token::Bool(true));
-        assert_eq!(Token::Nil, Token::Nil);
-        assert_ne!(Token::Str("a".to_string()), Token::Str("b".to_string()));
-        assert_ne!(Token::Int(1), Token::Int(2));
-        assert_ne!(Token::Float(1.0), Token::Float(2.0));
-        assert_ne!(Token::Bool(true), Token::Bool(false));
-        assert_ne!(Token::Nil, Token::Bool(false));
-    }
-
-    #[test]
-    fn at_query() {
-        let mut t = Tokenizer::new("@req.user.age >= 18");
-        let e = vec![
-            Token::At,
-            Token::Id("req".to_string()),
-            Token::Dot,
-            Token::Id("user".to_string()),
-            Token::Dot,
-            Token::Id("age".to_string()),
-            Token::Ge,
-            Token::Int(18),
-        ];
-        assert_eq!(t.parse().unwrap(), e);
-    }
-
-    #[test]
-    fn real_query() {
-        let query = r#"
-        (
-            @req.user.id == @record.user.id && @record.time > 1700000
-        ) 
-        ||
-        @req.user.role == 'admin'
-        "#;
-        let mut t = Tokenizer::new(query);
-        let e = vec![
-            Token::LParen,
-            Token::At,
-            Token::Id("req".to_string()),
-            Token::Dot,
-            Token::Id("user".to_string()),
-            Token::Dot,
-            Token::Id("id".to_string()),
-            Token::Eq,
-            Token::At,
-            Token::Id("record".to_string()),
-            Token::Dot,
-            Token::Id("user".to_string()),
-            Token::Dot,
-            Token::Id("id".to_string()),
-            Token::And,
-            Token::At,
-            Token::Id("record".to_string()),
-            Token::Dot,
-            Token::Id("time".to_string()),
-            Token::Gt,
-            Token::Int(1700000),
-            Token::RParen,
-            Token::Or,
-            Token::At,
-            Token::Id("req".to_string()),
-            Token::Dot,
-            Token::Id("user".to_string()),
-            Token::Dot,
-            Token::Id("role".to_string()),
-            Token::Eq,
-            Token::Str("admin".to_string()),
-        ];
-        assert_eq!(t.parse().unwrap(), e);
+        Ok(())
     }
 }

@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod test {
-    use crate::{expr::{BinOp, Expr, Parser}, token::{Token, Tokenizer}, val::Val};
+    use crate::{ast::Parser, expr::{BinOp, Expr}, token::{Token, Tokenizer}, val::Val};
 
     #[test]
     fn basic() {
@@ -38,7 +38,7 @@ mod test {
         )
         "#;
 
-        let t = Tokenizer::new(r).parse().unwrap();
+        let t = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(t).parse().unwrap();
         println!("{:?}", parsed);
     }
@@ -55,7 +55,7 @@ mod test {
         @random > 0.5
         "#;
 
-        let t = Tokenizer::new(r).parse().unwrap();
+        let t = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(t).parse().unwrap();
         println!("{:?}", parsed);
     }

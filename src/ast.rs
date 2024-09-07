@@ -11,24 +11,9 @@ pub(crate) struct Parser {
 impl Parser {
     pub fn parse(&mut self) -> Result<Expr> {
         while !self.eof() {
-            self.exp = self.parse_paren()?;
+            self.exp = self.parse_or()?;
         }
         Ok(self.exp.clone())
-    }
-
-    fn parse_paren(&mut self) -> Result<Expr> {
-        if self.tokens[self.pos] == Token::LParen {
-            self.pos += 1;
-            let expr = self.parse_or()?;
-            if self.tokens[self.pos] != Token::RParen {
-                let msg = format!("Expecting ')', found {:?}", self.tokens[self.pos]);
-                return Err(anyhow!(self.err(&msg)));
-            }
-            self.pos += 1;
-            Ok(Expr::Paren(Box::new(expr)))
-        } else {
-            self.parse_or()
-        }
     }
 
     fn parse_or(&mut self) -> Result<Expr> {
@@ -148,12 +133,24 @@ impl Parser {
                 Expr::Str(s.clone())
             }
             Token::At => self.parse_at()?,
-            _ => {
-                let msg = format!("Expecting primary, found {:?}", token);
-                return Err(anyhow!(self.err(&msg)));
-            }
+            _ => self.parse_paren()?,
         };
         Ok(expr)
+    }
+
+    fn parse_paren(&mut self) -> Result<Expr> {
+        if self.tokens[self.pos] == Token::LParen {
+            self.pos += 1;
+            let expr = self.parse_or()?;
+            if self.tokens[self.pos] != Token::RParen {
+                let msg = format!("Expecting ')', found {:?}", self.tokens[self.pos]);
+                return Err(anyhow!(self.err(&msg)));
+            }
+            self.pos += 1;
+            Ok(Expr::Paren(Box::new(expr)))
+        } else {
+            self.parse_or()
+        }
     }
 
     fn parse_at(&mut self) -> Result<Expr> {

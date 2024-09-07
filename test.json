@@ -1,0 +1,18 @@
+{
+    "req": {
+        "user": {
+            "name": "lk",
+            "age": 18
+        }
+    },
+    "files": [
+        {
+            "name": "file1",
+            "size": 100
+        },
+        {
+            "name": "file2",
+            "size": 200
+        }
+    ]
+}

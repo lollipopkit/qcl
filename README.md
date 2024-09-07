@@ -1,6 +1,7 @@
 ## QCL
 
-`Query Check Language - QCL` is a simple language that allows you to query and check the eval result of a query.
+`Query Check Language - QCL` is a simple language that allows you to check the eval result of a query.  
+It's designed to be used in ACL (Access Control List) systems, where you need to check if a user has access to a resource.
 
 ### Example
 
@@ -24,10 +25,11 @@ Syntax in this example:
 ### Usage
 
 ```rust
-let req: Val = Req { user: User { name: "bar".to_string() } }.into();
-let record: Val = Record { published: true }.into();
+let ctx = json!({
+    "req": req,
+    "record": record
+});
 
-let context = Context::new().with("req", req).with("record", record);
 let query = "@req.user.name == 'bar' && @record.published == true";
 
 let qcl = QCL::new();

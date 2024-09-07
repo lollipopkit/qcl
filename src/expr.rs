@@ -2,7 +2,7 @@ use std::fmt::{Debug, Display};
 
 use anyhow::{anyhow, Result};
 
-use crate::val::Val;
+use crate::{ast::Parser, token::Tokenizer, val::Val};
 
 /// Grammar:
 /// exp     ::= paren
@@ -38,8 +38,7 @@ use crate::val::Val;
 /// - `@req.user.age >= 18`
 /// - `@req.user.name == "Alice" && @record.status == "active"`
 #[derive(Debug, Clone, PartialEq)]
-#[allow(dead_code)]
-pub(crate) enum Expr {
+pub enum Expr {
     /// expr == expr
     Bin(Box<Expr>, BinOp, Box<Expr>),
     /// !expr
@@ -82,12 +81,12 @@ impl Display for Expr {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum UnaryOp {
+pub enum UnaryOp {
     Not,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) enum BinOp {
+pub enum BinOp {
     Add,
     Sub,
     Mul,
@@ -274,8 +273,8 @@ impl Expr {
                 let mut val = ctx;
                 for path in paths {
                     val = match val.access(path) {
-                        Val::Nil => return Ok(Val::Nil),
-                        val => val,
+                        Some(v) => v,
+                        None => return Err(anyhow!("Invalid path {:?}", path)),
                     }
                 }
                 // TODO: no clone
@@ -297,5 +296,33 @@ impl Expr {
             Expr::Bool(b) => Some(Val::Bool(*b)),
             _ => None,
         }
+    }
+}
+
+pub trait IntoExpr {
+    fn into_expr(self) -> Result<Expr, anyhow::Error>;
+}
+
+impl<S: AsRef<str>> IntoExpr for S {
+    fn into_expr(self) -> Result<Expr, anyhow::Error> {
+        let tokens = Tokenizer::new(self.as_ref())?;
+        let expr = Parser::new(tokens).parse()?;
+        Ok(expr)
+    }
+}
+
+impl TryFrom<&str> for Expr {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        value.into_expr()
+    }
+}
+
+impl TryFrom<String> for Expr {
+    type Error = anyhow::Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.into_expr()
     }
 }

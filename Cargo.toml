@@ -9,5 +9,9 @@ args = ["--", "--nocapture"]
 
 [dependencies]
 anyhow = "^1"
-serde = "^1"
+serde = { version = "^1", features = ["derive"] }
 serde_json = "^1"
+
+[[bin]]
+name = "qcl"
+path = "src/bin/main.rs"
