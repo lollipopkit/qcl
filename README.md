@@ -1,12 +1,17 @@
-## QCL
+<div align="center">
+    <h2>QCL</h2>
+    <h5>a Query Check Language</h5>
+</div>
 
-`Query Check Language - QCL` is a simple language that allows you to check the eval result of a query.  
+## Intro
+
+It's a simple language that allows you to check the eval result of a query.  
 It's designed to be used in ACL (Access Control List) systems, where you need to check if a user has access to a resource.
 
 ### Example
 
 ```qcl
-@req.user.name == 'bar' && @record.published == true
+@req.user.name == 'bar' && @record.files.0.public == true
 ```
 
 Explanation:
@@ -24,17 +29,32 @@ Syntax in this example:
 
 ### Usage
 
+#### Integration
+
 ```rust
 let ctx = json!({
-    "req": req,
-    "record": record
+    "req": {
+        "user": "foo"
+    },
+    "files": [
+        {
+            "name": "file1",
+            "published": true
+        }
+    ]
 });
 
-let query = "@req.user.name == 'bar' && @record.published == true";
+let query = "@req.user.name in 'foobar' && @record.published == true";
 
-let qcl = QCL::new();
-assert_eq!(qcl.eval(query, context).unwrap(), true.into());
+let result = Expr::try_from(query)?.eval(ctx)?;
+assert!(result);
 ```
+
+#### CLI
+
+<div height="100px" align="center">
+    <img src="https://cdn.lpkt.cn/img/capture/qcl.jpg" alt="QCL" />
+</div>
 
 ### Grammar
 ```ebnf
