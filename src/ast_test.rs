@@ -59,4 +59,13 @@ mod test {
         let parsed = Parser::new(t).parse().unwrap();
         println!("{:?}", parsed);
     }
+
+    #[test]
+    fn access_str_int_str() {
+        let r = "@list.0.name";
+
+        let t = Tokenizer::new(r).unwrap();
+        let parsed = Parser::new(t).parse().unwrap();
+        println!("{:?}", parsed);
+    }
 }

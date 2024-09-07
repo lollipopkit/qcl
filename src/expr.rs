@@ -140,6 +140,20 @@ impl BinOp {
                 (Val::Float(l), Val::Int(r)) => Ok(Val::Float(l + (*r as f64))),
                 (Val::Int(l), Val::Float(r)) => Ok(Val::Float((*l as f64) + r)),
                 (Val::Str(l), Val::Str(r)) => Ok(Val::Str(format!("{}{}", l, r))),
+                (Val::List(l), Val::List(r)) => {
+                    let mut res = l.clone();
+                    res.extend(r.iter().cloned());
+                    Ok(Val::List(res))
+                }
+                (Val::Map(l), Val::Map(r)) => {
+                    let mut res = l.clone();
+                    res.extend(r.clone());
+                    Ok(Val::Map(res))
+                }
+                (Val::Str(l), Val::Int(r)) => Ok(Val::Str(format!("{}{}", l, r))),
+                (Val::Int(l), Val::Str(r)) => Ok(Val::Str(format!("{}{}", l, r))),
+                (Val::Str(l), Val::Float(r)) => Ok(Val::Str(format!("{}{}", l, r))),
+                (Val::Float(l), Val::Str(r)) => Ok(Val::Str(format!("{}{}", l, r))),
                 _ => Err(anyhow!("Invalid operands {:?} + {:?}", l, r)),
             },
             BinOp::Sub => match (l, r) {
