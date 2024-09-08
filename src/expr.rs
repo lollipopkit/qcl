@@ -1,8 +1,8 @@
-use std::fmt::{Debug, Display};
+use std::{cmp::Ordering, fmt::{Debug, Display}};
 
 use anyhow::{anyhow, Result};
 
-use crate::{ast::Parser, token::Tokenizer, val::Val};
+use crate::{ast::Parser, token::Tokenizer, val::{err_op, Val}};
 
 /// Grammar:
 /// exp     ::= paren
@@ -87,7 +87,7 @@ impl UnaryOp {
                 let res = expr.eval(ctx)?;
                 match res {
                     Val::Bool(b) => Ok(Val::Bool(!b)),
-                    _ => Err(anyhow!("Invalid operand: `!{:?}`", res)),
+                    _ => Err(anyhow!("Invalid operand: !{res}")),
                 }
             }
         }
@@ -113,58 +113,19 @@ impl BinOp {
 
     fn arith(&self, l: &Val, r: &Val) -> Result<Val> {
         match self {
-            BinOp::Add => match (l, r) {
-                (Val::Int(l), Val::Int(r)) => Ok(Val::Int(l + r)),
-                (Val::Float(l), Val::Float(r)) => Ok(Val::Float(l + r)),
-                (Val::Float(l), Val::Int(r)) => Ok(Val::Float(l + (*r as f64))),
-                (Val::Int(l), Val::Float(r)) => Ok(Val::Float((*l as f64) + r)),
-                (Val::Str(l), Val::Str(r)) => Ok(Val::Str(format!("{}{}", l, r))),
-                (Val::Map(l), Val::Map(r)) => {
-                    let mut res = l.clone();
-                    let r = r.iter().map(|(k, v)| (k.clone(), v.clone()));
-                    res.extend(r);
-                    Ok(Val::Map(res))
-                }
-                (Val::List(l), Val::List(r)) => {
-                    let mut res = l.clone();
-                    res.extend(r.iter().cloned());
-                    Ok(Val::List(res))
-                }
-                (Val::Str(l), Val::Int(r)) => Ok(Val::Str(format!("{}{}", l, r))),
-                (Val::Int(l), Val::Str(r)) => Ok(Val::Str(format!("{}{}", l, r))),
-                (Val::Str(l), Val::Float(r)) => Ok(Val::Str(format!("{}{}", l, r))),
-                (Val::Float(l), Val::Str(r)) => Ok(Val::Str(format!("{}{}", l, r))),
-                _ => Err(anyhow!("Invalid operands {:?} + {:?}", l, r)),
-            },
-            BinOp::Sub => match (l, r) {
-                (Val::Int(l), Val::Int(r)) => Ok(Val::Int(l - r)),
-                (Val::Float(l), Val::Float(r)) => Ok(Val::Float(l - r)),
-                (Val::Float(l), Val::Int(r)) => Ok(Val::Float(l - (*r as f64))),
-                (Val::Int(l), Val::Float(r)) => Ok(Val::Float((*l as f64) - r)),
-                _ => Err(anyhow!("Invalid operands {:?} - {:?}", l, r)),
-            },
-            BinOp::Mul => match (l, r) {
-                (Val::Int(l), Val::Int(r)) => Ok(Val::Int(l * r)),
-                (Val::Float(l), Val::Float(r)) => Ok(Val::Float(l * r)),
-                (Val::Float(l), Val::Int(r)) => Ok(Val::Float(l * (*r as f64))),
-                (Val::Int(l), Val::Float(r)) => Ok(Val::Float((*l as f64) * r)),
-                _ => Err(anyhow!("Invalid operands {:?} * {:?}", l, r)),
-            },
-            BinOp::Div => match (l, r) {
-                (Val::Int(l), Val::Int(r)) => Ok(Val::Int(l / r)),
-                (Val::Float(l), Val::Float(r)) => Ok(Val::Float(l / r)),
-                (Val::Float(l), Val::Int(r)) => Ok(Val::Float(l / (*r as f64))),
-                (Val::Int(l), Val::Float(r)) => Ok(Val::Float((*l as f64) / r)),
-                _ => Err(anyhow!("Invalid operands {:?} / {:?}", l, r)),
-            },
-            BinOp::Mod => match (l, r) {
-                (Val::Int(l), Val::Int(r)) => Ok(Val::Int(l % r)),
-                (Val::Float(l), Val::Float(r)) => Ok(Val::Float(l % r)),
-                (Val::Float(l), Val::Int(r)) => Ok(Val::Float(l % (*r as f64))),
-                (Val::Int(l), Val::Float(r)) => Ok(Val::Float((*l as f64) % r)),
-                _ => Err(anyhow!("Invalid operands {:?} % {:?}", l, r)),
-            },
-            _ => Err(anyhow!("Invalid arith op {:?}", self)),
+            BinOp::Add => l + r,
+            BinOp::Sub => l - r,
+            BinOp::Mul => l * r,
+            BinOp::Div => l / r,
+            BinOp::Mod => l % r,
+            _ => err_op(l, self, r),
+        }
+    }
+
+    fn cmp_inner(&self, l: &Val, r: &Val) -> Result<Ordering> {
+        match l.partial_cmp(r) {
+            Some(ord) => Ok(ord),
+            None => err_op(l, self, r),
         }
     }
 
@@ -172,45 +133,30 @@ impl BinOp {
         match self {
             BinOp::Eq => Ok(l == r),
             BinOp::Ne => Ok(l != r),
-            BinOp::Gt => match (l, r) {
-                (Val::Int(l), Val::Int(r)) => Ok(l > r),
-                (Val::Float(l), Val::Float(r)) => Ok(l > r),
-                (Val::Str(l), Val::Str(r)) => Ok(l > r),
-                (Val::Int(l), Val::Float(r)) => Ok((*l as f64) > *r),
-                (Val::Float(l), Val::Int(r)) => Ok(*l > (*r as f64)),
-                _ => Err(anyhow!("Invalid operands {:?} > {:?}", l, r)),
+            BinOp::Gt => {
+                let ord = self.cmp_inner(l, r)?;
+                Ok(ord == Ordering::Greater)
             },
-            BinOp::Lt => match (l, r) {
-                (Val::Int(l), Val::Int(r)) => Ok(l < r),
-                (Val::Float(l), Val::Float(r)) => Ok(l < r),
-                (Val::Str(l), Val::Str(r)) => Ok(l < r),
-                (Val::Int(l), Val::Float(r)) => Ok((*l as f64) < *r),
-                (Val::Float(l), Val::Int(r)) => Ok(*l < (*r as f64)),
-                _ => Err(anyhow!("Invalid operands {:?} < {:?}", l, r)),
+            BinOp::Lt => {
+                let ord = self.cmp_inner(l, r)?;
+                Ok(ord == Ordering::Less)
             },
-            BinOp::Ge => match (l, r) {
-                (Val::Int(l), Val::Int(r)) => Ok(l >= r),
-                (Val::Float(l), Val::Float(r)) => Ok(l >= r),
-                (Val::Str(l), Val::Str(r)) => Ok(l >= r),
-                (Val::Int(l), Val::Float(r)) => Ok((*l as f64) >= *r),
-                (Val::Float(l), Val::Int(r)) => Ok(*l >= (*r as f64)),
-                _ => Err(anyhow!("Invalid operands {:?} >= {:?}", l, r)),
+            BinOp::Ge => {
+                let ord = self.cmp_inner(l, r)?;
+                Ok(ord == Ordering::Greater || ord == Ordering::Equal)
             },
-            BinOp::Le => match (l, r) {
-                (Val::Int(l), Val::Int(r)) => Ok(l <= r),
-                (Val::Float(l), Val::Float(r)) => Ok(l <= r),
-                (Val::Str(l), Val::Str(r)) => Ok(l <= r),
-                (Val::Int(l), Val::Float(r)) => Ok((*l as f64) <= *r),
-                (Val::Float(l), Val::Int(r)) => Ok(*l <= (*r as f64)),
-                _ => Err(anyhow!("Invalid operands {:?} <= {:?}", l, r)),
+            BinOp::Le => {
+                let ord = self.cmp_inner(l, r)?;
+                Ok(ord == Ordering::Less || ord == Ordering::Equal)
             },
             BinOp::In => match (l, r) {
-                (Val::Str(l), Val::Str(r)) => Ok(l.contains(r)),
-                (_, Val::Nil) => Ok(false),
+                (Val::Str(l), Val::Str(r)) => Ok(r.contains(l)),
                 (Val::List(l), Val::List(r)) => Ok(r.iter().all(|v| l.contains(v))),
-                _ => Err(anyhow!("Invalid operands {:?} in {:?}", l, r)),
+                (Val::List(l), r) => Ok(l.contains(r)),
+                (Val::Map(l), Val::Str(s)) => Ok(l.contains_key(s)),
+                _ => err_op(l, self, r),
             },
-            _ => Err(anyhow!("Invalid cmp op {:?}", self)),
+            _ => err_op(l, self, r),
         }
     }
 
@@ -223,7 +169,7 @@ impl BinOp {
         } else if self.is_cmp() {
             Ok(Val::Bool(self.cmp(&l, &r)?))
         } else {
-            Err(anyhow!("Invalid op {:?}", self))
+            Err(anyhow!("Invalid eval: {l} {self:?} {r}"))
         }
     }
 }
@@ -231,36 +177,36 @@ impl BinOp {
 impl Expr {
     pub fn eval(&self, ctx: &Val) -> Result<Val> {
         match self {
-            Expr::Bin(left, op, right) => op.eval(left, right, ctx),
+            Expr::Bin(l, op, r) => op.eval(l, r, ctx),
             Expr::Unary(op, expr) => Ok(op.eval(expr, ctx)?),
             Expr::And(e1, e2) => {
-                let left = e1.eval(ctx)?;
+                let l = e1.eval(ctx)?;
                 // For performance, we can short-circuit the evaluation.
-                if let Val::Bool(false) = left {
+                if let Val::Bool(false) = l {
                     return Ok(false.into());
                 }
-                let right = e2.eval(ctx)?;
-                if let Val::Bool(false) = right {
+                let r = e2.eval(ctx)?;
+                if let Val::Bool(false) = r {
                     return Ok(false.into());
                 }
-                match (&left, &right) {
+                match (&l, &r) {
                     (Val::Bool(_), Val::Bool(_)) => Ok(Val::Bool(true)),
-                    _ => Err(anyhow!("Invalid operands {:?} && {:?}", left, right)),
+                    _ => Err(anyhow!("Invalid operands: {l} && {r}")),
                 }
             }
             Expr::Or(e1, e2) => {
-                let left = e1.eval(ctx)?;
+                let l = e1.eval(ctx)?;
                 // For performance, we can short-circuit the evaluation.
-                if let Val::Bool(true) = left {
+                if let Val::Bool(true) = l {
                     return Ok(Val::Bool(true));
                 }
-                let right = e2.eval(ctx)?;
-                if let Val::Bool(true) = right {
+                let r = e2.eval(ctx)?;
+                if let Val::Bool(true) = r {
                     return Ok(Val::Bool(true));
                 }
-                match (&left, &right) {
+                match (&l, &r) {
                     (Val::Bool(_), Val::Bool(_)) => Ok(Val::Bool(false)),
-                    _ => Err(anyhow!("Invalid operands {:?} || {:?}", left, right)),
+                    _ => Err(anyhow!("Invalid operands {l} || {r}")),
                 }
             }
             Expr::At(paths) => {
@@ -269,7 +215,7 @@ impl Expr {
                     val = match val.access(path) {
                         Ok(v) => v,
                         Err(e) => {
-                            let msg = format!("Invalid path {}, got {:?}", path, e);
+                            let msg = format!("Invalid path: @{path}, err {e:?}");
                             return Err(anyhow!(msg));
                         }
                     }
@@ -298,7 +244,7 @@ impl TryInto<Val> for &Expr {
             Expr::Bool(b) => Ok(Val::Bool(*b)),
             Expr::Nil => Ok(Val::Nil),
             _ => {
-                let msg = format!("Invalid conversion: {:?}", self);
+                let msg = format!("Can't convert Expr::{:?} to Val", self);
                 Err(anyhow!(msg))
             }
         }
@@ -336,19 +282,19 @@ impl TryFrom<String> for Expr {
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Expr::Bin(left, op, right) => write!(f, "({} {:?} {})", left, op, right),
-            Expr::Unary(op, expr) => write!(f, "({:?} {})", op, expr),
-            Expr::And(left, right) => write!(f, "({} && {})", left, right),
-            Expr::Or(left, right) => write!(f, "({} || {})", left, right),
+            Expr::Bin(left, op, right) => write!(f, "{left} {op:?} {right}"),
+            Expr::Unary(op, expr) => write!(f, "{op:?}{expr}"),
+            Expr::And(left, right) => write!(f, "{left} && {right}"),
+            Expr::Or(left, right) => write!(f, "{left} || {right}"),
             Expr::At(paths) => {
                 let paths: Vec<String> = paths.iter().map(|p| p.to_string()).collect();
                 write!(f, "@{}", paths.join("."))
             }
-            Expr::Paren(expr) => write!(f, "({})", expr),
-            Expr::Bool(b) => write!(f, "{}", b),
-            Expr::Float(fl) => write!(f, "{}", fl),
-            Expr::Int(i) => write!(f, "{}", i),
-            Expr::Str(s) => write!(f, "{}", s),
+            Expr::Paren(expr) => write!(f, "{expr}"),
+            Expr::Bool(b) => write!(f, "{b}"),
+            Expr::Float(fl) => write!(f, "{fl}"),
+            Expr::Int(i) => write!(f, "{i}"),
+            Expr::Str(s) => write!(f, "{s}"),
             Expr::Nil => write!(f, "nil"),
         }
     }

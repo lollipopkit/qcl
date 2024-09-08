@@ -130,7 +130,7 @@ impl<'a> Parser<'a> {
             }
             Token::Str(s) => {
                 self.pos += 1;
-                Expr::Str(s.clone())
+                Expr::Str(s.to_owned())
             }
             Token::At => self.parse_at()?,
             _ => self.parse_paren()?,
@@ -180,7 +180,7 @@ impl<'a> Parser<'a> {
     fn parse_field(&mut self) -> Result<Val> {
         let token = &self.tokens[self.pos];
         let field = match token {
-            Token::Id(id) => Val::Str(id.clone()),
+            Token::Id(id) => Val::Str(id.to_owned()),
             Token::Int(i) => Val::Int(*i),
             _ => {
                 let msg = format!("Expecting string or int, found {:?}", token);

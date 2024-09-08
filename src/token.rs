@@ -90,7 +90,7 @@ impl Tokenizer {
             format!("at end, near '{}'", chars)
         };
         format!(
-            "\nSyntax error:\n{} ({})\nParsed tokens: {:?}",
+            "Syntax error:\n{} ({})\nParsed tokens: {:?}",
             msg.as_ref(),
             ctx,
             &self.tokens
