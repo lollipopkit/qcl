@@ -140,15 +140,16 @@ impl BinOp {
                 (Val::Float(l), Val::Int(r)) => Ok(Val::Float(l + (*r as f64))),
                 (Val::Int(l), Val::Float(r)) => Ok(Val::Float((*l as f64) + r)),
                 (Val::Str(l), Val::Str(r)) => Ok(Val::Str(format!("{}{}", l, r))),
+                (Val::Map(l), Val::Map(r)) => {
+                    let mut res = l.clone();
+                    let r = r.iter().map(|(k, v)| (k.clone(), v.clone()));
+                    res.extend(r);
+                    Ok(Val::Map(res))
+                }
                 (Val::List(l), Val::List(r)) => {
                     let mut res = l.clone();
                     res.extend(r.iter().cloned());
                     Ok(Val::List(res))
-                }
-                (Val::Map(l), Val::Map(r)) => {
-                    let mut res = l.clone();
-                    res.extend(r.clone());
-                    Ok(Val::Map(res))
                 }
                 (Val::Str(l), Val::Int(r)) => Ok(Val::Str(format!("{}{}", l, r))),
                 (Val::Int(l), Val::Str(r)) => Ok(Val::Str(format!("{}{}", l, r))),
@@ -287,8 +288,11 @@ impl Expr {
                 let mut val = ctx;
                 for path in paths {
                     val = match val.access(path) {
-                        Some(v) => v,
-                        None => return Err(anyhow!("Invalid path {:?}", path)),
+                        Ok(v) => v,
+                        Err(e) => {
+                            let msg = format!("Invalid path {:?}, got {:?}", path, e);
+                            return Err(anyhow!(msg))
+                        },
                     }
                 }
                 // TODO: no clone

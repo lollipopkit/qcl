@@ -14,19 +14,6 @@ It's designed to be used in ACL (Access Control List) systems, where you need to
 @req.user.name == 'bar' && @record.files.0.public == true
 ```
 
-Explanation:
-
-- both `req` and `record` are objects that are passed to the QCL engine as [Context].
-- `@req.user.name` is a query that will be evaluated to the user's name.
-- `@record.published` is a query that will be evaluated to the record's published status.
-
-Syntax in this example:
-
-- `@` is used to query the context object.
-- `.` is used to access the object's properties.
-- `==` is used to check the equality of two values.
-- `&&` is used to check the logical AND of two values.
-
 ### Usage
 
 #### Integration
@@ -43,6 +30,7 @@ let ctx = json!({
         }
     ]
 });
+let ctx = Val::try_from(ctx)?;
 
 let query = "@req.user.name in 'foobar' && @record.published == true";
 
@@ -66,7 +54,7 @@ addsub  ::= muldiv {(‘+’ | ‘-’) muldiv}
 muldiv  ::= unary {(‘*’ | ‘/’ | ‘%’) unary}
 unary   ::= {‘!’} primary
 primary ::= nil | false | true | int | float | string | at
-paren   ::= {‘(’} or {‘)’}
+paren   ::= {‘(’} exp {‘)’}
 at      ::= ‘@’ field {‘.’ field}
 field   ::= id | int
 ```

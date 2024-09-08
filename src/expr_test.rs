@@ -3,30 +3,30 @@ mod test {
     use anyhow::Result;
     use serde_json::json;
 
-    use crate::{expr::{Expr, IntoExpr}, val::Val};
+    use crate::{expr::{Expr, IntoExpr}, val::{FromJson, Val}};
 
     #[test]
     fn simple() {
-        expect_bool("true", true);
-        expect_bool("false", false);
-        expect_bool("1 >= 1", true);
-        expect_bool("1 > 1", false);
-        expect_bool("1 <= 1", true);
-        expect_bool("1 < 1", false);
-        expect_bool("1 == 1", true);
-        expect_bool("1 != 1", false);
-        expect_bool("1 != 2", true);
-        expect_bool("1 + 1 == 2", true);
+        expect("true", true);
+        expect("false", false);
+        expect("1 >= 1", true);
+        expect("1 > 1", false);
+        expect("1 <= 1", true);
+        expect("1 < 1", false);
+        expect("1 == 1", true);
+        expect("1 != 1", false);
+        expect("1 != 2", true);
+        expect("1 + 1 == 2", true);
 
-        expect_int("3 / 3", 1);
-        expect_int("3 % 3", 0);
+        expect("3 / 3", 1);
+        expect("3 % 3", 0);
 
-        expect_float("1.1 + 1.2", 2.3);
-        expect_float("1.1 - 1.2", -0.09999999999999987); // IEEE 754
-        expect_float("1.1 * 1.2", 1.32);
+        expect("1.1 + 1.2", 2.3);
+        expect("1.1 - 1.2", -0.09999999999999987); // IEEE 754
+        expect("1.1 * 1.2", 1.32);
 
-        expect_str(r#""str1""#, "str1");
-        expect_str(" '1' + '2' ", "12");
+        expect(r#""str1""#, "str1");
+        expect(" '1' + '2' ", "12");
     }
 
     #[test]
@@ -41,13 +41,64 @@ mod test {
             "list": [1, 2, 3]
         });
         
-        expect_ctx(r#"@req.user.name + 'pt'"#, ctx.clone(), Val::Str("lkpt".to_string()));
+        expect_ctx(r#"@req.user.name + 'pt'"#, ctx.clone(), "lkpt".into());
         expect_ctx("@req.user.age + @list.0 == 19", ctx.clone(), Val::Bool(true));
+    }
+
+    #[test]
+    fn test_complex_expressions() {
+        let ctx = json!({
+            "user": {
+                "age": 25,
+                "name": "Alice",
+                "scores": [80, 90, 85]
+            },
+            "settings": {
+                "active": true,
+                "threshold": 75.5
+            }
+        });
+
+        let cases = vec![
+            ("@user.age > 20 && @user.name == 'Alice'", true),
+            ("@user.scores.1 >= 90 || @settings.active", true),
+            ("@user.age < 18 || (@settings.threshold > 70 && @settings.active)", true),
+            ("@user.scores.0 + @user.scores.2 > 160", true),
+            ("@user.name in 'Alice'", true),
+            ("!(@user.age < 20 || @user.age > 30)", true),
+            ("(@user.age * 2) > (@settings.threshold + 25)", false),
+        ];
+
+        for (expr, expected) in cases {
+            let result = with_ctx(expr, ctx.clone()).unwrap();
+            assert_eq!(result, Val::Bool(expected), "Failed for expression: {}", expr);
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_error_cases() {
+        let ctx = json!({
+            "user": {
+                "age": 25,
+            }
+        });
+
+        let error_cases = vec![
+            "@user.nonexistent",
+            "@user.age > 'string'",
+            "1 / 0",
+            "@user.age in 25",
+        ];
+
+        for expr in error_cases {
+            assert!(with_ctx(expr, ctx.clone()).is_err(), "Expected error for: {}", expr);
+        }
     }
 
     fn with_ctx(rule: &str, ctx: serde_json::Value) -> Result<Val> {
         let expr = Expr::try_from(rule)?;
-        let ctx = Val::from(ctx.clone());
+        let ctx = Val::from_json(ctx.clone());
         expr.exec(&ctx)
     }
 
@@ -56,25 +107,9 @@ mod test {
         assert_eq!(res.unwrap(), val);
     }
 
-    fn expect(rule: &str, val: Val) {
+    fn expect<V: Into<Val>>(rule: &str, val: V) {
         let res = with_nil_ctx(rule);
-        assert_eq!(res.unwrap(), val);
-    }
-
-    fn expect_bool(rule: &str, b: bool) {
-        expect(rule, Val::Bool(b));
-    }
-
-    fn expect_int(rule: &str, i: i64) {
-        expect(rule, Val::Int(i));
-    }
-
-    fn expect_float(rule: &str, f: f64) {
-        expect(rule, Val::Float(f));
-    }
-
-    fn expect_str(rule: &str, s: &str) {
-        expect(rule, Val::Str(s.to_string()));
+        assert_eq!(res.unwrap(), val.into());
     }
 
     fn with_nil_ctx(rule: &str) -> Result<Val> {

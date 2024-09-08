@@ -4,14 +4,9 @@ description = "A Query Check Language written in Rust"
 version = "0.1.0"
 edition = "2021"
 
-[package.metadata.cargo-test]
-args = ["--", "--nocapture"]
-
 [dependencies]
 anyhow = "^1"
 serde = "^1"
 serde_json = "^1"
 
-[[bin]]
-name = "qcl"
-path = "bin/src/main.rs"
+qcl = { path = "../qcl" }
