@@ -25,7 +25,7 @@ use crate::{ast::Parser, token::Tokenizer, val::Val};
 ///   + @req: Request object, `@req.user` is the user object.
 ///   + @record: Record object, `@record` is the record object.
 ///   + All valid objects are defined in the [Context]
-/// - number are considered as `f64`.
+/// - int / float are considered as `i64 / f64`.
 /// - bool can be `true` or `false`.
 /// - String
 ///   + can be wrapped with `""` or `''`.
@@ -59,27 +59,6 @@ pub enum Expr {
     Nil,
 }
 
-impl Display for Expr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Expr::Bin(left, op, right) => write!(f, "({} {:?} {})", left, op, right),
-            Expr::Unary(op, expr) => write!(f, "({:?} {})", op, expr),
-            Expr::And(left, right) => write!(f, "({} && {})", left, right),
-            Expr::Or(left, right) => write!(f, "({} || {})", left, right),
-            Expr::At(paths) => {
-                let paths: Vec<String> = paths.iter().map(|p| p.to_string()).collect();
-                write!(f, "@{}", paths.join("."))
-            }
-            Expr::Paren(expr) => write!(f, "({})", expr),
-            Expr::Bool(b) => write!(f, "{}", b),
-            Expr::Float(fl) => write!(f, "{}", fl),
-            Expr::Int(i) => write!(f, "{}", i),
-            Expr::Str(s) => write!(f, "{}", s),
-            Expr::Nil => write!(f, "nil"),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum UnaryOp {
     Not,
@@ -105,7 +84,7 @@ impl UnaryOp {
     fn eval(&self, expr: &Expr, ctx: &Val) -> Result<Val> {
         match self {
             UnaryOp::Not => {
-                let res = expr.exec(ctx)?;
+                let res = expr.eval(ctx)?;
                 match res {
                     Val::Bool(b) => Ok(Val::Bool(!b)),
                     _ => Err(anyhow!("Invalid operand: `!{:?}`", res)),
@@ -235,9 +214,9 @@ impl BinOp {
         }
     }
 
-    fn exec(&self, l: &Expr, r: &Expr, ctx: &Val) -> Result<Val> {
-        let l = l.exec(ctx)?;
-        let r = r.exec(ctx)?;
+    fn eval(&self, l: &Expr, r: &Expr, ctx: &Val) -> Result<Val> {
+        let l = l.eval(ctx)?;
+        let r = r.eval(ctx)?;
 
         if self.is_arith() {
             self.arith(&l, &r)
@@ -250,19 +229,19 @@ impl BinOp {
 }
 
 impl Expr {
-    pub fn exec(&self, ctx: &Val) -> Result<Val> {
+    pub fn eval(&self, ctx: &Val) -> Result<Val> {
         match self {
-            Expr::Bin(left, op, right) => op.exec(left, right, ctx),
+            Expr::Bin(left, op, right) => op.eval(left, right, ctx),
             Expr::Unary(op, expr) => Ok(op.eval(expr, ctx)?),
             Expr::And(e1, e2) => {
-                let left = e1.exec(ctx)?;
+                let left = e1.eval(ctx)?;
                 // For performance, we can short-circuit the evaluation.
                 if let Val::Bool(false) = left {
-                    return Ok(Val::Bool(false));
+                    return Ok(false.into());
                 }
-                let right = e2.exec(ctx)?;
+                let right = e2.eval(ctx)?;
                 if let Val::Bool(false) = right {
-                    return Ok(Val::Bool(false));
+                    return Ok(false.into());
                 }
                 match (&left, &right) {
                     (Val::Bool(_), Val::Bool(_)) => Ok(Val::Bool(true)),
@@ -270,12 +249,12 @@ impl Expr {
                 }
             }
             Expr::Or(e1, e2) => {
-                let left = e1.exec(ctx)?;
+                let left = e1.eval(ctx)?;
                 // For performance, we can short-circuit the evaluation.
                 if let Val::Bool(true) = left {
                     return Ok(Val::Bool(true));
                 }
-                let right = e2.exec(ctx)?;
+                let right = e2.eval(ctx)?;
                 if let Val::Bool(true) = right {
                     return Ok(Val::Bool(true));
                 }
@@ -290,29 +269,38 @@ impl Expr {
                     val = match val.access(path) {
                         Ok(v) => v,
                         Err(e) => {
-                            let msg = format!("Invalid path {:?}, got {:?}", path, e);
-                            return Err(anyhow!(msg))
-                        },
+                            let msg = format!("Invalid path {}, got {:?}", path, e);
+                            return Err(anyhow!(msg));
+                        }
                     }
                 }
                 // TODO: no clone
                 Ok(val.clone())
             }
             Expr::Float(_) | Expr::Str(_) | Expr::Int(_) | Expr::Bool(_) => {
-                Ok(self.to_val().unwrap_or(Val::Nil))
+                let v: Val = self.try_into()?;
+                Ok(v)
             }
-            Expr::Paren(expr) => Ok(expr.exec(ctx)?),
+            Expr::Paren(expr) => Ok(expr.eval(ctx)?),
             Expr::Nil => Ok(Val::Nil),
         }
     }
+}
 
-    fn to_val(&self) -> Option<Val> {
+impl TryInto<Val> for &Expr {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<Val> {
         match self {
-            Expr::Float(f) => Some(Val::Float(*f)),
-            Expr::Int(i) => Some(Val::Int(*i)),
-            Expr::Str(s) => Some(Val::Str(s.clone())),
-            Expr::Bool(b) => Some(Val::Bool(*b)),
-            _ => None,
+            Expr::Float(f) => Ok(Val::Float(*f)),
+            Expr::Int(i) => Ok(Val::Int(*i)),
+            Expr::Str(s) => Ok(Val::Str(s.clone())),
+            Expr::Bool(b) => Ok(Val::Bool(*b)),
+            Expr::Nil => Ok(Val::Nil),
+            _ => {
+                let msg = format!("Invalid conversion: {:?}", self);
+                Err(anyhow!(msg))
+            }
         }
     }
 }
@@ -342,5 +330,26 @@ impl TryFrom<String> for Expr {
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         value.into_expr()
+    }
+}
+
+impl Display for Expr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Expr::Bin(left, op, right) => write!(f, "({} {:?} {})", left, op, right),
+            Expr::Unary(op, expr) => write!(f, "({:?} {})", op, expr),
+            Expr::And(left, right) => write!(f, "({} && {})", left, right),
+            Expr::Or(left, right) => write!(f, "({} || {})", left, right),
+            Expr::At(paths) => {
+                let paths: Vec<String> = paths.iter().map(|p| p.to_string()).collect();
+                write!(f, "@{}", paths.join("."))
+            }
+            Expr::Paren(expr) => write!(f, "({})", expr),
+            Expr::Bool(b) => write!(f, "{}", b),
+            Expr::Float(fl) => write!(f, "{}", fl),
+            Expr::Int(i) => write!(f, "{}", i),
+            Expr::Str(s) => write!(f, "{}", s),
+            Expr::Nil => write!(f, "nil"),
+        }
     }
 }

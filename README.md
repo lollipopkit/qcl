@@ -30,11 +30,10 @@ let ctx = json!({
         }
     ]
 });
-let ctx = Val::try_from(ctx)?;
 
 let query = "@req.user.name in 'foobar' && @record.published == true";
 
-let result = Expr::try_from(query)?.eval(ctx)?;
+let result = Expr::try_from(query)?.eval(ctx.into())?;
 assert!(result);
 ```
 

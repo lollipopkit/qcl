@@ -23,9 +23,6 @@ impl Val {
                 }
             }
             (Val::List(l), Val::Int(i)) => {
-                if *i < 0 || *i > (usize::MAX as i64) {
-                    return Err(anyhow!("Index out of bounds: {}", i))
-                }
                 if let Some(val) = l.get(*i as usize) {
                     return Ok(val)
                 }
@@ -104,12 +101,8 @@ impl From<()> for Val {
     }
 }
 
-pub trait FromJson {
-    fn from_json(val: serde_json::Value) -> Self;
-}
-
-impl FromJson for Val {
-    fn from_json(val: serde_json::Value) -> Self {
+impl From<serde_json::Value> for Val {
+    fn from(val: serde_json::Value) -> Self {
         match val {
             serde_json::Value::String(s) => Val::Str(s),
             serde_json::Value::Number(n) => {
@@ -123,11 +116,11 @@ impl FromJson for Val {
             }
             serde_json::Value::Bool(b) => Val::Bool(b),
             serde_json::Value::Array(a) => {
-                let v = a.into_iter().map(Val::from_json).collect();
+                let v = a.into_iter().map(Val::from).collect();
                 Val::List(Box::new(v))
             },
             serde_json::Value::Object(o) => {
-                let m = o.into_iter().map(|(k, v)| (k, Val::from_json(v))).collect();
+                let m = o.into_iter().map(|(k, v)| (k, Val::from(v))).collect();
                 Val::Map(Box::new(m))
             },
             serde_json::Value::Null => Val::Nil,

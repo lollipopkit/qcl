@@ -1,6 +1,6 @@
 use std::io::BufRead;
 
-use qcl::{expr::Expr, val::{FromJson, Val}};
+use qcl::{expr::Expr, val::Val};
 
 fn main() -> anyhow::Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
@@ -17,9 +17,9 @@ fn main() -> anyhow::Result<()> {
     let expr = args[1..].join(" ");
 
     let json: serde_json::Value = serde_json::from_str(&raw)?;
-    let ctx = Val::from_json(json);
+    let ctx: Val = json.into();
     let val = Expr::try_from(expr.as_ref())?;
-    let res = val.exec(&ctx)?;
+    let res = val.eval(&ctx)?;
     println!("{}", res);
     Ok(())
 }
