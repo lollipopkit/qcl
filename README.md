@@ -17,7 +17,7 @@ It's designed to be used in ACL (Access Control List) systems, where you need to
 )
 &&
 (
-    @record.published == true
+    @record.published
     ||
     @record.owner == @req.user.id
 )
@@ -26,7 +26,7 @@ It's designed to be used in ACL (Access Control List) systems, where you need to
 Let's break it down:
 - `@req.user.role == 'admin'`: Check if the user has the role of `admin`.
 - `@req.user.id in @record.granted`: Check if the user's id is in the `granted` list of the record.
-- `@record.published == true`: Check if the record is published.
+- `@record.published`: Check if the record is published.
 - `@record.owner == @req.user.id`: Check if the record's owner is the user.
 
 The above example is a simple ACL system that checks if the user has access to a record.

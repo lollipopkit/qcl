@@ -12,6 +12,14 @@ anyhow = "^1"
 serde = "^1"
 serde_json = "^1"
 
+[features]
+default = ["sem_arith"]
+# Semantic arith: 3 / 2 = 1.5, not 1
+sem_arith = []
+# Advanced arithmetic support: Map + Map, List + Val etc.
+adv_arith = []
+all = ["sem_arith", "adv_arith"]
+
 [[bin]]
 name = "qcl"
 path = "bin/src/main.rs"

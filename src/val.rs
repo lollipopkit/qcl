@@ -38,31 +38,42 @@ impl Add for &Val {
     /// - Map can + Map, but Map can't + Val, since the value of the map is not defined.
     fn add(self, other: Self) -> Self::Output {
         match (self, other) {
-            (Val::Int(a), Val::Int(b)) => Ok(Val::Int(a + b)),
-            (Val::Float(a), Val::Float(b)) => Ok(Val::Float(a + b)),
-            (Val::Float(a), Val::Int(b)) => Ok(Val::Float(a + *b as f64)),
-            (Val::Int(a), Val::Float(b)) => Ok(Val::Float(*a as f64 + b)),
+            (Val::Int(a), Val::Int(b)) => Ok((a + b).into()),
+            (Val::Float(a), Val::Float(b)) => Ok((a + b).into()),
+            (Val::Float(a), Val::Int(b)) => Ok((a + *b as f64).into()),
+            (Val::Int(a), Val::Float(b)) => Ok((*a as f64 + b).into()),
             (Val::Str(a), Val::Str(b)) => {
                 let mut res = String::with_capacity(a.len() + b.len());
                 res.push_str(a);
                 res.push_str(b);
-                Ok(Val::Str(res))
+                Ok(res.into())
             }
+            #[cfg(feature = "adv_arith")]
+            (Val::Str(a), Val::Int(b)) => Ok(format!("{}{}", a, b).into()),
+            #[cfg(feature = "adv_arith")]
+            (Val::Str(a), Val::Float(b)) => Ok(format!("{}{}", a, b).into()),
+            #[cfg(feature = "adv_arith")]
+            (Val::Int(a), Val::Str(b)) => Ok(format!("{}{}", a, b).into()),
+            #[cfg(feature = "adv_arith")]
+            (Val::Float(a), Val::Str(b)) => Ok(format!("{}{}", a, b).into()),
+            #[cfg(feature = "adv_arith")]
             (Val::Map(l), Val::Map(r)) => {
                 let mut res = l.clone();
                 let r = r.iter().map(|(k, v)| (k.clone(), v.clone()));
                 res.extend(r);
-                Ok(Val::Map(res))
+                Ok(res.into())
             }
+            #[cfg(feature = "adv_arith")]
             (Val::List(l), Val::List(r)) => {
                 let mut res = l.clone();
                 res.extend(r.iter().cloned());
-                Ok(Val::List(res))
+                Ok(res.into())
             }
+            #[cfg(feature = "adv_arith")]
             (Val::List(l), r) => {
                 let mut res = l.clone();
                 res.push(r.clone());
-                Ok(Val::List(res))
+                Ok(res.into())
             }
             _ => err_op(self, BinOp::Add, other),
         }
@@ -78,6 +89,7 @@ impl Sub for &Val {
             (Val::Float(a), Val::Float(b)) => Ok((a - b).into()),
             (Val::Float(a), Val::Int(b)) => Ok((a - *b as f64).into()),
             (Val::Int(a), Val::Float(b)) => Ok((*a as f64 - b).into()),
+            #[cfg(feature = "adv_arith")]
             (Val::List(l), Val::List(r)) => {
                 // Semantically, remove vals both inside [l] and [r]
                 let mut res = l.clone();
@@ -88,6 +100,7 @@ impl Sub for &Val {
                 }
                 Ok(res.into())
             }
+            #[cfg(feature = "adv_arith")]
             (Val::List(l), r) => {
                 let mut res = l.clone();
                 if let Some(idx) = res.iter().position(|v| v == r) {
@@ -95,6 +108,7 @@ impl Sub for &Val {
                 }
                 Ok(res.into())
             }
+            #[cfg(feature = "adv_arith")]
             (Val::Map(l), Val::Map(r)) => {
                 let mut res = l.clone();
                 for (k, _) in r.iter() {
@@ -102,6 +116,7 @@ impl Sub for &Val {
                 }
                 Ok(res.into())
             }
+            #[cfg(feature = "adv_arith")]
             (Val::Map(l), r) => {
                 if let Val::Str(k) = r {
                     let mut res = l.clone();
@@ -134,6 +149,16 @@ impl Div for &Val {
 
     fn div(self, other: Self) -> Self::Output {
         match (self, other) {
+            #[cfg(feature = "sem_arith")]
+            (Val::Int(a), Val::Int(b)) => {
+                let res = (*a as f64) / (*b as f64);
+                if res.fract() == 0.0 {
+                    Ok((res as i64).into())
+                } else {
+                    Ok(res.into())
+                }
+            }
+            #[cfg(not(feature = "sem_arith"))]
             (Val::Int(a), Val::Int(b)) => Ok((a / b).into()),
             (Val::Float(a), Val::Float(b)) => Ok((a / b).into()),
             (Val::Float(a), Val::Int(b)) => Ok((a / *b as f64).into()),

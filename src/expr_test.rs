@@ -32,6 +32,7 @@ mod test {
         expect("@req.user.age + @list.0 == 19", true);
 
         panic("@req.user.name + @list");
+        #[cfg(not(feature = "adv_arith"))]
         panic("@req.user.name + @list-2.0");
     }
 
