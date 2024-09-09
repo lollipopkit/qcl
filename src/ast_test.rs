@@ -16,15 +16,14 @@ mod test {
         ];
         let expr = Expr::Bin(
             Box::new(Expr::At(vec![
-                Val::Str("req".to_string()),
-                Val::Str("user".to_string()),
-                Val::Str("age".to_string()),
+                "req".into(),
+                "user".into(),
+                "age".into(),
             ])),
             BinOp::Gt,
             Box::new(Expr::Int(18)),
         );
         let parsed = Parser::new(&tokens).parse().unwrap();
-        println!("{:?}", parsed);
         assert_eq!(parsed, expr);
     }
 
@@ -40,11 +39,15 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        println!("{:?}", parsed);
+        let expected = Expr::Paren(Box::new(Expr::Or(
+            Box::new(Expr::Bool(true)),
+            Box::new(Expr::Bool(false)),
+        )));
+        assert_eq!(parsed, expected);
     }
 
     #[test]
-    fn and_or() {
+    fn complex() {
         let r = r#"
         (
             @time != 0 
@@ -57,7 +60,26 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        println!("{:?}", parsed);
+        let expected = Expr::And(
+            Box::new(Expr::Paren(Box::new(Expr::Or(
+                Box::new(Expr::Bin(
+                    Box::new(Expr::At(vec!["time".into()])),
+                    BinOp::Ne,
+                    Box::new(Expr::Int(0)),
+                )),
+                Box::new(Expr::Bin(
+                    Box::new(Expr::At(vec!["col".into(), "pub".into()])),
+                    BinOp::Eq,
+                    Box::new(Expr::Bool(true)),
+                )),
+            )))),
+            Box::new(Expr::Bin(
+                Box::new(Expr::At(vec!["random".into()])),
+                BinOp::Gt,
+                Box::new(Expr::Float(0.5)),
+            )),
+        );
+        assert_eq!(parsed, expected);
     }
 
     #[test]
@@ -66,6 +88,11 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        println!("{:?}", parsed);
+        let expected = Expr::At(vec![
+            "list".into(),
+            Val::Int(0),
+            "name".into(),
+        ]);
+        assert_eq!(parsed, expected);
     }
 }
