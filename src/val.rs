@@ -9,7 +9,8 @@ use anyhow::Result;
 
 use crate::op::{err_op, BinOp};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
 pub enum Val {
     Str(String),
     Int(i64), // Since most arch are 64 bit, we can use i64 for int
@@ -319,8 +320,14 @@ impl core::fmt::Display for Val {
             Val::Float(fl) => write!(f, "{fl}"),
             Val::Bool(b) => write!(f, "{b}"),
             Val::Str(s) => write!(f, "{s}"),
-            Val::Map(m) => write!(f, "{m:?}"),
-            Val::List(l) => write!(f, "{l:?}"),
+            Val::Map(m) => match serde_json::to_string(m) {
+                Ok(s) => write!(f, "{}", s),
+                Err(_) => write!(f, "{:?}", m),
+            },
+            Val::List(l) => match serde_json::to_string(l) {
+                Ok(s) => write!(f, "{}", s),
+                Err(_) => write!(f, "{:?}", l),
+            },
             Val::Nil => write!(f, "nil"),
         }
     }

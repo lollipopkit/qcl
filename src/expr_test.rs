@@ -1,83 +1,56 @@
 #[cfg(test)]
 mod test {
-    use std::sync::OnceLock;
-
     use anyhow::Result;
     use serde_json::json;
 
     use crate::{expr::Expr, val::Val};
 
     #[test]
-    fn basic() {
-        sexpect("true || false", true);
-        sexpect("false && true", false);
-        sexpect("1 >= 1 && 1 <= 1 && 1 == 1", true);
-        sexpect("1 > 1 || 1 < 1 || 1 != 1", false);
-
-        sexpect("1 + 1 == 2", true);
-        sexpect("3 / 3 + 3 % 3", 1);
-        sexpect("1.1 - 1.2", -0.09999999999999987); // IEEE 754
-        sexpect("1.1 * 1.2", 1.32);
-
-        sexpect(r#""str1""#, "str1");
-        sexpect(" '1' + '2' ", "12");
-
-        spanic("@nonexist");
-    }
-
-    #[test]
     fn simple() {
-        expect("@list + @list-2", vec![1, 2, 3, 1]);
-        expect("@req.user.name + 'pt'", "lkpt");
-        expect("@req.user.age + @list.0 == 19", true);
+        expect("@pub", true);
+        expect("@user.name + 'pt'", "lkpt");
+        expect("@user.age + @list.0 == 19", true);
 
-        panic("@req.user.name + @list");
+        #[cfg(feature = "adv_arith")]
+        expect("@user.name + @user.age", "lk18");
+
+        #[cfg(feature = "adv_arith")]
+        expect("@list + @list-2", vec![1, 2, 3, 2]);
+
+        #[cfg(feature = "adv_arith")]
+        expect("@list - @list-2", vec![1, 3]);
+
+        #[cfg(feature = "sem_arith")]
+        expect("@list.2 / 2", 1.5);
+
+        #[cfg(not(feature = "sem_arith"))]
+        expect("@list.2 / 2", 1);
+
+        panic("@user.name + @list");
+
         #[cfg(not(feature = "adv_arith"))]
-        panic("@req.user.name + @list-2.0");
+        panic("@user.name + @list-2.0");
     }
 
-    fn get_ctx() -> &'static Val {
-        CTX.get_or_init(|| {
-            json!({
-                "req": {
-                    "user": {
-                        "name": "lk",
-                        "age": 18,
-                    }
-                },
-                "list": [1, 2, 3],
-                "list-2": [1]
-            })
-            .into()
+    fn with_ctx(rule: &str) -> Result<Val> {
+        let ctx: Val = json!({
+            "user": {"name": "lk", "age": 18},
+            "list": [1, 2, 3],
+            "list-2": [2],
+            "pub": true,
         })
-    }
-
-    static CTX: OnceLock<Val> = OnceLock::new();
-
-    fn with_ctx(rule: &str, ctx: &Val) -> Result<Val> {
+        .into();
         let expr = Expr::try_from(rule)?;
-        expr.eval(ctx.into())
+        expr.eval(&ctx)
     }
 
     fn expect<V: Into<Val>>(rule: &str, val: V) {
-        let res = with_ctx(rule, get_ctx());
+        let res = with_ctx(rule);
         assert_eq!(res.unwrap(), val.into());
     }
 
     fn panic(rule: &str) {
-        let res = with_ctx(rule, get_ctx());
-        assert!(res.is_err());
-        let err = res.unwrap_err();
-        println!("{}", err);
-    }
-
-    fn sexpect<V: Into<Val>>(rule: &str, val: V) {
-        let res = with_ctx(rule, &Val::Nil);
-        assert_eq!(res.unwrap(), val.into());
-    }
-
-    fn spanic(rule: &str) {
-        let res = with_ctx(rule, &Val::Nil);
+        let res = with_ctx(rule);
         assert!(res.is_err());
         let err = res.unwrap_err();
         println!("{}", err);

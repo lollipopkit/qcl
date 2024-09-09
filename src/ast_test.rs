@@ -1,6 +1,11 @@
 #[cfg(test)]
 mod test {
-    use crate::{ast::Parser, expr::Expr, op::BinOp, token::{Token, Tokenizer}, val::Val};
+    use crate::{
+        ast::Parser,
+        expr::Expr,
+        op::BinOp,
+        token::{Token, Tokenizer},
+    };
 
     #[test]
     fn basic() {
@@ -15,11 +20,7 @@ mod test {
             Token::Int(18),
         ];
         let expr = Expr::Bin(
-            Box::new(Expr::At(vec![
-                "req".into(),
-                "user".into(),
-                "age".into(),
-            ])),
+            Box::new(Expr::At(vec!["req".into(), "user".into(), "age".into()])),
             BinOp::Gt,
             Box::new(Expr::Int(18)),
         );
@@ -88,11 +89,7 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::At(vec![
-            "list".into(),
-            Val::Int(0),
-            "name".into(),
-        ]);
+        let expected = Expr::At(vec!["list".into(), 0.into(), "name".into()]);
         assert_eq!(parsed, expected);
     }
 }

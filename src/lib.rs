@@ -1,11 +1,11 @@
-mod token;
 mod ast;
-mod op;
 pub mod expr;
+mod op;
+mod token;
 pub mod val;
 
-mod expr_test;
-mod token_test;
 mod ast_test;
-mod val_test;
+mod expr_test;
 mod op_test;
+mod token_test;
+mod val_test;

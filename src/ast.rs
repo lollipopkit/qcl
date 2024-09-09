@@ -1,4 +1,9 @@
-use crate::{expr::Expr, op::{BinOp, UnaryOp}, token::Token, val::Val};
+use crate::{
+    expr::Expr,
+    op::{BinOp, UnaryOp},
+    token::Token,
+    val::Val,
+};
 use anyhow::{anyhow, Result};
 
 pub(crate) struct Parser<'a> {
