@@ -1,14 +1,12 @@
-use std::{
-    cmp::Ordering,
-    fmt::{Debug, Display},
-};
+use std::fmt::{Debug, Display};
 
 use anyhow::{anyhow, Result};
 
 use crate::{
     ast::Parser,
+    op::{err_op, BinOp, UnaryOp},
     token::Tokenizer,
-    val::{err_op, Val},
+    val::Val,
 };
 
 /// Grammar:
@@ -66,121 +64,6 @@ pub enum Expr {
     Nil,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum UnaryOp {
-    Not,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum BinOp {
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Mod,
-    Eq,
-    Ne,
-    Gt,
-    Lt,
-    Ge,
-    Le,
-    In,
-}
-
-impl UnaryOp {
-    fn eval(&self, expr: &Expr, ctx: &Val) -> Result<Val> {
-        match self {
-            UnaryOp::Not => {
-                let res = expr.eval(ctx)?;
-                match res {
-                    Val::Bool(b) => Ok(Val::Bool(!b)),
-                    _ => Err(anyhow!("Invalid operand: !{res}")),
-                }
-            }
-        }
-    }
-}
-
-impl BinOp {
-    fn is_arith(&self) -> bool {
-        match self {
-            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => true,
-            _ => false,
-        }
-    }
-
-    fn is_cmp(&self) -> bool {
-        match self {
-            BinOp::Eq | BinOp::Ne | BinOp::Gt | BinOp::Lt | BinOp::Ge | BinOp::Le | BinOp::In => {
-                true
-            }
-            _ => false,
-        }
-    }
-
-    fn arith(&self, l: &Val, r: &Val) -> Result<Val> {
-        match self {
-            BinOp::Add => l + r,
-            BinOp::Sub => l - r,
-            BinOp::Mul => l * r,
-            BinOp::Div => l / r,
-            BinOp::Mod => l % r,
-            _ => err_op(l, self, r),
-        }
-    }
-
-    fn cmp_inner(&self, l: &Val, r: &Val) -> Result<Ordering> {
-        match l.partial_cmp(r) {
-            Some(ord) => Ok(ord),
-            None => err_op(l, self, r),
-        }
-    }
-
-    fn cmp(&self, l: &Val, r: &Val) -> Result<bool> {
-        match self {
-            BinOp::Eq => Ok(l == r),
-            BinOp::Ne => Ok(l != r),
-            BinOp::Gt => {
-                let ord = self.cmp_inner(l, r)?;
-                Ok(ord == Ordering::Greater)
-            }
-            BinOp::Lt => {
-                let ord = self.cmp_inner(l, r)?;
-                Ok(ord == Ordering::Less)
-            }
-            BinOp::Ge => {
-                let ord = self.cmp_inner(l, r)?;
-                Ok(ord == Ordering::Greater || ord == Ordering::Equal)
-            }
-            BinOp::Le => {
-                let ord = self.cmp_inner(l, r)?;
-                Ok(ord == Ordering::Less || ord == Ordering::Equal)
-            }
-            BinOp::In => match (l, r) {
-                (Val::Str(l), Val::Str(r)) => Ok(r.contains(l)),
-                (Val::List(l), Val::List(r)) => Ok(r.iter().all(|v| l.contains(v))),
-                (Val::List(l), r) => Ok(l.contains(r)),
-                (Val::Map(l), Val::Str(s)) => Ok(l.contains_key(s)),
-                _ => err_op(l, self, r),
-            },
-            _ => err_op(l, self, r),
-        }
-    }
-
-    fn eval(&self, l: &Expr, r: &Expr, ctx: &Val) -> Result<Val> {
-        let l = l.eval(ctx)?;
-        let r = r.eval(ctx)?;
-
-        if self.is_arith() {
-            self.arith(&l, &r)
-        } else if self.is_cmp() {
-            Ok(Val::Bool(self.cmp(&l, &r)?))
-        } else {
-            Err(anyhow!("Invalid eval: {l} {self:?} {r}"))
-        }
-    }
-}
-
 impl Expr {
     pub fn eval(&self, ctx: &Val) -> Result<Val> {
         match self {
@@ -198,7 +81,7 @@ impl Expr {
                 }
                 match (&l, &r) {
                     (Val::Bool(_), Val::Bool(_)) => Ok(Val::Bool(true)),
-                    _ => Err(anyhow!("Invalid operands: {l} && {r}")),
+                    _ => err_op(&l, "&&", &r),
                 }
             }
             Expr::Or(e1, e2) => {
@@ -213,17 +96,16 @@ impl Expr {
                 }
                 match (&l, &r) {
                     (Val::Bool(_), Val::Bool(_)) => Ok(Val::Bool(false)),
-                    _ => Err(anyhow!("Invalid operands {l} || {r}")),
+                    _ => err_op(&l, "||", &r),
                 }
             }
             Expr::At(paths) => {
                 let mut val = ctx;
                 for path in paths {
                     val = match val.access(path) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            let msg = format!("Invalid path: @{path}, err {e:?}");
-                            return Err(anyhow!(msg));
+                        Some(v) => v,
+                        None => {
+                            return Err(anyhow!("Invalid path: `{path}`"));
                         }
                     }
                 }

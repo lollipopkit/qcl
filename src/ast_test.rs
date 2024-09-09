@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod test {
-    use crate::{ast::Parser, expr::{BinOp, Expr}, token::{Token, Tokenizer}, val::Val};
+    use crate::{ast::Parser, expr::Expr, op::BinOp, token::{Token, Tokenizer}, val::Val};
 
     #[test]
     fn basic() {

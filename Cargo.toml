@@ -15,3 +15,7 @@ serde_json = "^1"
 [[bin]]
 name = "qcl"
 path = "bin/src/main.rs"
+
+[[bench]]
+name = "qclb"
+path = "bench/src/main.rs"

@@ -1,9 +1,13 @@
 use core::ops::{Add, Sub};
-use std::{collections::HashMap, fmt::Debug, ops::{Div, Mul, Rem}};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    ops::{Div, Mul, Rem},
+};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 
-use crate::expr::BinOp;
+use crate::op::{err_op, BinOp};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Val {
@@ -16,8 +20,14 @@ pub enum Val {
     Nil,
 }
 
-pub(crate) fn err_op<T: Debug, R>(l: &Val, op: T, r: &Val) -> Result<R> {
-    Err(anyhow!("Invalid operation: {l} {op:?} {r}"))
+impl Val {
+    pub(crate) fn access(&self, field: &Val) -> Option<&Val> {
+        match (self, field) {
+            (Val::Map(m), Val::Str(s)) => m.get(s),
+            (Val::List(l), Val::Int(i)) => l.get(*i as usize),
+            _ => None,
+        }
+    }
 }
 
 impl Add for &Val {
@@ -64,10 +74,10 @@ impl Sub for &Val {
 
     fn sub(self, other: Self) -> Self::Output {
         match (self, other) {
-            (Val::Int(a), Val::Int(b)) => Ok(Val::Int(a - b)),
-            (Val::Float(a), Val::Float(b)) => Ok(Val::Float(a - b)),
-            (Val::Float(a), Val::Int(b)) => Ok(Val::Float(a - *b as f64)),
-            (Val::Int(a), Val::Float(b)) => Ok(Val::Float(*a as f64 - b)),
+            (Val::Int(a), Val::Int(b)) => Ok((a - b).into()),
+            (Val::Float(a), Val::Float(b)) => Ok((a - b).into()),
+            (Val::Float(a), Val::Int(b)) => Ok((a - *b as f64).into()),
+            (Val::Int(a), Val::Float(b)) => Ok((*a as f64 - b).into()),
             (Val::List(l), Val::List(r)) => {
                 // Semantically, remove vals both inside [l] and [r]
                 let mut res = l.clone();
@@ -76,27 +86,27 @@ impl Sub for &Val {
                         res.remove(idx);
                     }
                 }
-                Ok(Val::List(res))
+                Ok(res.into())
             }
             (Val::List(l), r) => {
                 let mut res = l.clone();
                 if let Some(idx) = res.iter().position(|v| v == r) {
                     res.remove(idx);
                 }
-                Ok(Val::List(res))
+                Ok(res.into())
             }
             (Val::Map(l), Val::Map(r)) => {
                 let mut res = l.clone();
                 for (k, _) in r.iter() {
                     res.remove(k);
                 }
-                Ok(Val::Map(res))
+                Ok(res.into())
             }
             (Val::Map(l), r) => {
                 if let Val::Str(k) = r {
                     let mut res = l.clone();
                     res.remove(k);
-                    return Ok(Val::Map(res))
+                    return Ok(res.into());
                 }
                 err_op(self, BinOp::Sub, other)
             }
@@ -110,10 +120,10 @@ impl Mul for &Val {
 
     fn mul(self, other: Self) -> Self::Output {
         match (self, other) {
-            (Val::Int(a), Val::Int(b)) => Ok(Val::Int(a * b)),
-            (Val::Float(a), Val::Float(b)) => Ok(Val::Float(a * b)),
-            (Val::Float(a), Val::Int(b)) => Ok(Val::Float(a * *b as f64)),
-            (Val::Int(a), Val::Float(b)) => Ok(Val::Float(*a as f64 * b)),
+            (Val::Int(a), Val::Int(b)) => Ok((a * b).into()),
+            (Val::Float(a), Val::Float(b)) => Ok((a * b).into()),
+            (Val::Float(a), Val::Int(b)) => Ok((a * *b as f64).into()),
+            (Val::Int(a), Val::Float(b)) => Ok((*a as f64 * b).into()),
             _ => err_op(self, BinOp::Mul, other),
         }
     }
@@ -124,10 +134,10 @@ impl Div for &Val {
 
     fn div(self, other: Self) -> Self::Output {
         match (self, other) {
-            (Val::Int(a), Val::Int(b)) => Ok(Val::Int(a / b)),
-            (Val::Float(a), Val::Float(b)) => Ok(Val::Float(a / b)),
-            (Val::Float(a), Val::Int(b)) => Ok(Val::Float(a / *b as f64)),
-            (Val::Int(a), Val::Float(b)) => Ok(Val::Float(*a as f64 / b)),
+            (Val::Int(a), Val::Int(b)) => Ok((a / b).into()),
+            (Val::Float(a), Val::Float(b)) => Ok((a / b).into()),
+            (Val::Float(a), Val::Int(b)) => Ok((a / *b as f64).into()),
+            (Val::Int(a), Val::Float(b)) => Ok((*a as f64 / b).into()),
             _ => err_op(self, BinOp::Div, other),
         }
     }
@@ -138,31 +148,12 @@ impl Rem for &Val {
 
     fn rem(self, other: Self) -> Self::Output {
         match (self, other) {
-            (Val::Int(a), Val::Int(b)) => Ok(Val::Int(a % b)),
-            (Val::Float(a), Val::Float(b)) => Ok(Val::Float(a % b)),
-            (Val::Float(a), Val::Int(b)) => Ok(Val::Float(a % *b as f64)),
-            (Val::Int(a), Val::Float(b)) => Ok(Val::Float(*a as f64 % b)),
+            (Val::Int(a), Val::Int(b)) => Ok((a % b).into()),
+            (Val::Float(a), Val::Float(b)) => Ok((a % b).into()),
+            (Val::Float(a), Val::Int(b)) => Ok((a % *b as f64).into()),
+            (Val::Int(a), Val::Float(b)) => Ok((*a as f64 % b).into()),
             _ => err_op(self, BinOp::Mod, other),
         }
-    }
-}
-
-impl Val {
-    pub(crate) fn access(&self, field: &Val) -> Result<&Val> {
-        match (self, field) {
-            (Val::Map(m), Val::Str(s)) => {
-                if let Some(val) = m.get(s) {
-                    return Ok(val);
-                }
-            }
-            (Val::List(l), Val::Int(i)) => {
-                if let Some(val) = l.get(*i as usize) {
-                    return Ok(val);
-                }
-            }
-            _ => {}
-        }
-        Err(anyhow!("Cant access field {} on {}", field, self))
     }
 }
 
@@ -217,6 +208,15 @@ where
     fn from(v: Vec<T>) -> Self {
         let v = v.into_iter().map(Into::into).collect();
         Val::List(Box::new(v))
+    }
+}
+
+impl<T> From<Box<T>> for Val
+where
+    T: Into<Val>,
+{
+    fn from(b: Box<T>) -> Self {
+        (*b).into()
     }
 }
 

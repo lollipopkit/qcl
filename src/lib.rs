@@ -4,5 +4,6 @@ mod ast_test;
 
 mod token;
 mod ast;
+mod op;
 pub mod expr;
 pub mod val;
