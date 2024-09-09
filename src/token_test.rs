@@ -3,7 +3,6 @@ mod tests {
     use crate::token::{Token, Tokenizer};
 
     #[test]
-    #[should_panic]
     fn basic() {
         let t1 = Tokenizer::new(r#"1.3+*/@ %==  "str1" 'str2' true false nil "#);
         let e1 = vec![
@@ -169,17 +168,18 @@ mod tests {
     }
 
     // TODO
-    // #[test]
-    // fn t1() {
-    //     let t = Tokenizer::new("(@settings.active)");
-    //     let e = vec![
-    //         Token::LParen,
-    //         Token::At,
-    //         Token::Id("settings".to_string()),
-    //         Token::Dot,
-    //         Token::Id("active".to_string()),
-    //         Token::RParen,
-    //     ];
-    //     assert_eq!(t.unwrap(), e);
-    // }
+    // Issue #1
+    #[test]
+    fn t1() {
+        let t = Tokenizer::new("(@settings.active)");
+        let e = vec![
+            Token::LParen,
+            Token::At,
+            Token::Id("settings".to_string()),
+            Token::Dot,
+            Token::Id("active".to_string()),
+            Token::RParen,
+        ];
+        assert_eq!(t.unwrap(), e);
+    }
 }

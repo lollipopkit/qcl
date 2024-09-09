@@ -1,8 +1,15 @@
-use std::{cmp::Ordering, fmt::{Debug, Display}};
+use std::{
+    cmp::Ordering,
+    fmt::{Debug, Display},
+};
 
 use anyhow::{anyhow, Result};
 
-use crate::{ast::Parser, token::Tokenizer, val::{err_op, Val}};
+use crate::{
+    ast::Parser,
+    token::Tokenizer,
+    val::{err_op, Val},
+};
 
 /// Grammar:
 /// exp     ::= paren
@@ -136,19 +143,19 @@ impl BinOp {
             BinOp::Gt => {
                 let ord = self.cmp_inner(l, r)?;
                 Ok(ord == Ordering::Greater)
-            },
+            }
             BinOp::Lt => {
                 let ord = self.cmp_inner(l, r)?;
                 Ok(ord == Ordering::Less)
-            },
+            }
             BinOp::Ge => {
                 let ord = self.cmp_inner(l, r)?;
                 Ok(ord == Ordering::Greater || ord == Ordering::Equal)
-            },
+            }
             BinOp::Le => {
                 let ord = self.cmp_inner(l, r)?;
                 Ok(ord == Ordering::Less || ord == Ordering::Equal)
-            },
+            }
             BinOp::In => match (l, r) {
                 (Val::Str(l), Val::Str(r)) => Ok(r.contains(l)),
                 (Val::List(l), Val::List(r)) => Ok(r.iter().all(|v| l.contains(v))),
@@ -251,23 +258,17 @@ impl TryInto<Val> for &Expr {
     }
 }
 
-pub trait IntoExpr {
-    fn into_expr(self) -> Result<Expr, anyhow::Error>;
-}
-
-impl<S: AsRef<str>> IntoExpr for S {
-    fn into_expr(self) -> Result<Expr, anyhow::Error> {
-        let tokens = Tokenizer::new(self.as_ref())?;
-        let expr = Parser::new(&tokens).parse()?;
-        Ok(expr)
-    }
+fn into_expr<S: AsRef<str>>(s: S) -> Result<Expr> {
+    let tokens = Tokenizer::new(s.as_ref())?;
+    let expr = Parser::new(&tokens).parse()?;
+    Ok(expr)
 }
 
 impl TryFrom<&str> for Expr {
     type Error = anyhow::Error;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        value.into_expr()
+        into_expr(value)
     }
 }
 
@@ -275,7 +276,7 @@ impl TryFrom<String> for Expr {
     type Error = anyhow::Error;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        value.into_expr()
+        into_expr(value)
     }
 }
 

@@ -89,12 +89,7 @@ impl Tokenizer {
         } else {
             format!("at end, near '{}'", chars)
         };
-        format!(
-            "Syntax error:\n{} ({})\nParsed tokens: {:?}",
-            msg.as_ref(),
-            ctx,
-            &self.tokens
-        )
+        format!("Syntax error:\n{} ({})", msg.as_ref(), ctx)
     }
 
     fn skip_whitespace(&mut self) {
@@ -211,29 +206,24 @@ impl Tokenizer {
             return Err(anyhow!(self.err("Expect '@'")));
         }
 
-        let tokens_len = self.tokens.len();
         while !self.eof() {
             let c = self.chars[self.idx];
-            let tokens_added = self.tokens.len() > tokens_len;
             let is_field = c.is_alphanumeric() || c == '_' || c == '-';
-            if !tokens_added && !is_field {
-                return Err(anyhow!(self.err("Expect field after '@'")));
-            }
-            if c == '.' {
-                self.idx += 1;
-                self.tokens.push(Token::Dot);
-                continue;
-            }
             let is_num = c.is_digit(10);
             if is_field && !is_num {
                 self.parse_id()?;
                 continue;
             }
             if is_num {
-                self.parse_int()?
-            } else if c.is_whitespace() {
-                break;
+                self.parse_int()?;
+                continue;
             }
+
+            if self.expect(".") {
+                self.tokens.push(Token::Dot);
+                continue;
+            }
+            break;
         }
         Ok(())
     }
@@ -373,7 +363,7 @@ impl Tokenizer {
                     Ok(())
                 }
             }
-            _ => self.parse_id(),
+            _ => Err(anyhow!(self.err("Unknown punctuation"))),
         }
     }
 
@@ -396,10 +386,22 @@ impl Tokenizer {
                     self.parse_keywords()?;
                 }
                 _ => {
-                    self.parse_punctuations()?;
+                    if self.is_punctuation(c) {
+                        self.parse_punctuations()?;
+                    } else {
+                        self.parse_id()?;
+                    }
                 }
             }
         }
         Ok(())
+    }
+
+    fn is_punctuation(&self, c: char) -> bool {
+        match c {
+            '(' | ')' | '.' | '&' | '|' | '+' | '-' | '*' | '/' | '%' | '@' | '=' | '!' | '>'
+            | '<' => true,
+            _ => false,
+        }
     }
 }
