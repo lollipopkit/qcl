@@ -294,6 +294,19 @@ impl From<serde_json::Value> for Val {
     }
 }
 
+impl Val {
+    pub fn try_from<T>(val: T) -> Result<Self>
+    where
+        T: serde::Serialize,
+    {
+        let v: serde_json::Value = serde_json::to_value(val)?;
+        match serde_json::to_value(v) {
+            Ok(v) => Ok(v.into()),
+            Err(_) => Ok(Val::Nil),
+        }
+    }
+}
+
 impl Default for Val {
     fn default() -> Self {
         Val::Nil
