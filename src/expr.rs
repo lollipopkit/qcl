@@ -1,4 +1,7 @@
-use std::fmt::{Debug, Display};
+use std::{
+    collections::HashSet,
+    fmt::{Debug, Display},
+};
 
 use anyhow::{anyhow, Result};
 
@@ -119,6 +122,34 @@ impl Expr {
             Expr::Paren(expr) => Ok(expr.eval(ctx)?),
             Expr::Nil => Ok(Val::Nil),
         }
+    }
+
+    /// Get the requested context names from the expression.
+    pub fn requested_ctx(&self) -> HashSet<String> {
+        let mut names = HashSet::new();
+        match self {
+            Expr::At(paths) => {
+                if let Some(Val::Str(s)) = paths.first() {
+                    names.insert(s.clone());
+                }
+            }
+            Expr::Bin(l, _, r) => {
+                names.extend(l.requested_ctx());
+                names.extend(r.requested_ctx());
+            }
+            Expr::Unary(_, expr) => {
+                names.extend(expr.requested_ctx());
+            }
+            Expr::And(l, r) | Expr::Or(l, r) => {
+                names.extend(l.requested_ctx());
+                names.extend(r.requested_ctx());
+            }
+            Expr::Paren(expr) => {
+                names.extend(expr.requested_ctx());
+            }
+            _ => {}
+        }
+        names
     }
 }
 
