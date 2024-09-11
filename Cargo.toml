@@ -3,6 +3,9 @@ name = "qcl"
 description = "A Query Check Language written in Rust"
 version = "0.1.0"
 edition = "2021"
+authors = ["lollipopkit <a@lpkt.cn>"]
+license = "Apache-2.0"
+repository = "https://github.com/lollipopkit/qcl"
 
 [package.metadata.cargo-test]
 args = ["--", "--nocapture"]
