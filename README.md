@@ -38,6 +38,13 @@ More language details can be found in [LANG.md](LANG.md).
 #### Integration
 
 ```rust
+// Parse expr
+let expr = "@req.user.name in 'foobar' && @files.0.published == true";
+let expr = Expr::try_from(expr)?;
+
+// Construct context
+let ctx_names = expr.requested_ctx(); // ["req", "files"]
+// You can construct the context indeed, but we use json! for simplicity
 let ctx = json!({
     "req": {
         "user": "foo"
@@ -50,10 +57,16 @@ let ctx = json!({
     ]
 });
 
-let query = "@req.user.name in 'foobar' && @record.published == true";
-
-let result = Expr::try_from(query)?.eval(ctx.into())?;
-assert!(result);
+// Eval
+let result = expr.eval(ctx.into())?; // Val::Bool(true)
+match result {
+    Val::Bool(b) => {
+        assert!(b);
+    }
+    _ => {
+        panic!("unexpected result");
+    }
+}
 ```
 
 #### CLI
@@ -61,3 +74,10 @@ assert!(result);
 <div height="100px" align="center">
     <img src="https://cdn.lpkt.cn/img/capture/qcl.jpg" alt="QCL" />
 </div>
+
+
+## License
+```
+Apache-2.0
+2024 @lollipopkit
+```
