@@ -178,7 +178,6 @@ mod tests {
         assert_eq!(t.unwrap(), e);
     }
 
-    // TODO
     // Issue #1
     #[test]
     fn t1() {

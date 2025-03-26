@@ -1,8 +1,7 @@
 use crate::{
     expr::Expr,
     op::{BinOp, UnaryOp},
-    token::Token,
-    val::Val,
+    token::Token, val::Val,
 };
 use anyhow::{anyhow, Result};
 
@@ -15,7 +14,7 @@ pub(crate) struct Parser<'a> {
 impl<'a> Parser<'a> {
     pub fn parse(&mut self) -> Result<Expr> {
         if self.eof() {
-            return Ok(Expr::Nil);
+            return Ok(Expr::Val(Val::Nil));
         }
 
         let exp = self.parse_expr()?;
@@ -31,6 +30,7 @@ impl<'a> Parser<'a> {
         self.parse_or()
     }
 
+    /// - `expr || expr`
     fn parse_or(&mut self) -> Result<Expr> {
         let mut expr = self.parse_and()?;
         while !self.eof() {
@@ -46,6 +46,7 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
+    /// `expr && expr`
     fn parse_and(&mut self) -> Result<Expr> {
         let mut expr = self.parse_cmp()?;
         while !self.eof() {
@@ -61,6 +62,9 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
+    /// - `expr == expr`
+    /// - `expr != expr`
+    /// ...
     fn parse_cmp(&mut self) -> Result<Expr> {
         let mut expr = self.parse_add_sub()?;
         while !self.eof() {
@@ -81,6 +85,8 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
+    /// - `expr + expr`
+    /// - `expr - expr`
     fn parse_add_sub(&mut self) -> Result<Expr> {
         let mut expr = self.parse_mul_div()?;
         while !self.eof() {
@@ -96,6 +102,8 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
+    /// - `expr * expr`
+    /// - `expr / expr`
     fn parse_mul_div(&mut self) -> Result<Expr> {
         let mut expr = self.parse_unary()?;
         while !self.eof() {
@@ -112,40 +120,48 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
+    /// - `!expr`
+    /// - `expr`
     fn parse_unary(&mut self) -> Result<Expr> {
         let token = &self.tokens[self.pos];
         match token {
             Token::Not => {
                 self.pos += 1;
-                let expr = self.parse_primary()?;
+                let expr = self.parse_expr()?;
                 Ok(Expr::Unary(UnaryOp::Not, Box::new(expr)))
             }
             _ => self.parse_primary(),
         }
     }
 
+    /// - `nil`
+    /// - `true`
+    /// - `false`
+    /// - `1`
+    /// - `1.2`
+    /// - `"str"`
     fn parse_primary(&mut self) -> Result<Expr> {
         let token = &self.tokens[self.pos];
         let expr = match token {
             Token::Nil => {
                 self.pos += 1;
-                Expr::Nil
+                Expr::Val(Val::Nil)
             }
             Token::Bool(b) => {
                 self.pos += 1;
-                Expr::Bool(*b)
+                Expr::Val(Val::Bool(*b))
             }
             Token::Int(i) => {
                 self.pos += 1;
-                Expr::Int(*i)
+                Expr::Val(Val::Int(*i))
             }
             Token::Float(f) => {
                 self.pos += 1;
-                Expr::Float(*f)
+                Expr::Val(Val::Float(*f))
             }
             Token::Str(s) => {
                 self.pos += 1;
-                Expr::Str(s.to_owned())
+                Expr::Val(Val::Str(s.to_owned()))
             }
             Token::At => self.parse_at()?,
             _ => self.parse_paren()?,
@@ -153,6 +169,8 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
+    /// - `(expr)`
+    /// - `expr`
     fn parse_paren(&mut self) -> Result<Expr> {
         if self.tokens[self.pos] == Token::LParen {
             self.pos += 1;
@@ -164,10 +182,55 @@ impl<'a> Parser<'a> {
             self.pos += 1;
             Ok(Expr::Paren(Box::new(expr)))
         } else {
-            self.parse_expr()
+            // This is where the recursion issue was - we need a terminal case
+            match &self.tokens[self.pos] {
+                Token::Id(id) => {
+                    let expr = Expr::Val(Val::Str(id.clone()));
+                    self.pos += 1;
+                    Ok(expr)
+                },
+                _ => {
+                    let msg = format!("Unexpected token: {:?}", self.tokens[self.pos]);
+                    Err(anyhow!(self.err(&msg)))
+                }
+            }
         }
     }
 
+    /// Parse a field accessor in an @ expression
+    fn parse_field_accessor(&mut self) -> Result<Expr> {
+        match &self.tokens[self.pos] {
+            Token::Id(id) => {
+                let expr = Expr::Val(Val::Str(id.clone()));
+                self.pos += 1;
+                Ok(expr)
+            },
+            Token::Int(i) => {
+                let expr = Expr::Val(Val::Int(*i));
+                self.pos += 1;
+                Ok(expr)
+            },
+            Token::LParen => {
+                self.pos += 1;
+                let expr = self.parse_expr()?;
+                if self.tokens[self.pos] != Token::RParen {
+                    let msg = format!("Expecting ')', found {:?}", self.tokens[self.pos]);
+                    return Err(anyhow!(self.err(&msg)));
+                }
+                self.pos += 1;
+                Ok(expr)
+            },
+            _ => {
+                let msg = format!("Unexpected token in field accessor: {:?}", self.tokens[self.pos]);
+                Err(anyhow!(self.err(&msg)))
+            }
+        }
+    }
+
+    /// - `@user.name`
+    /// - `@user.emails.0.company`
+    /// - `@user.subscribers.(@record.sender).name`
+    /// - `@(1 + "1")`
     fn parse_at(&mut self) -> Result<Expr> {
         if self.tokens[self.pos] != Token::At {
             let msg = format!("Expecting @, found {:?}", self.tokens[self.pos]);
@@ -183,7 +246,7 @@ impl<'a> Parser<'a> {
         let mut paths = Vec::with_capacity(4);
 
         while !self.eof() {
-            paths.push(self.parse_field()?);
+            paths.push(Box::new(self.parse_field_accessor()?));
 
             if self.eof() || self.tokens[self.pos] != Token::Dot {
                 break;
@@ -192,20 +255,6 @@ impl<'a> Parser<'a> {
         }
 
         Ok(Expr::At(paths))
-    }
-
-    fn parse_field(&mut self) -> Result<Val> {
-        let token = &self.tokens[self.pos];
-        let field = match token {
-            Token::Id(id) => Val::Str(id.to_owned()),
-            Token::Int(i) => Val::Int(*i),
-            _ => {
-                let msg = format!("Expecting string or int, found {:?}", token);
-                return Err(anyhow!(self.err(&msg)));
-            }
-        };
-        self.pos += 1;
-        Ok(field)
     }
 }
 

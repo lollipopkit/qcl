@@ -57,14 +57,10 @@ pub enum Expr {
     Or(Box<Expr>, Box<Expr>),
     /// expr.field
     /// field can be string or int
-    At(Vec<Val>),
+    At(Vec<Box<Expr>>),
     // (expr)
     Paren(Box<Expr>),
-    Bool(bool),
-    Float(f64),
-    Int(i64),
-    Str(String),
-    Nil,
+    Val(Val),
 }
 
 impl Expr {
@@ -105,7 +101,7 @@ impl Expr {
 
                 let mut val = ctx;
                 for path in paths {
-                    val = match val.access(path) {
+                    val = match val.access(&path.eval(ctx)?) {
                         Some(v) => v,
                         None => return Ok(Val::Nil),
                     }
@@ -113,12 +109,8 @@ impl Expr {
                 // Return a clone only at the end of evaluation to reduce allocations
                 Ok(val.clone())
             }
-            Expr::Float(f) => Ok(Val::Float(*f)),
-            Expr::Str(s) => Ok(Val::Str(s.clone())),
-            Expr::Int(i) => Ok(Val::Int(*i)),
-            Expr::Bool(b) => Ok(Val::Bool(*b)),
             Expr::Paren(expr) => expr.eval(ctx),
-            Expr::Nil => Ok(Val::Nil),
+            Expr::Val(val) => Ok(val.clone()), // TODO
         }
     }
 
@@ -129,12 +121,30 @@ impl Expr {
         names
     }
 
-    // Helper method to collect context names recursively
+    /// Helper method to collect context names recursively
+    ///
+    /// eg.: `@user.props.(@req.service).value && @list` => `["user", "req", "list"]`
     fn collect_ctx_names(&self, names: &mut HashSet<String>) {
         match self {
             Expr::At(paths) => {
-                if let Some(Val::Str(s)) = paths.first() {
-                    names.insert(s.clone());
+                if !paths.is_empty() {
+                    // The first path element is the context name
+                    if let Expr::Val(Val::Str(name)) = &*paths[0] {
+                        names.insert(name.clone());
+                    } else {
+                        // If the first element is a complex expression, process it
+                        paths[0].collect_ctx_names(names);
+                    }
+
+                    // For other path elements, only process them if they might contain contexts
+                    for path in &paths[1..] {
+                        match &**path {
+                            // Skip [Val]s that are just field names
+                            Expr::Val(_) => {}
+                            // Process other values normally
+                            _ => path.collect_ctx_names(names),
+                        }
+                    }
                 }
             }
             Expr::Bin(l, _, r) => {
@@ -151,7 +161,8 @@ impl Expr {
             Expr::Paren(expr) => {
                 expr.collect_ctx_names(names);
             }
-            _ => {}
+            // Only collect string values when they are actual context names, not field names
+            Expr::Val(_) => {}
         }
     }
 }
@@ -161,11 +172,7 @@ impl TryInto<Val> for &Expr {
 
     fn try_into(self) -> Result<Val> {
         match self {
-            Expr::Float(f) => Ok(Val::Float(*f)),
-            Expr::Int(i) => Ok(Val::Int(*i)),
-            Expr::Str(s) => Ok(Val::Str(s.clone())),
-            Expr::Bool(b) => Ok(Val::Bool(*b)),
-            Expr::Nil => Ok(Val::Nil),
+            Expr::Val(val) => Ok(val.clone()), // TODO
             _ => {
                 let msg = format!("Can't convert Expr::{:?} to Val", self);
                 Err(anyhow!(msg))
@@ -208,11 +215,13 @@ impl Display for Expr {
                 write!(f, "@{}", paths.join("."))
             }
             Expr::Paren(expr) => write!(f, "{expr}"),
-            Expr::Bool(b) => write!(f, "{b}"),
-            Expr::Float(fl) => write!(f, "{fl}"),
-            Expr::Int(i) => write!(f, "{i}"),
-            Expr::Str(s) => write!(f, "{s}"),
-            Expr::Nil => write!(f, "nil"),
+            Expr::Val(val) => write!(f, "{}", val),
         }
+    }
+}
+
+impl From<Val> for Expr {
+    fn from(val: Val) -> Self {
+        Expr::Val(val)
     }
 }

@@ -90,20 +90,21 @@ mod test {
         // Nested map access
         expect("@nested.level1.level2", "value");
 
-        // // List access with variable index
-        // expect("@list.@index", 2);
+        // List access with variable index
+        expect("@list.(@index)", 2);
 
-        // // Access with expressions
-        // expect("@list.(@index-1)", 1);
+        // Access with expressions
+        expect("@list.(@index - 1)", 1);
     }
 
     #[test]
     fn test_requested_ctx() {
-        let expr = Expr::try_from("@user.name && @list.0 || @pub").unwrap();
+        let expr = Expr::try_from("@user.props.(@req.service) && @list.0 || @pub").unwrap();
         let names = expr.requested_ctx();
 
         let mut expected = HashSet::new();
         expected.insert("user".to_string());
+        expected.insert("req".to_string());
         expected.insert("list".to_string());
         expected.insert("pub".to_string());
 

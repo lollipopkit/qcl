@@ -20,9 +20,13 @@ mod test {
             Token::Int(18),
         ];
         let expr = Expr::Bin(
-            Box::new(Expr::At(vec!["req".into(), "user".into(), "age".into()])),
+            Box::new(Expr::At(vec![
+                Box::new(Expr::Val("req".into())),
+                Box::new(Expr::Val("user".into())),
+                Box::new(Expr::Val("age".into())),
+            ])),
             BinOp::Gt,
-            Box::new(Expr::Int(18)),
+            Box::new(Expr::Val(18.into())),
         );
         let parsed = Parser::new(&tokens).parse().unwrap();
         assert_eq!(parsed, expr);
@@ -41,8 +45,8 @@ mod test {
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
         let expected = Expr::Paren(Box::new(Expr::Or(
-            Box::new(Expr::Bool(true)),
-            Box::new(Expr::Bool(false)),
+            Box::new(Expr::Val(true.into())),
+            Box::new(Expr::Val(false.into())),
         )));
         assert_eq!(parsed, expected);
     }
@@ -64,20 +68,23 @@ mod test {
         let expected = Expr::And(
             Box::new(Expr::Paren(Box::new(Expr::Or(
                 Box::new(Expr::Bin(
-                    Box::new(Expr::At(vec!["time".into()])),
+                    Box::new(Expr::At(vec![Box::new(Expr::Val("time".into()))])),
                     BinOp::Ne,
-                    Box::new(Expr::Int(0)),
+                    Box::new(Expr::Val(0.into())),
                 )),
                 Box::new(Expr::Bin(
-                    Box::new(Expr::At(vec!["col".into(), "pub".into()])),
+                    Box::new(Expr::At(vec![
+                        Box::new(Expr::Val("col".into())),
+                        Box::new(Expr::Val("pub".into())),
+                    ])),
                     BinOp::Eq,
-                    Box::new(Expr::Bool(true)),
+                    Box::new(Expr::Val(true.into())),
                 )),
             )))),
             Box::new(Expr::Bin(
-                Box::new(Expr::At(vec!["random".into()])),
+                Box::new(Expr::At(vec![Box::new(Expr::Val("random".into()))])),
                 BinOp::Gt,
-                Box::new(Expr::Float(0.5)),
+                Box::new(Expr::Val(0.5.into())),
             )),
         );
         assert_eq!(parsed, expected);
@@ -89,7 +96,11 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::At(vec!["list".into(), 0.into(), "name".into()]);
+        let expected = Expr::At(vec![
+            Box::new(Expr::Val("list".into())), 
+            Box::new(Expr::Val(0.into())), 
+            Box::new(Expr::Val("name".into())),
+        ]);
         assert_eq!(parsed, expected);
     }
 }
