@@ -71,55 +71,53 @@ impl Expr {
     pub fn eval(&self, ctx: &Val) -> Result<Val> {
         match self {
             Expr::Bin(l, op, r) => op.eval(l, r, ctx),
-            Expr::Unary(op, expr) => Ok(op.eval(expr, ctx)?),
+            Expr::Unary(op, expr) => op.eval(expr, ctx),
             Expr::And(e1, e2) => {
                 let l = e1.eval(ctx)?;
-                // For performance, we can short-circuit the evaluation.
+                // Short-circuit evaluation to improve performance
                 if let Val::Bool(false) = l {
-                    return Ok(false.into());
+                    return Ok(Val::Bool(false));
                 }
                 let r = e2.eval(ctx)?;
-                if let Val::Bool(false) = r {
-                    return Ok(false.into());
-                }
                 match (&l, &r) {
-                    (Val::Bool(_), Val::Bool(_)) => Ok(Val::Bool(true)),
+                    (Val::Bool(true), Val::Bool(true)) => Ok(Val::Bool(true)),
+                    (Val::Bool(_), Val::Bool(_)) => Ok(Val::Bool(false)),
                     _ => err_op(&l, "&&", &r),
                 }
             }
             Expr::Or(e1, e2) => {
                 let l = e1.eval(ctx)?;
-                // For performance, we can short-circuit the evaluation.
+                // Short-circuit evaluation to improve performance
                 if let Val::Bool(true) = l {
                     return Ok(Val::Bool(true));
                 }
                 let r = e2.eval(ctx)?;
-                if let Val::Bool(true) = r {
-                    return Ok(Val::Bool(true));
-                }
                 match (&l, &r) {
+                    (Val::Bool(_), Val::Bool(true)) => Ok(Val::Bool(true)),
                     (Val::Bool(_), Val::Bool(_)) => Ok(Val::Bool(false)),
                     _ => err_op(&l, "||", &r),
                 }
             }
             Expr::At(paths) => {
+                if paths.is_empty() {
+                    return Ok(Val::Nil);
+                }
+
                 let mut val = ctx;
                 for path in paths {
                     val = match val.access(path) {
                         Some(v) => v,
-                        None => {
-                            return Err(anyhow!("Invalid path: `{path}`"));
-                        }
+                        None => return Ok(Val::Nil),
                     }
                 }
-                // TODO: no clone
+                // Return a clone only at the end of evaluation to reduce allocations
                 Ok(val.clone())
             }
-            Expr::Float(_) | Expr::Str(_) | Expr::Int(_) | Expr::Bool(_) => {
-                let v: Val = self.try_into()?;
-                Ok(v)
-            }
-            Expr::Paren(expr) => Ok(expr.eval(ctx)?),
+            Expr::Float(f) => Ok(Val::Float(*f)),
+            Expr::Str(s) => Ok(Val::Str(s.clone())),
+            Expr::Int(i) => Ok(Val::Int(*i)),
+            Expr::Bool(b) => Ok(Val::Bool(*b)),
+            Expr::Paren(expr) => expr.eval(ctx),
             Expr::Nil => Ok(Val::Nil),
         }
     }
@@ -127,6 +125,12 @@ impl Expr {
     /// Get the requested context names from the expression.
     pub fn requested_ctx(&self) -> HashSet<String> {
         let mut names = HashSet::new();
+        self.collect_ctx_names(&mut names);
+        names
+    }
+
+    // Helper method to collect context names recursively
+    fn collect_ctx_names(&self, names: &mut HashSet<String>) {
         match self {
             Expr::At(paths) => {
                 if let Some(Val::Str(s)) = paths.first() {
@@ -134,22 +138,21 @@ impl Expr {
                 }
             }
             Expr::Bin(l, _, r) => {
-                names.extend(l.requested_ctx());
-                names.extend(r.requested_ctx());
+                l.collect_ctx_names(names);
+                r.collect_ctx_names(names);
             }
             Expr::Unary(_, expr) => {
-                names.extend(expr.requested_ctx());
+                expr.collect_ctx_names(names);
             }
             Expr::And(l, r) | Expr::Or(l, r) => {
-                names.extend(l.requested_ctx());
-                names.extend(r.requested_ctx());
+                l.collect_ctx_names(names);
+                r.collect_ctx_names(names);
             }
             Expr::Paren(expr) => {
-                names.extend(expr.requested_ctx());
+                expr.collect_ctx_names(names);
             }
             _ => {}
         }
-        names
     }
 }
 

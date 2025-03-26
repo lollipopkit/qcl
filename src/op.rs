@@ -81,54 +81,83 @@ impl BinOp {
         }
     }
 
-    fn cmp_inner(&self, l: &Val, r: &Val) -> Result<Ordering> {
-        match l.partial_cmp(r) {
-            Some(ord) => Ok(ord),
-            None => err_op(l, self, r),
-        }
-    }
-
     fn cmp(&self, l: &Val, r: &Val) -> Result<bool> {
         match self {
             BinOp::Eq => Ok(l == r),
             BinOp::Ne => Ok(l != r),
-            BinOp::Gt => {
-                let ord = self.cmp_inner(l, r)?;
-                Ok(ord == Ordering::Greater)
-            }
-            BinOp::Lt => {
-                let ord = self.cmp_inner(l, r)?;
-                Ok(ord == Ordering::Less)
-            }
-            BinOp::Ge => {
-                let ord = self.cmp_inner(l, r)?;
-                Ok(ord == Ordering::Greater || ord == Ordering::Equal)
-            }
-            BinOp::Le => {
-                let ord = self.cmp_inner(l, r)?;
-                Ok(ord == Ordering::Less || ord == Ordering::Equal)
-            }
             BinOp::In => match (l, r) {
                 (Val::Str(l), Val::Str(r)) => Ok(r.contains(l)),
-                (Val::List(l), Val::List(r)) => Ok(r.iter().all(|v| l.contains(v))),
-                (Val::List(l), r) => Ok(l.contains(r)),
-                (Val::Map(l), Val::Str(s)) => Ok(l.contains_key(s)),
+
+                // All elements in l must be in r
+                (Val::List(l), Val::List(r)) => Ok(l.iter().all(|x| r.contains(x))),
+                (_, Val::List(r)) => Ok(r.contains(l)),
+
+                // If l is a string, check if it's a key in the map, for performance.
+                (Val::Str(s), Val::Map(m)) => Ok(m.contains_key(s)),
+                // Otherwise, check if l is a value in the map.
+                (val, Val::Map(m)) => Ok(m.values().any(|v| v == val)),
+
+                #[cfg(feature = "adv_arith")]
+                (Val::Float(l), Val::Float(r)) => Ok(l < r),
+                #[cfg(feature = "adv_arith")]
+                (Val::Int(l), Val::Int(r)) => Ok(l < r),
+                #[cfg(feature = "adv_arith")]
+                (Val::Bool(l), Val::Bool(r)) => Ok(l == r),
+                #[cfg(feature = "adv_arith")]
+                (Val::Nil, Val::Nil) => Ok(true),
+
                 _ => err_op(l, self, r),
             },
-            _ => err_op(l, self, r),
+            _ => {
+                // For other comparison operators, we need ordering
+                let ord = match l.partial_cmp(r) {
+                    Some(ord) => ord,
+                    None => return err_op(l, self, r),
+                };
+
+                match self {
+                    BinOp::Gt => Ok(ord == Ordering::Greater),
+                    BinOp::Lt => Ok(ord == Ordering::Less),
+                    BinOp::Ge => Ok(ord != Ordering::Less),
+                    BinOp::Le => Ok(ord != Ordering::Greater),
+                    _ => err_op(l, self, r),
+                }
+            }
         }
     }
 
     pub(crate) fn eval(&self, l: &Expr, r: &Expr, ctx: &Val) -> Result<Val> {
-        let l = l.eval(ctx)?;
-        let r = r.eval(ctx)?;
+        // For comparison operators, we can optimize by only evaluating the left side first
+        if self.is_cmp() && matches!(self, BinOp::Eq | BinOp::Ne) {
+            let l_val = l.eval(ctx)?;
+
+            // Short-circuit for nil comparisons
+            match (&l_val, self) {
+                (Val::Nil, BinOp::Eq) => {
+                    let r_val = r.eval(ctx)?;
+                    return Ok(Val::Bool(matches!(r_val, Val::Nil)));
+                }
+                (Val::Nil, BinOp::Ne) => {
+                    let r_val = r.eval(ctx)?;
+                    return Ok(Val::Bool(!matches!(r_val, Val::Nil)));
+                }
+                _ => {}
+            }
+
+            let r_val = r.eval(ctx)?;
+            return Ok(Val::Bool(self.cmp(&l_val, &r_val)?));
+        }
+
+        // For arithmetic operations
+        let l_val = l.eval(ctx)?;
+        let r_val = r.eval(ctx)?;
 
         if self.is_arith() {
-            self.arith(&l, &r)
+            self.arith(&l_val, &r_val)
         } else if self.is_cmp() {
-            Ok(Val::Bool(self.cmp(&l, &r)?))
+            Ok(Val::Bool(self.cmp(&l_val, &r_val)?))
         } else {
-            Err(anyhow!("Invalid eval: {l} {self:?} {r}"))
+            Err(anyhow!("Invalid eval: {l_val} {self:?} {r_val}"))
         }
     }
 }

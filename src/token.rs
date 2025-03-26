@@ -41,12 +41,11 @@ pub struct Tokenizer {
 
 impl Tokenizer {
     pub fn new(s: &str) -> Result<Vec<Token>> {
-        let tokens = Vec::new();
         let mut t = Tokenizer {
             chars: s.chars().collect(),
             idx: 0,
-            len: s.len(),
-            tokens,
+            len: s.chars().count(), // More accurate than s.len() for Unicode
+            tokens: Vec::with_capacity(s.len() / 4), // Preallocate a reasonable size
         };
         t.parse()?;
         Ok(t.tokens)
@@ -93,10 +92,7 @@ impl Tokenizer {
     }
 
     fn skip_whitespace(&mut self) {
-        while !self.eof() {
-            if !self.chars[self.idx].is_whitespace() {
-                break;
-            }
+        while self.idx < self.len && self.chars[self.idx].is_whitespace() {
             self.idx += 1;
         }
     }
@@ -105,20 +101,27 @@ impl Tokenizer {
         let mut s = String::new();
         let quote = self.chars[self.idx];
         self.idx += 1;
-        let mut end = false;
-        while !self.eof() {
-            let c = self.chars[self.idx];
-            if c == quote {
-                self.idx += 1;
-                end = true;
+
+        // Find the end quote position first to optimize allocation
+        let mut end_idx = self.idx;
+        let mut found = false;
+
+        while end_idx < self.len {
+            if self.chars[end_idx] == quote {
+                found = true;
                 break;
             }
-            s.push(c);
-            self.idx += 1;
+            end_idx += 1;
         }
-        if !end {
+
+        if !found {
             return Err(anyhow!(self.err("String not closed")));
         }
+
+        // Now extract the string content all at once
+        s.extend(self.chars[self.idx..end_idx].iter());
+        self.idx = end_idx + 1; // Skip past the closing quote
+
         self.tokens.push(Token::Str(s));
         Ok(())
     }

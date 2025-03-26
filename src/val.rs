@@ -25,7 +25,12 @@ impl Val {
     pub(crate) fn access(&self, field: &Val) -> Option<&Val> {
         match (self, field) {
             (Val::Map(m), Val::Str(s)) => m.get(s),
-            (Val::List(l), Val::Int(i)) => l.get(*i as usize),
+            (Val::List(l), Val::Int(i)) => {
+                if *i < 0 {
+                    return None;
+                }
+                l.get(*i as usize)
+            }
             _ => None,
         }
     }
@@ -39,15 +44,15 @@ impl Add for &Val {
     /// - Map can + Map, but Map can't + Val, since the value of the map is not defined.
     fn add(self, other: Self) -> Self::Output {
         match (self, other) {
-            (Val::Int(a), Val::Int(b)) => Ok((a + b).into()),
-            (Val::Float(a), Val::Float(b)) => Ok((a + b).into()),
-            (Val::Float(a), Val::Int(b)) => Ok((a + *b as f64).into()),
-            (Val::Int(a), Val::Float(b)) => Ok((*a as f64 + b).into()),
+            (Val::Int(a), Val::Int(b)) => Ok(Val::Int(a + b)),
+            (Val::Float(a), Val::Float(b)) => Ok(Val::Float(a + b)),
+            (Val::Float(a), Val::Int(b)) => Ok(Val::Float(a + *b as f64)),
+            (Val::Int(a), Val::Float(b)) => Ok(Val::Float(*a as f64 + b)),
             (Val::Str(a), Val::Str(b)) => {
                 let mut res = String::with_capacity(a.len() + b.len());
                 res.push_str(a);
                 res.push_str(b);
-                Ok(res.into())
+                Ok(Val::Str(res))
             }
             #[cfg(feature = "adv_arith")]
             (Val::Str(a), Val::Int(b)) => Ok(format!("{}{}", a, b).into()),
@@ -184,30 +189,35 @@ impl Rem for &Val {
 }
 
 impl From<String> for Val {
+    #[inline]
     fn from(s: String) -> Self {
-        Val::Str(s.into())
+        Val::Str(s)
     }
 }
 
 impl From<&str> for Val {
+    #[inline]
     fn from(s: &str) -> Self {
-        Val::Str(s.into())
+        Val::Str(s.to_string())
     }
 }
 
 impl From<i64> for Val {
+    #[inline]
     fn from(i: i64) -> Self {
         Val::Int(i)
     }
 }
 
 impl From<f64> for Val {
+    #[inline]
     fn from(f: f64) -> Self {
         Val::Float(f)
     }
 }
 
 impl From<bool> for Val {
+    #[inline]
     fn from(b: bool) -> Self {
         Val::Bool(b)
     }
@@ -221,7 +231,7 @@ where
     fn from(m: HashMap<S, V>) -> Self {
         let inner = m
             .into_iter()
-            .map(|(k, v)| (k.as_ref().into(), v.into()))
+            .map(|(k, v)| (k.as_ref().to_string(), v.into()))
             .collect();
         Val::Map(Box::new(inner))
     }
@@ -299,11 +309,7 @@ impl Val {
     where
         T: serde::Serialize,
     {
-        let v: serde_json::Value = serde_json::to_value(val)?;
-        match serde_json::to_value(v) {
-            Ok(v) => Ok(v.into()),
-            Err(_) => Ok(Val::Nil),
-        }
+        Ok(serde_json::to_value(val)?.into())
     }
 }
 
@@ -333,10 +339,13 @@ impl core::fmt::Display for Val {
             Val::Float(fl) => write!(f, "{fl}"),
             Val::Bool(b) => write!(f, "{b}"),
             Val::Str(s) => write!(f, "{s}"),
-            Val::Map(m) => match serde_json::to_string(m) {
-                Ok(s) => write!(f, "{}", s),
-                Err(_) => write!(f, "{:?}", m),
-            },
+            Val::Map(m) => {
+                // Avoid serialization errors by using debug fallback
+                match serde_json::to_string(m) {
+                    Ok(s) => write!(f, "{}", s),
+                    Err(_) => write!(f, "{:?}", m),
+                }
+            }
             Val::List(l) => match serde_json::to_string(l) {
                 Ok(s) => write!(f, "{}", s),
                 Err(_) => write!(f, "{:?}", l),

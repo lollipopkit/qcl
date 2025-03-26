@@ -10,15 +10,25 @@ pub(crate) struct Parser<'a> {
     tokens: &'a [Token],
     pos: usize,
     len: usize,
-    exp: Expr,
 }
 
 impl<'a> Parser<'a> {
     pub fn parse(&mut self) -> Result<Expr> {
-        while !self.eof() {
-            self.exp = self.parse_or()?;
+        if self.eof() {
+            return Ok(Expr::Nil);
         }
-        Ok(self.exp.clone())
+
+        let exp = self.parse_expr()?;
+
+        if !self.eof() {
+            return Err(anyhow!(self.err("Unexpected tokens at end")));
+        }
+
+        Ok(exp)
+    }
+
+    fn parse_expr(&mut self) -> Result<Expr> {
+        self.parse_or()
     }
 
     fn parse_or(&mut self) -> Result<Expr> {
@@ -146,7 +156,7 @@ impl<'a> Parser<'a> {
     fn parse_paren(&mut self) -> Result<Expr> {
         if self.tokens[self.pos] == Token::LParen {
             self.pos += 1;
-            let expr = self.parse_or()?;
+            let expr = self.parse_expr()?;
             if self.tokens[self.pos] != Token::RParen {
                 let msg = format!("Expecting ')', found {:?}", self.tokens[self.pos]);
                 return Err(anyhow!(self.err(&msg)));
@@ -154,31 +164,33 @@ impl<'a> Parser<'a> {
             self.pos += 1;
             Ok(Expr::Paren(Box::new(expr)))
         } else {
-            self.parse_or()
+            self.parse_expr()
         }
     }
 
     fn parse_at(&mut self) -> Result<Expr> {
-        let mut paths = vec![];
         if self.tokens[self.pos] != Token::At {
             let msg = format!("Expecting @, found {:?}", self.tokens[self.pos]);
             return Err(anyhow!(self.err(&msg)));
         }
         self.pos += 1;
+
         if self.eof() {
             return Err(anyhow!(self.err("Expecting field after '@'")));
         }
+
+        // Pre-allocate a reasonable size for the paths vector
+        let mut paths = Vec::with_capacity(4);
+
         while !self.eof() {
-            let path = self.parse_field()?;
-            paths.push(path);
-            if self.eof() {
-                break;
-            }
-            if self.tokens[self.pos] != Token::Dot {
+            paths.push(self.parse_field()?);
+
+            if self.eof() || self.tokens[self.pos] != Token::Dot {
                 break;
             }
             self.pos += 1;
         }
+
         Ok(Expr::At(paths))
     }
 
@@ -204,7 +216,6 @@ impl<'a> Parser<'a> {
             tokens,
             pos: 0,
             len,
-            exp: Expr::Nil,
         }
     }
 
