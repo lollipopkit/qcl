@@ -130,8 +130,6 @@ impl Tokenizer {
     /// - @a -> [At, Id("a")]
     /// - @a.b -> [At, Id("a"), Dot, Id("b")]
     /// - @a.0.1 -> [At, Id("a"), Dot, Int(0), Dot, Int(1)]
-    ///
-    /// TODO: fix the bug that `@a.0` is parsed as `At, Id("a"), Float(0)`
     fn parse_num(&mut self) -> Result<()> {
         let mut num = String::new();
         let mut dot_count = 0;
@@ -142,7 +140,7 @@ impl Tokenizer {
                 self.idx += 1;
             } else if c == '.' {
                 if dot_count > 0 {
-                    return Err(anyhow!(self.err("Invalid float")));
+                    return Err(anyhow!(self.err("Invalid float, multiple '.'")));
                 }
                 num.push(c);
                 self.idx += 1;
@@ -154,6 +152,11 @@ impl Tokenizer {
                 break;
             }
         }
+
+        if num.ends_with('.') {
+            return Err(anyhow!(self.err("Invalid float, ends with '.'")));
+        }
+
         let num = if num.contains('.') {
             match num.parse() {
                 Ok(f) => Token::Float(f),

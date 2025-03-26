@@ -165,6 +165,17 @@ mod tests {
             Token::Int(0),
         ];
         assert_eq!(t.unwrap(), e);
+
+        let t = Tokenizer::new("@list.1.2");
+        let e = vec![
+            Token::At,
+            Token::Id("list".to_string()),
+            Token::Dot,
+            Token::Int(1),
+            Token::Dot,
+            Token::Int(2),
+        ];
+        assert_eq!(t.unwrap(), e);
     }
 
     // TODO
@@ -178,6 +189,142 @@ mod tests {
             Token::Id("settings".to_string()),
             Token::Dot,
             Token::Id("active".to_string()),
+            Token::RParen,
+        ];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
+    fn empty_strings() {
+        let t = Tokenizer::new(r#""""''"#);
+        assert!(t.is_err());
+    }
+
+    #[test]
+    fn complex_numbers() {
+        let t = Tokenizer::new("-123 +456 -1.23 +4.56");
+        let e = vec![
+            Token::Int(-123),
+            Token::Int(456),
+            Token::Float(-1.23),
+            Token::Float(4.56),
+        ];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
+    fn invalid_numbers() {
+        // Multiple dots in number
+        assert!(Tokenizer::new("1.2.3").is_err());
+        // Invalid float
+        assert!(Tokenizer::new("1.a").is_err());
+        // Just a dot
+        let t = Tokenizer::new(".");
+        assert_eq!(t.unwrap(), vec![Token::Dot]);
+    }
+
+    #[test]
+    fn whitespace_handling() {
+        let t = Tokenizer::new("  @req.user  .  id  ==  'test'  ");
+        let e = vec![
+            Token::At,
+            Token::Id("req".to_string()),
+            Token::Dot,
+            Token::Id("user".to_string()),
+            Token::Dot,
+            Token::Id("id".to_string()),
+            Token::Eq,
+            Token::Str("test".to_string()),
+        ];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
+    fn nested_expressions() {
+        let t = Tokenizer::new("((@req.id == 123) && (@req.role == 'admin'))");
+        let e = vec![
+            Token::LParen,
+            Token::LParen,
+            Token::At,
+            Token::Id("req".to_string()),
+            Token::Dot,
+            Token::Id("id".to_string()),
+            Token::Eq,
+            Token::Int(123),
+            Token::RParen,
+            Token::And,
+            Token::LParen,
+            Token::At,
+            Token::Id("req".to_string()),
+            Token::Dot,
+            Token::Id("role".to_string()),
+            Token::Eq,
+            Token::Str("admin".to_string()),
+            Token::RParen,
+            Token::RParen,
+        ];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
+    fn mixed_operators() {
+        let t = Tokenizer::new("1 + 2 * 3 / 4 % 5");
+        let e = vec![
+            Token::Int(1),
+            Token::Add,
+            Token::Int(2),
+            Token::Mul,
+            Token::Int(3),
+            Token::Div,
+            Token::Int(4),
+            Token::Mod,
+            Token::Int(5),
+        ];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
+    fn complex_path_access() {
+        let t = Tokenizer::new("@users.0.name @items.1.tags.2");
+        let e = vec![
+            Token::At,
+            Token::Id("users".to_string()),
+            Token::Dot,
+            Token::Int(0),
+            Token::Dot,
+            Token::Id("name".to_string()),
+            Token::At,
+            Token::Id("items".to_string()),
+            Token::Dot,
+            Token::Int(1),
+            Token::Dot,
+            Token::Id("tags".to_string()),
+            Token::Dot,
+            Token::Int(2),
+        ];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
+    fn logic_operations() {
+        let t = Tokenizer::new("!(@a in @b) && (@c || !@d)");
+        let e = vec![
+            Token::Not,
+            Token::LParen,
+            Token::At,
+            Token::Id("a".to_string()),
+            Token::In,
+            Token::At,
+            Token::Id("b".to_string()),
+            Token::RParen,
+            Token::And,
+            Token::LParen,
+            Token::At,
+            Token::Id("c".to_string()),
+            Token::Or,
+            Token::Not,
+            Token::At,
+            Token::Id("d".to_string()),
             Token::RParen,
         ];
         assert_eq!(t.unwrap(), e);
