@@ -22,7 +22,3 @@ sem_arith = []
 # Advanced arithmetic support: Map + Map, List + Val etc.
 adv_arith = []
 all = ["sem_arith", "adv_arith"]
-
-[[bin]]
-name = "qcl"
-path = "bin/src/main.rs"

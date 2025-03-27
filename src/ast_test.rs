@@ -97,10 +97,19 @@ mod test {
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
         let expected = Expr::At(vec![
-            Box::new(Expr::Val("list".into())), 
-            Box::new(Expr::Val(0.into())), 
+            Box::new(Expr::Val("list".into())),
+            Box::new(Expr::Val(0.into())),
             Box::new(Expr::Val("name".into())),
         ]);
         assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn access_first_int_paths() {
+        let r = "@1.2";
+
+        let t = Tokenizer::new(r).unwrap();
+        let parsed = Parser::new(&t).parse();
+        assert!(parsed.is_err());
     }
 }

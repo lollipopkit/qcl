@@ -58,12 +58,17 @@ mod tests {
 
     #[test]
     fn num() {
-        let t5 = Tokenizer::new("1.2.3");
-        assert!(t5.is_err());
+        let t = Tokenizer::new("1.2.3");
+        assert!(t.is_err());
 
-        let t5 = Tokenizer::new("-1.0 +1.2");
-        let e5 = vec![Token::Float(-1.0), Token::Float(1.2)];
-        assert_eq!(t5.unwrap(), e5);
+        // Consider `.` as Dot if starts with `@`, otherwise Float
+        // It's invalid in AST(The first path of At Expr must be Str), but valid in Tokenizer
+        let t = Tokenizer::new("@1.2");
+        assert!(t.is_ok());
+
+        let t = Tokenizer::new("-1.0 +1.2");
+        let e = vec![Token::Float(-1.0), Token::Float(1.2)];
+        assert_eq!(t.unwrap(), e);
     }
 
     #[test]
@@ -324,6 +329,63 @@ mod tests {
             Token::Not,
             Token::At,
             Token::Id("d".to_string()),
+            Token::RParen,
+        ];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
+    fn nested_at() {
+        let t = Tokenizer::new("@a.(@b.(@c))");
+        let e = vec![
+            Token::At,
+            Token::Id("a".to_string()),
+            Token::Dot,
+            Token::LParen,
+            Token::At,
+            Token::Id("b".to_string()),
+            Token::Dot,
+            Token::LParen,
+            Token::At,
+            Token::Id("c".to_string()),
+            Token::RParen,
+            Token::RParen,
+        ];
+        assert_eq!(t.unwrap(), e);
+
+        let t = Tokenizer::new("@a.(@b.(@c.(@d)))");
+        let e = vec![
+            Token::At,
+            Token::Id("a".to_string()),
+            Token::Dot,
+            Token::LParen,
+            Token::At,
+            Token::Id("b".to_string()),
+            Token::Dot,
+            Token::LParen,
+            Token::At,
+            Token::Id("c".to_string()),
+            Token::Dot,
+            Token::LParen,
+            Token::At,
+            Token::Id("d".to_string()),
+            Token::RParen,
+            Token::RParen,
+            Token::RParen,
+        ];
+        assert_eq!(t.unwrap(), e);
+
+        let t = Tokenizer::new("@a.(@b - 1))");
+        let e = vec![
+            Token::At,
+            Token::Id("a".to_string()),
+            Token::Dot,
+            Token::LParen,
+            Token::At,
+            Token::Id("b".to_string()),
+            Token::Sub,
+            Token::Int(1),
+            Token::RParen,
             Token::RParen,
         ];
         assert_eq!(t.unwrap(), e);

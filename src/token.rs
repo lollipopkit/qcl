@@ -160,12 +160,12 @@ impl Tokenizer {
         let num = if num.contains('.') {
             match num.parse() {
                 Ok(f) => Token::Float(f),
-                Err(_) => return Err(anyhow!(self.err("Invalid float"))),
+                Err(_) => return Err(anyhow!("{}: {}", self.err("Invalid float"), num)),
             }
         } else {
             match num.parse() {
                 Ok(i) => Token::Int(i),
-                Err(_) => return Err(anyhow!(self.err("Invalid int"))),
+                Err(_) => return Err(anyhow!("{}: {}", self.err("Invalid int"), num)),
             }
         };
         self.tokens.push(num);
@@ -205,6 +205,8 @@ impl Tokenizer {
         }
     }
 
+    /// - `@a.(@b - 1)` -> [At, Id("a"), Dot, LParen, At, Id("b"), Sub, Int(1), RParen]
+    /// - `@a` -> [At, Id("a")]
     fn parse_at_list(&mut self) -> Result<()> {
         if self.expect("@") {
             self.tokens.push(Token::At);
@@ -270,7 +272,10 @@ impl Tokenizer {
                 let next = self.chars.get(self.idx + 1);
                 if let Some(&c) = next {
                     if c.is_digit(10) {
-                        return self.parse_num();
+                        self.idx += 1;
+                        self.tokens.push(Token::Dot);
+                        // To avoid confusion with Dot in float, only parse int here
+                        return self.parse_int();
                     }
                 }
                 self.idx += 1;

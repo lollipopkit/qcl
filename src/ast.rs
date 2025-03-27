@@ -1,7 +1,8 @@
 use crate::{
     expr::Expr,
     op::{BinOp, UnaryOp},
-    token::Token, val::Val,
+    token::Token,
+    val::Val,
 };
 use anyhow::{anyhow, Result};
 
@@ -188,7 +189,7 @@ impl<'a> Parser<'a> {
                     let expr = Expr::Val(Val::Str(id.clone()));
                     self.pos += 1;
                     Ok(expr)
-                },
+                }
                 _ => {
                     let msg = format!("Unexpected token: {:?}", self.tokens[self.pos]);
                     Err(anyhow!(self.err(&msg)))
@@ -204,12 +205,12 @@ impl<'a> Parser<'a> {
                 let expr = Expr::Val(Val::Str(id.clone()));
                 self.pos += 1;
                 Ok(expr)
-            },
+            }
             Token::Int(i) => {
                 let expr = Expr::Val(Val::Int(*i));
                 self.pos += 1;
                 Ok(expr)
-            },
+            }
             Token::LParen => {
                 self.pos += 1;
                 let expr = self.parse_expr()?;
@@ -219,9 +220,13 @@ impl<'a> Parser<'a> {
                 }
                 self.pos += 1;
                 Ok(expr)
-            },
+            }
+            Token::At => self.parse_at(),
             _ => {
-                let msg = format!("Unexpected token in field accessor: {:?}", self.tokens[self.pos]);
+                let msg = format!(
+                    "Unexpected token in field accessor: {:?}",
+                    self.tokens[self.pos]
+                );
                 Err(anyhow!(self.err(&msg)))
             }
         }
@@ -246,6 +251,18 @@ impl<'a> Parser<'a> {
         let mut paths = Vec::with_capacity(4);
 
         while !self.eof() {
+            // Check the first path must be Str
+            if paths.is_empty() {
+                let first = &self.tokens[self.pos];
+                match first {
+                    Token::Id(_) | Token::LParen => {}
+                    _ => {
+                        let msg = format!("Expecting field name, found {:?}", first);
+                        return Err(anyhow!(self.err(&msg)));
+                    }
+                }
+            }
+
             paths.push(Box::new(self.parse_field_accessor()?));
 
             if self.eof() || self.tokens[self.pos] != Token::Dot {

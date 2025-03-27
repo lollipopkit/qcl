@@ -94,7 +94,12 @@ mod test {
         expect("@list.(@index)", 2);
 
         // Access with expressions
+        // `index-1` is an Id, but `index - 1` is a BinOp
         expect("@list.(@index - 1)", 1);
+
+        // Access with complex expressions
+        #[cfg(feature = "adv_arith")]
+        expect("@list-2.(2 - 2) + @user.name", "2lk");
     }
 
     #[test]
@@ -115,7 +120,7 @@ mod test {
     fn test_nil_handling() {
         expect("@nonexistent == nil", true);
         expect("@nonexistent.field == nil", true);
-        expect("nil == nil", true);
+        expect("nil", None::<Val>);
     }
 
     fn with_ctx(rule: &str) -> Result<Val> {
