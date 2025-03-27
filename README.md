@@ -72,7 +72,7 @@ match result {
 #### CLI
 
 <div height="100px" align="center">
-    <img src="https://cdn.lpkt.cn/img/capture/qcl.jpg" alt="QCL" />
+    <img src="https://cdn.lpkt.cn/img/capture/qcl.png" alt="QCL" />
 </div>
 
 
