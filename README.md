@@ -24,6 +24,7 @@ It's designed to be used in ACL (Access Control List) systems, where you need to
 ```
 
 Let's break it down:
+
 - `@req.user.role == 'admin'`: Check if the user has the role of `admin`.
 - `@req.user.id in @record.granted`: Check if the user's id is in the `granted` list of the record.
 - `@record.published`: Check if the record is published.
@@ -75,9 +76,8 @@ match result {
     <img src="https://cdn.lpkt.cn/img/capture/qcl.png" alt="QCL" />
 </div>
 
-
 ## License
-```
-Apache-2.0
-2024 @lollipopkit
+
+```plaintext
+Apache-2.0 2024 @lollipopkit
 ```

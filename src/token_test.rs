@@ -40,6 +40,20 @@ mod tests {
     }
 
     #[test]
+    fn list_map_punctuations() {
+        let t = Tokenizer::new("[]{}:,");
+        let e = vec![
+            Token::LBracket,
+            Token::RBracket,
+            Token::LBrace,
+            Token::RBrace,
+            Token::Colon,
+            Token::Comma,
+        ];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
     fn ids() {
         let t3 = Tokenizer::new("id1 id_2 id-3");
         let e3 = vec![
@@ -387,6 +401,146 @@ mod tests {
             Token::Int(1),
             Token::RParen,
             Token::RParen,
+        ];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
+    fn list_literals() {
+        let t = Tokenizer::new("[1, 2, 3]");
+        let e = vec![
+            Token::LBracket,
+            Token::Int(1),
+            Token::Comma,
+            Token::Int(2),
+            Token::Comma,
+            Token::Int(3),
+            Token::RBracket,
+        ];
+        assert_eq!(t.unwrap(), e);
+
+        let t = Tokenizer::new(r#"["hello", "world"]"#);
+        let e = vec![
+            Token::LBracket,
+            Token::Str("hello".to_string()),
+            Token::Comma,
+            Token::Str("world".to_string()),
+            Token::RBracket,
+        ];
+        assert_eq!(t.unwrap(), e);
+
+        let t = Tokenizer::new("[]");
+        let e = vec![Token::LBracket, Token::RBracket];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
+    fn map_literals() {
+        let t = Tokenizer::new(r#"{"key": "value"}"#);
+        let e = vec![
+            Token::LBrace,
+            Token::Str("key".to_string()),
+            Token::Colon,
+            Token::Str("value".to_string()),
+            Token::RBrace,
+        ];
+        assert_eq!(t.unwrap(), e);
+
+        let t = Tokenizer::new(r#"{"a": 1, "b": 2}"#);
+        let e = vec![
+            Token::LBrace,
+            Token::Str("a".to_string()),
+            Token::Colon,
+            Token::Int(1),
+            Token::Comma,
+            Token::Str("b".to_string()),
+            Token::Colon,
+            Token::Int(2),
+            Token::RBrace,
+        ];
+        assert_eq!(t.unwrap(), e);
+
+        let t = Tokenizer::new("{}");
+        let e = vec![Token::LBrace, Token::RBrace];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
+    fn complex_list_map() {
+        let t = Tokenizer::new(r#"[{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]"#);
+        let e = vec![
+            Token::LBracket,
+            Token::LBrace,
+            Token::Str("name".to_string()),
+            Token::Colon,
+            Token::Str("Alice".to_string()),
+            Token::Comma,
+            Token::Str("age".to_string()),
+            Token::Colon,
+            Token::Int(30),
+            Token::RBrace,
+            Token::Comma,
+            Token::LBrace,
+            Token::Str("name".to_string()),
+            Token::Colon,
+            Token::Str("Bob".to_string()),
+            Token::Comma,
+            Token::Str("age".to_string()),
+            Token::Colon,
+            Token::Int(25),
+            Token::RBrace,
+            Token::RBracket,
+        ];
+        assert_eq!(t.unwrap(), e);
+
+        let t = Tokenizer::new(r#"{"users": [1, 2, 3], "active": true}"#);
+        let e = vec![
+            Token::LBrace,
+            Token::Str("users".to_string()),
+            Token::Colon,
+            Token::LBracket,
+            Token::Int(1),
+            Token::Comma,
+            Token::Int(2),
+            Token::Comma,
+            Token::Int(3),
+            Token::RBracket,
+            Token::Comma,
+            Token::Str("active".to_string()),
+            Token::Colon,
+            Token::Bool(true),
+            Token::RBrace,
+        ];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
+    fn trailing_commas() {
+        let t = Tokenizer::new("[1, 2, 3,]");
+        let e = vec![
+            Token::LBracket,
+            Token::Int(1),
+            Token::Comma,
+            Token::Int(2),
+            Token::Comma,
+            Token::Int(3),
+            Token::Comma,
+            Token::RBracket,
+        ];
+        assert_eq!(t.unwrap(), e);
+
+        let t = Tokenizer::new(r#"{"a": 1, "b": 2,}"#);
+        let e = vec![
+            Token::LBrace,
+            Token::Str("a".to_string()),
+            Token::Colon,
+            Token::Int(1),
+            Token::Comma,
+            Token::Str("b".to_string()),
+            Token::Colon,
+            Token::Int(2),
+            Token::Comma,
+            Token::RBrace,
         ];
         assert_eq!(t.unwrap(), e);
     }

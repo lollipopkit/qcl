@@ -103,6 +103,129 @@ mod test {
     }
 
     #[test]
+    fn list_literals() {
+        // Empty list
+        expect("[]", Vec::<Val>::new());
+
+        // Simple list
+        expect("[1, 2, 3]", vec![1, 2, 3]);
+
+        // Mixed types
+        expect(
+            r#"[1, "hello", true]"#,
+            vec![Val::Int(1), Val::Str("hello".to_string()), Val::Bool(true)],
+        );
+
+        // Nested lists
+        expect("[[1, 2], [3, 4]]", vec![vec![1, 2], vec![3, 4]]);
+
+        // List with expressions
+        expect("[1 + 2, 3 * 4]", vec![3, 12]);
+
+        // List with context access
+        expect("[@user.age, @list.0]", vec![18, 1]);
+    }
+
+    #[test]
+    fn map_literals() {
+        use std::collections::HashMap;
+
+        // Empty map
+        expect("{}", HashMap::<String, Val>::new());
+
+        // Simple map
+        let mut expected = HashMap::new();
+        expected.insert("name".to_string(), Val::Str("Alice".to_string()));
+        expected.insert("age".to_string(), Val::Int(30));
+        expect(r#"{"name": "Alice", "age": 30}"#, expected);
+
+        // Map with expressions
+        let mut expected = HashMap::new();
+        expected.insert("sum".to_string(), Val::Int(5));
+        expected.insert("product".to_string(), Val::Int(6));
+        expect(r#"{"sum": 2 + 3, "product": 2 * 3}"#, expected);
+
+        // Map with context access
+        let mut expected = HashMap::new();
+        expected.insert("user_name".to_string(), Val::Str("lk".to_string()));
+        expected.insert("user_age".to_string(), Val::Int(18));
+        expect(
+            r#"{"user_name": @user.name, "user_age": @user.age}"#,
+            expected,
+        );
+
+        // Map with different key types
+        let mut expected = HashMap::new();
+        expected.insert("42".to_string(), Val::Str("number".to_string()));
+        expected.insert("true".to_string(), Val::Str("bool".to_string()));
+        expected.insert("key".to_string(), Val::Str("string".to_string()));
+        expect(r#"{42: "number", true: "bool", "key": "string"}"#, expected);
+    }
+
+    #[test]
+    fn nested_structures() {
+        use std::collections::HashMap;
+
+        // List of maps
+        let mut map1 = HashMap::new();
+        map1.insert("name".to_string(), Val::Str("Alice".to_string()));
+        map1.insert("age".to_string(), Val::Int(30));
+
+        let mut map2 = HashMap::new();
+        map2.insert("name".to_string(), Val::Str("Bob".to_string()));
+        map2.insert("age".to_string(), Val::Int(25));
+
+        expect(
+            r#"[{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]"#,
+            vec![Val::Map(Box::new(map1)), Val::Map(Box::new(map2))],
+        );
+
+        // Map with lists
+        let mut expected = HashMap::new();
+        expected.insert(
+            "numbers".to_string(),
+            Val::List(Box::new(vec![Val::Int(1), Val::Int(2), Val::Int(3)])),
+        );
+        expected.insert("active".to_string(), Val::Bool(true));
+        expect(r#"{"numbers": [1, 2, 3], "active": true}"#, expected);
+    }
+
+    #[test]
+    fn literal_access() {
+        // Access elements from list literals
+        expect("[1, 2, 3].1", 2);
+        expect(r#"["hello", "world"].0"#, "hello");
+
+        // Access fields from map literals
+        expect(r#"{"name": "Alice", "age": 30}.name"#, "Alice");
+        expect(r#"{"name": "Alice", "age": 30}.age"#, 30);
+
+        // Nested access
+        expect(r#"[{"name": "Alice"}, {"name": "Bob"}].0.name"#, "Alice");
+        expect(r#"{"users": [1, 2, 3]}.users.1"#, 2);
+    }
+
+    #[test]
+    fn trailing_commas() {
+        // List with trailing comma
+        expect("[1, 2, 3,]", vec![1, 2, 3]);
+
+        // Map with trailing comma
+        use std::collections::HashMap;
+        let mut expected = HashMap::new();
+        expected.insert("a".to_string(), Val::Int(1));
+        expected.insert("b".to_string(), Val::Int(2));
+        expect(r#"{"a": 1, "b": 2,}"#, expected);
+    }
+
+    #[test]
+    fn error_cases() {
+        // Invalid map key types
+        panic(r#"{[1, 2]: "invalid"}"#);
+        panic(r#"{{}: "invalid"}"#);
+    }
+
+    #[test]
     fn test_requested_ctx() {
         let expr = Expr::try_from("@user.props.(@req.service) && @list.0 || @pub").unwrap();
         let names = expr.requested_ctx();
@@ -112,6 +235,18 @@ mod test {
         expected.insert("req".to_string());
         expected.insert("list".to_string());
         expected.insert("pub".to_string());
+
+        assert_eq!(names, expected);
+
+        // Test with list/map literals containing context access
+        let expr =
+            Expr::try_from(r#"[@user.name, @list.0] == {"name": @user.name, "first": @list.0}"#)
+                .unwrap();
+        let names = expr.requested_ctx();
+
+        let mut expected = HashSet::new();
+        expected.insert("user".to_string());
+        expected.insert("list".to_string());
 
         assert_eq!(names, expected);
     }

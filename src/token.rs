@@ -1,12 +1,19 @@
 use std::fmt::Debug;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     LParen,      // (
     RParen,      // )
+    LBrace,      // {
+    RBrace,      // }
+    LBracket,    // [
+    RBracket,    // ]
     Dot,         // .
+    Colon,       // :
+    Comma,       // ,
+    Semicolon,   // ;
     Nil,         // nil
     Eq,          // ==
     Ne,          // !=
@@ -268,6 +275,41 @@ impl Tokenizer {
                 self.tokens.push(Token::RParen);
                 Ok(())
             }
+            '{' => {
+                self.idx += 1;
+                self.tokens.push(Token::LBrace);
+                Ok(())
+            }
+            '}' => {
+                self.idx += 1;
+                self.tokens.push(Token::RBrace);
+                Ok(())
+            }
+            '[' => {
+                self.idx += 1;
+                self.tokens.push(Token::LBracket);
+                Ok(())
+            }
+            ']' => {
+                self.idx += 1;
+                self.tokens.push(Token::RBracket);
+                Ok(())
+            }
+            ':' => {
+                self.idx += 1;
+                self.tokens.push(Token::Colon);
+                Ok(())
+            }
+            ',' => {
+                self.idx += 1;
+                self.tokens.push(Token::Comma);
+                Ok(())
+            }
+            ';' => {
+                self.idx += 1;
+                self.tokens.push(Token::Semicolon);
+                Ok(())
+            }
             '.' => {
                 let next = self.chars.get(self.idx + 1);
                 if let Some(&c) = next {
@@ -410,8 +452,8 @@ impl Tokenizer {
 
     fn is_punctuation(&self, c: char) -> bool {
         match c {
-            '(' | ')' | '.' | '&' | '|' | '+' | '-' | '*' | '/' | '%' | '@' | '=' | '!' | '>'
-            | '<' => true,
+            '(' | ')' | '{' | '}' | '[' | ']' | '.' | ':' | ',' | ';' | '&' | '|' | '+' | '-'
+            | '*' | '/' | '%' | '@' | '=' | '!' | '>' | '<' => true,
             _ => false,
         }
     }

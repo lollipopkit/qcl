@@ -158,6 +158,69 @@ mod tests {
         assert_eq!(val.access(&index), None);
     }
 
+    // Literal creation tests
+    #[test]
+    fn test_literal_list_creation() {
+        let list = vec![Val::Int(1), Val::Str("hello".to_string()), Val::Bool(true)];
+        let val = Val::List(Box::new(list.clone()));
+
+        // Test access
+        assert_eq!(val.access(&Val::Int(0)), Some(&Val::Int(1)));
+        assert_eq!(
+            val.access(&Val::Int(1)),
+            Some(&Val::Str("hello".to_string()))
+        );
+        assert_eq!(val.access(&Val::Int(2)), Some(&Val::Bool(true)));
+        assert_eq!(val.access(&Val::Int(3)), None);
+    }
+
+    #[test]
+    fn test_literal_map_creation() {
+        let mut map = HashMap::new();
+        map.insert("name".to_string(), Val::Str("Alice".to_string()));
+        map.insert("age".to_string(), Val::Int(30));
+        map.insert("active".to_string(), Val::Bool(true));
+
+        let val = Val::Map(Box::new(map));
+
+        // Test access
+        assert_eq!(
+            val.access(&Val::Str("name".to_string())),
+            Some(&Val::Str("Alice".to_string()))
+        );
+        assert_eq!(
+            val.access(&Val::Str("age".to_string())),
+            Some(&Val::Int(30))
+        );
+        assert_eq!(
+            val.access(&Val::Str("active".to_string())),
+            Some(&Val::Bool(true))
+        );
+        assert_eq!(val.access(&Val::Str("nonexistent".to_string())), None);
+    }
+
+    #[test]
+    fn test_nested_literal_access() {
+        // Create nested structure: {"users": [{"name": "Alice", "age": 30}]}
+        let mut inner_map = HashMap::new();
+        inner_map.insert("name".to_string(), Val::Str("Alice".to_string()));
+        inner_map.insert("age".to_string(), Val::Int(30));
+
+        let users_list = vec![Val::Map(Box::new(inner_map))];
+
+        let mut outer_map = HashMap::new();
+        outer_map.insert("users".to_string(), Val::List(Box::new(users_list)));
+
+        let val = Val::Map(Box::new(outer_map));
+
+        // Test nested access
+        let users = val.access(&Val::Str("users".to_string())).unwrap();
+        let first_user = users.access(&Val::Int(0)).unwrap();
+        let name = first_user.access(&Val::Str("name".to_string())).unwrap();
+
+        assert_eq!(name, &Val::Str("Alice".to_string()));
+    }
+
     // Comparison tests
     #[test]
     fn test_partial_ord_integers() {
@@ -197,5 +260,61 @@ mod tests {
         let b = Val::Str("abc".to_string());
 
         assert_eq!(a.partial_cmp(&b), None);
+    }
+
+    #[test]
+    fn test_literal_equality() {
+        // Test list equality
+        let list1 = Val::List(Box::new(vec![Val::Int(1), Val::Int(2), Val::Int(3)]));
+        let list2 = Val::List(Box::new(vec![Val::Int(1), Val::Int(2), Val::Int(3)]));
+        let list3 = Val::List(Box::new(vec![Val::Int(1), Val::Int(2), Val::Int(4)]));
+
+        assert_eq!(list1, list2);
+        assert_ne!(list1, list3);
+
+        // Test map equality
+        let mut map1 = HashMap::new();
+        map1.insert("a".to_string(), Val::Int(1));
+        map1.insert("b".to_string(), Val::Int(2));
+
+        let mut map2 = HashMap::new();
+        map2.insert("a".to_string(), Val::Int(1));
+        map2.insert("b".to_string(), Val::Int(2));
+
+        let mut map3 = HashMap::new();
+        map3.insert("a".to_string(), Val::Int(1));
+        map3.insert("b".to_string(), Val::Int(3));
+
+        let val1 = Val::Map(Box::new(map1));
+        let val2 = Val::Map(Box::new(map2));
+        let val3 = Val::Map(Box::new(map3));
+
+        assert_eq!(val1, val2);
+        assert_ne!(val1, val3);
+    }
+
+    #[test]
+    fn test_display_formatting() {
+        // Test list display
+        let list = Val::List(Box::new(vec![
+            Val::Int(1),
+            Val::Str("hello".to_string()),
+            Val::Bool(true),
+        ]));
+        let display = format!("{}", list);
+        assert!(display.contains("1") && display.contains("hello") && display.contains("true"));
+
+        // Test map display
+        let mut map = HashMap::new();
+        map.insert("name".to_string(), Val::Str("Alice".to_string()));
+        map.insert("age".to_string(), Val::Int(30));
+        let val = Val::Map(Box::new(map));
+        let display = format!("{}", val);
+        assert!(
+            display.contains("name")
+                && display.contains("Alice")
+                && display.contains("age")
+                && display.contains("30")
+        );
     }
 }

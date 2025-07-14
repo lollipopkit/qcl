@@ -3,27 +3,30 @@ use std::{
     fmt::{Debug, Display},
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
 use crate::{
     ast::Parser,
-    op::{err_op, BinOp, UnaryOp},
+    op::{BinOp, UnaryOp, err_op},
     token::Tokenizer,
     val::Val,
 };
 
 /// Grammar:
 /// exp     ::= paren
-/// paren   ::= {‘(’} or {‘)’}
-/// or      ::= and {’||’ and}
-/// and     ::= cmp {’&&’ cmp}
-/// cmp     ::= addsub {(‘<’ | ‘>’ | ‘<=’ | ‘>=’ | ‘!=’ | ‘==’) addsub}
-/// addsub  ::= muldiv {(‘+’ | ‘-’) muldiv}
-/// muldiv  ::= unary {(‘*’ | ‘/’ | ‘%’) unary}
-/// unary   ::= {‘!’} primary
-/// primary ::= nil | false | true | int | float | string | at
-/// at      ::= ‘@’ field {‘.’ field}
+/// paren   ::= {'('} or {')'}
+/// or      ::= and {'||' and}
+/// and     ::= cmp {'&&' cmp}
+/// cmp     ::= addsub {('<' | '>' | '<=' | '>=' | '!=' | '==') addsub}
+/// addsub  ::= muldiv {('+' | '-') muldiv}
+/// muldiv  ::= unary {('*' | '/' | '%') unary}
+/// unary   ::= {'!'} postfix
+/// postfix ::= primary {'.' field}
+/// primary ::= nil | false | true | int | float | string | at | list | map
+/// at      ::= '@' field {'.' field}
 /// field   ::= id | int
+/// list    ::= '[' [expr {',' expr}] ']'
+/// map     ::= '{' [expr ':' expr {',' expr ':' expr}] '}'
 ///
 ///
 /// Details:
@@ -41,10 +44,17 @@ use crate::{
 /// - nil
 ///   + ONLY [Option::None] and [Result::Err] are `nil`.
 ///   + zero value of all types are NOT `nil`.
+/// - list literals: `[1, 2, "hello"]`
+/// - map literals: `{"key": "value", "count": 42}`
+/// - Access literals: `[1, 2, 3].1`, `{"name": "Alice"}.name`
 ///
 /// Examples:
 /// - `@req.user.age >= 18`
 /// - `@req.user.name == "Alice" && @record.status == "active"`
+/// - `[1, 2, 3]`
+/// - `{"name": "John", "age": 30}`
+/// - `[1, 2, 3].1`
+/// - `{"name": "Alice"}.name`
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     /// expr == expr
@@ -55,11 +65,17 @@ pub enum Expr {
     And(Box<Expr>, Box<Expr>),
     /// expr || expr
     Or(Box<Expr>, Box<Expr>),
-    /// expr.field
+    /// @field.field...
     /// field can be string or int
     At(Vec<Box<Expr>>),
+    /// expr.field
+    Access(Box<Expr>, Box<Expr>),
     // (expr)
     Paren(Box<Expr>),
+    /// [expr, expr, ...]
+    List(Vec<Box<Expr>>),
+    /// {expr: expr, expr: expr, ...}
+    Map(Vec<(Box<Expr>, Box<Expr>)>),
     Val(Val),
 }
 
@@ -109,6 +125,45 @@ impl Expr {
                 // Return a clone only at the end of evaluation to reduce allocations
                 Ok(val.clone())
             }
+            Expr::Access(expr, field) => {
+                let val = expr.eval(ctx)?;
+                let field_val = field.eval(ctx)?;
+                match val.access(&field_val) {
+                    Some(v) => Ok(v.clone()),
+                    None => Ok(Val::Nil),
+                }
+            }
+            Expr::List(exprs) => {
+                let mut values = Vec::with_capacity(exprs.len());
+                for expr in exprs {
+                    values.push(expr.eval(ctx)?);
+                }
+                Ok(Val::List(Box::new(values)))
+            }
+            Expr::Map(pairs) => {
+                let mut map = std::collections::HashMap::with_capacity(pairs.len());
+                for (key_expr, value_expr) in pairs {
+                    let key_val = key_expr.eval(ctx)?;
+                    let value_val = value_expr.eval(ctx)?;
+
+                    // Convert key to string for map indexing
+                    let key_str = match key_val {
+                        Val::Str(s) => s,
+                        Val::Int(i) => i.to_string(),
+                        Val::Float(f) => f.to_string(),
+                        Val::Bool(b) => b.to_string(),
+                        _ => {
+                            return Err(anyhow!(
+                                "Map key must be a primitive type, got: {:?}",
+                                key_val
+                            ));
+                        }
+                    };
+
+                    map.insert(key_str, value_val);
+                }
+                Ok(Val::Map(Box::new(map)))
+            }
             Expr::Paren(expr) => expr.eval(ctx),
             Expr::Val(val) => Ok(val.clone()), // TODO
         }
@@ -147,6 +202,10 @@ impl Expr {
                     }
                 }
             }
+            Expr::Access(expr, field) => {
+                expr.collect_ctx_names(names);
+                field.collect_ctx_names(names);
+            }
             Expr::Bin(l, _, r) => {
                 l.collect_ctx_names(names);
                 r.collect_ctx_names(names);
@@ -157,6 +216,17 @@ impl Expr {
             Expr::And(l, r) | Expr::Or(l, r) => {
                 l.collect_ctx_names(names);
                 r.collect_ctx_names(names);
+            }
+            Expr::List(exprs) => {
+                for expr in exprs {
+                    expr.collect_ctx_names(names);
+                }
+            }
+            Expr::Map(pairs) => {
+                for (key, value) in pairs {
+                    key.collect_ctx_names(names);
+                    value.collect_ctx_names(names);
+                }
             }
             Expr::Paren(expr) => {
                 expr.collect_ctx_names(names);
@@ -213,6 +283,16 @@ impl Display for Expr {
             Expr::At(paths) => {
                 let paths: Vec<String> = paths.iter().map(|p| p.to_string()).collect();
                 write!(f, "@{}", paths.join("."))
+            }
+            Expr::Access(expr, field) => write!(f, "{}.{}", expr, field),
+            Expr::List(exprs) => {
+                let exprs: Vec<String> = exprs.iter().map(|e| e.to_string()).collect();
+                write!(f, "[{}]", exprs.join(", "))
+            }
+            Expr::Map(pairs) => {
+                let pairs: Vec<String> =
+                    pairs.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
+                write!(f, "{{{}}}", pairs.join(", "))
             }
             Expr::Paren(expr) => write!(f, "{expr}"),
             Expr::Val(val) => write!(f, "{}", val),
