@@ -368,8 +368,20 @@ impl Tokenizer {
                 Ok(())
             }
             '/' => {
-                self.idx += 1;
-                self.tokens.push(Token::Div);
+                if self.expect("//") {
+                    // Skip single-line comment
+                    while !self.eof() {
+                        let c = self.chars[self.idx];
+                        if c == '\n' {
+                            self.idx += 1;
+                            break;
+                        }
+                        self.idx += 1;
+                    }
+                } else {
+                    self.idx += 1;
+                    self.tokens.push(Token::Div);
+                }
                 Ok(())
             }
             '%' => {

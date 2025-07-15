@@ -544,4 +544,14 @@ mod tests {
         ];
         assert_eq!(t.unwrap(), e);
     }
+
+    #[test]
+    fn test_comment() {
+        let t = Tokenizer::new("123 // 这是一个注释\n456");
+        let e = vec![
+            Token::Int(123),
+            Token::Int(456),
+        ];
+        assert_eq!(t.unwrap(), e);
+    }
 }

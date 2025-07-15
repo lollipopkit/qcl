@@ -9,18 +9,10 @@ It's designed to be used in ACL (Access Control List) systems, where you need to
 
 ### Example
 
-```qcl
-(
-    @req.user.role == 'admin' 
-    ||
-    @req.user.id in @record.granted
-)
-&&
-(
-    @record.published
-    ||
-    @record.owner == @req.user.id
-)
+```js
+(@record.published || @record.owner == @req.user.id) // Normal case
+|| // Or operator
+(@req.user.role == 'admin' || @req.user.id in @record.granted) // Special case
 ```
 
 Let's break it down:
@@ -79,5 +71,5 @@ match result {
 ## License
 
 ```plaintext
-Apache-2.0 2024 @lollipopkit
+Apache-2.0 lollipopkit
 ```
