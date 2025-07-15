@@ -31,7 +31,7 @@ dependencies = [
 
 [[package]]
 name = "qcl"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "anyhow",
  "serde",
