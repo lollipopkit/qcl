@@ -309,6 +309,43 @@ impl From<serde_json::Value> for Val {
     }
 }
 
+impl From<serde_yaml::Value> for Val {
+    fn from(val: serde_yaml::Value) -> Self {
+        match val {
+            serde_yaml::Value::String(s) => Val::Str(Arc::from(s.as_str())),
+            serde_yaml::Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    Val::Int(i)
+                } else if let Some(f) = n.as_f64() {
+                    Val::Float(f)
+                } else {
+                    Val::Nil
+                }
+            }
+            serde_yaml::Value::Bool(b) => Val::Bool(b),
+            serde_yaml::Value::Sequence(a) => {
+                let v = a.into_iter().map(Val::from).collect();
+                Val::List(Arc::new(v))
+            }
+            serde_yaml::Value::Mapping(o) => {
+                let m = o
+                    .into_iter()
+                    .filter_map(|(k, v)| {
+                        if let serde_yaml::Value::String(key) = k {
+                            Some((key, Val::from(v)))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                Val::Map(Arc::new(m))
+            }
+            serde_yaml::Value::Null => Val::Nil,
+            serde_yaml::Value::Tagged(tagged) => Val::from(tagged.value),
+        }
+    }
+}
+
 impl Val {
     pub fn try_from<T>(val: T) -> Result<Self>
     where

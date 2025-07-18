@@ -317,4 +317,137 @@ mod tests {
                 && display.contains("30")
         );
     }
+
+    #[test]
+    fn test_from_yaml_value() {
+        // Test basic YAML value conversions
+        let yaml_str = serde_yaml::Value::String("hello".to_string());
+        let val: Val = yaml_str.into();
+        assert_eq!(val, Val::Str("hello".into()));
+
+        let yaml_int = serde_yaml::Value::Number(serde_yaml::Number::from(42));
+        let val: Val = yaml_int.into();
+        assert_eq!(val, Val::Int(42));
+
+        let yaml_float = serde_yaml::Value::Number(serde_yaml::Number::from(3.14));
+        let val: Val = yaml_float.into();
+        assert_eq!(val, Val::Float(3.14));
+
+        let yaml_bool = serde_yaml::Value::Bool(true);
+        let val: Val = yaml_bool.into();
+        assert_eq!(val, Val::Bool(true));
+
+        let yaml_null = serde_yaml::Value::Null;
+        let val: Val = yaml_null.into();
+        assert_eq!(val, Val::Nil);
+    }
+
+    #[test]
+    fn test_yaml_sequence() {
+        let yaml_seq = serde_yaml::Value::Sequence(vec![
+            serde_yaml::Value::Number(serde_yaml::Number::from(1)),
+            serde_yaml::Value::String("hello".to_string()),
+            serde_yaml::Value::Bool(true),
+        ]);
+        let val: Val = yaml_seq.into();
+        
+        let expected = Val::List(vec![
+            Val::Int(1),
+            Val::Str("hello".into()),
+            Val::Bool(true),
+        ].into());
+        
+        assert_eq!(val, expected);
+    }
+
+    #[test]
+    fn test_yaml_mapping() {
+        let mut yaml_map = serde_yaml::Mapping::new();
+        yaml_map.insert(
+            serde_yaml::Value::String("name".to_string()),
+            serde_yaml::Value::String("Alice".to_string()),
+        );
+        yaml_map.insert(
+            serde_yaml::Value::String("age".to_string()),
+            serde_yaml::Value::Number(serde_yaml::Number::from(30)),
+        );
+        
+        let yaml_mapping = serde_yaml::Value::Mapping(yaml_map);
+        let val: Val = yaml_mapping.into();
+        
+        let mut expected_map = HashMap::new();
+        expected_map.insert("name".to_string(), Val::Str("Alice".into()));
+        expected_map.insert("age".to_string(), Val::Int(30));
+        let expected = Val::Map(expected_map.into());
+        
+        assert_eq!(val, expected);
+    }
+
+    #[test]
+    fn test_yaml_tagged_value() {
+        use serde_yaml::value::{Tag, TaggedValue};
+        
+        let tagged = serde_yaml::Value::Tagged(Box::new(TaggedValue {
+            tag: Tag::new("!custom"),
+            value: serde_yaml::Value::String("tagged_value".to_string()),
+        }));
+        let val: Val = tagged.into();
+        assert_eq!(val, Val::Str("tagged_value".into()));
+    }
+
+    #[test]
+    fn test_format_detection() {
+        use crate::de::{detect_format, Format};
+        
+        // JSON detection
+        assert_eq!(detect_format(r#"{"key": "value"}"#), Format::Json);
+        assert_eq!(detect_format(r#"[1, 2, 3]"#), Format::Json);
+        assert_eq!(detect_format(r#"{"nested": {"key": "value"}}"#), Format::Json);
+        
+        // YAML detection
+        assert_eq!(detect_format("key: value"), Format::Yaml);
+        assert_eq!(detect_format("- item1\n- item2"), Format::Yaml);
+        assert_eq!(detect_format("---\nkey: value"), Format::Yaml);
+        assert_eq!(detect_format("key: value\n..."), Format::Yaml);
+        assert_eq!(detect_format("multiline: |\n  line1\n  line2"), Format::Yaml);
+        assert_eq!(detect_format("folded: >\n  line1\n  line2"), Format::Yaml);
+        
+        // Complex YAML
+        assert_eq!(detect_format("person:\n  name: John\n  age: 30"), Format::Yaml);
+        assert_eq!(detect_format("# Comment\nkey: value"), Format::Yaml);
+        
+        // Edge cases
+        assert_eq!(detect_format(""), Format::Json); // Empty defaults to JSON
+        assert_eq!(detect_format("   "), Format::Json); // Whitespace defaults to JSON
+        assert_eq!(detect_format("null"), Format::Json); // Valid JSON
+        assert_eq!(detect_format("true"), Format::Json); // Valid JSON
+        assert_eq!(detect_format("42"), Format::Json); // Valid JSON
+    }
+
+    #[test]
+    fn test_parse_with_format() {
+        use crate::de::{parse_with_format, Format};
+        
+        // Auto-detect JSON
+        let json_input = r#"{"name": "Alice", "age": 30}"#;
+        let result = parse_with_format(json_input, None).unwrap();
+        assert_eq!(result.access(&Val::Str("name".into())), Some(&Val::Str("Alice".into())));
+        assert_eq!(result.access(&Val::Str("age".into())), Some(&Val::Int(30)));
+        
+        // Auto-detect YAML
+        let yaml_input = "name: Bob\nage: 25";
+        let result = parse_with_format(yaml_input, None).unwrap();
+        assert_eq!(result.access(&Val::Str("name".into())), Some(&Val::Str("Bob".into())));
+        assert_eq!(result.access(&Val::Str("age".into())), Some(&Val::Int(25)));
+        
+        // Force JSON format
+        let yaml_as_json = r#"{"name": "Charlie", "age": 35}"#;
+        let result = parse_with_format(yaml_as_json, Some(Format::Json)).unwrap();
+        assert_eq!(result.access(&Val::Str("name".into())), Some(&Val::Str("Charlie".into())));
+        
+        // Force YAML format
+        let json_as_yaml = "name: Dave\nage: 40";
+        let result = parse_with_format(json_as_yaml, Some(Format::Yaml)).unwrap();
+        assert_eq!(result.access(&Val::Str("name".into())), Some(&Val::Str("Dave".into())));
+    }
 }
