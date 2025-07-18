@@ -41,40 +41,36 @@ mod tests {
     test_op!(list_sub_list, Sub, "@list", "@list-2", vec![2, 3]);
 
     // Tests with literal expressions
+    #[cfg(feature = "adv_arith")]
     #[test]
     fn literal_list_operations() {
-        let ctx = json!({}).into();
+        let ctx: Val = json!({}).into();
 
         let l: Expr = "[1, 2, 3]".try_into().unwrap();
         let r: Expr = "[4, 5]".try_into().unwrap();
 
-        #[cfg(feature = "adv_arith")]
-        {
-            let result = BinOp::Add.eval(&l, &r, &ctx).unwrap();
-            let expected: Val = vec![1, 2, 3, 4, 5].into();
-            assert_eq!(result, expected);
-        }
+        let result = BinOp::Add.eval(&l, &r, &ctx).unwrap();
+        let expected: Val = vec![1, 2, 3, 4, 5].into();
+        assert_eq!(result, expected);
     }
 
+    #[cfg(feature = "adv_arith")]
     #[test]
     fn literal_map_operations() {
-        let ctx = json!({}).into();
+        let ctx: Val = json!({}).into();
 
-        #[cfg(feature = "adv_arith")]
-        {
-            let l: Expr = r#"{"a": 1, "b": 2}"#.try_into().unwrap();
-            let r: Expr = r#"{"c": 3, "a": 4}"#.try_into().unwrap();
+        let l: Expr = r#"{"a": 1, "b": 2}"#.try_into().unwrap();
+        let r: Expr = r#"{"c": 3, "a": 4}"#.try_into().unwrap();
 
-            let result = BinOp::Add.eval(&l, &r, &ctx).unwrap();
+        let result = BinOp::Add.eval(&l, &r, &ctx).unwrap();
 
-            // The result should be a map with "a": 4, "b": 2, "c": 3
-            if let Val::Map(map) = result {
-                assert_eq!(map.get("a"), Some(&Val::Int(4)));
-                assert_eq!(map.get("b"), Some(&Val::Int(2)));
-                assert_eq!(map.get("c"), Some(&Val::Int(3)));
-            } else {
-                panic!("Expected map result");
-            }
+        // The result should be a map with "a": 4, "b": 2, "c": 3
+        if let Val::Map(map) = result {
+            assert_eq!(map.get("a"), Some(&Val::Int(4)));
+            assert_eq!(map.get("b"), Some(&Val::Int(2)));
+            assert_eq!(map.get("c"), Some(&Val::Int(3)));
+        } else {
+            panic!("Expected map result");
         }
     }
 
@@ -116,7 +112,7 @@ mod tests {
 
     #[test]
     fn nested_literal_comparisons() {
-        let ctx = json!({}).into();
+        let ctx: Val = json!({}).into();
 
         // Compare nested lists
         let l: Expr = "[[1, 2], [3, 4]]".try_into().unwrap();
@@ -143,7 +139,7 @@ mod tests {
 
     #[test]
     fn mixed_type_comparisons() {
-        let ctx = json!({}).into();
+        let ctx: Val = json!({}).into();
 
         // List vs non-list
         let l: Expr = "[1, 2, 3]".try_into().unwrap();

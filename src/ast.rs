@@ -4,9 +4,10 @@ use crate::{
     token::Token,
     val::Val,
 };
+use std::sync::Arc;
 use anyhow::{Result, anyhow};
 
-pub(crate) struct Parser<'a> {
+pub struct Parser<'a> {
     tokens: &'a [Token],
     pos: usize,
     len: usize,
@@ -24,7 +25,8 @@ impl<'a> Parser<'a> {
             return Err(anyhow!(self.err("Unexpected tokens at end")));
         }
 
-        Ok(exp)
+        // All sub-expressions parsed, apply constant folding optimization
+        Ok(exp.fold_constants())
     }
 
     fn parse_expr(&mut self) -> Result<Expr> {
@@ -194,7 +196,7 @@ impl<'a> Parser<'a> {
             }
             Token::Str(s) => {
                 self.pos += 1;
-                Expr::Val(Val::Str(s.to_owned()))
+                Expr::Val(Val::Str(Arc::from(s.as_str())))
             }
             Token::At => self.parse_at()?,
             Token::LBracket => self.parse_list()?,
@@ -227,7 +229,7 @@ impl<'a> Parser<'a> {
             // This is where the recursion issue was - we need a terminal case
             match &self.tokens[self.pos] {
                 Token::Id(id) => {
-                    let expr = Expr::Val(Val::Str(id.clone()));
+                    let expr = Expr::Val(Val::Str(Arc::from(id.as_str())));
                     self.pos += 1;
                     Ok(expr)
                 }
@@ -455,7 +457,7 @@ impl<'a> Parser<'a> {
     fn parse_field_accessor(&mut self) -> Result<Expr> {
         match &self.tokens[self.pos] {
             Token::Id(id) => {
-                let expr = Expr::Val(Val::Str(id.clone()));
+                let expr = Expr::Val(Val::Str(Arc::from(id.as_str())));
                 self.pos += 1;
                 Ok(expr)
             }
@@ -570,7 +572,7 @@ impl<'a> Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    pub(crate) fn new(tokens: &'a [Token]) -> Self {
+    pub fn new(tokens: &'a [Token]) -> Self {
         let len = tokens.len();
         Self {
             tokens,

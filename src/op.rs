@@ -54,14 +54,14 @@ pub enum BinOp {
 }
 
 impl BinOp {
-    fn is_arith(&self) -> bool {
+    pub(crate) fn is_arith(&self) -> bool {
         match self {
             BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => true,
             _ => false,
         }
     }
 
-    fn is_cmp(&self) -> bool {
+    pub(crate) fn is_cmp(&self) -> bool {
         match self {
             BinOp::Eq | BinOp::Ne | BinOp::Gt | BinOp::Lt | BinOp::Ge | BinOp::Le | BinOp::In => {
                 true
@@ -81,21 +81,53 @@ impl BinOp {
         }
     }
 
-    fn cmp(&self, l: &Val, r: &Val) -> Result<bool> {
+    pub(crate) fn cmp(&self, l: &Val, r: &Val) -> Result<bool> {
         match self {
             BinOp::Eq => Ok(l == r),
             BinOp::Ne => Ok(l != r),
             BinOp::In => match (l, r) {
-                (Val::Str(l), Val::Str(r)) => Ok(r.contains(l)),
+                (Val::Str(l), Val::Str(r)) => Ok(r.as_ref().contains(l.as_ref())),
 
                 // All elements in l must be in r
-                (Val::List(l), Val::List(r)) => Ok(l.iter().all(|x| r.contains(x))),
-                (_, Val::List(r)) => Ok(r.contains(l)),
+                (Val::List(l), Val::List(r)) => Ok((**l).iter().all(|x| (**r).contains(x))),
+                // Single element membership: use HashSet for large lists
+                (_, Val::List(r)) => {
+                    if r.len() > 32 {
+                        use std::collections::HashSet;
+                        match l {
+                            Val::Int(i) => {
+                                let set: HashSet<_> = (**r).iter()
+                                    .filter_map(|v| if let Val::Int(x) = v { Some(*x) } else { None })
+                                    .collect();
+                                Ok(set.contains(i))
+                            }
+                            Val::Str(s) => {
+                                let set: HashSet<_> = (**r).iter()
+                                    .filter_map(|v| if let Val::Str(t) = v { Some(t.as_ref()) } else { None })
+                                    .collect();
+                                Ok(set.contains(s.as_ref()))
+                            }
+                            Val::Bool(b) => {
+                                let set: HashSet<_> = (**r).iter()
+                                    .filter_map(|v| if let Val::Bool(x) = v { Some(*x) } else { None })
+                                    .collect();
+                                Ok(set.contains(b))
+                            }
+                            _ => Ok((**r).contains(l)),
+                        }
+                    } else {
+                        Ok((**r).contains(l))
+                    }
+                },
 
-                // If l is a string, check if it's a key in the map, for performance.
-                (Val::Str(s), Val::Map(m)) => Ok(m.contains_key(s)),
-                // Otherwise, check if l is a value in the map.
-                (val, Val::Map(m)) => Ok(m.values().any(|v| v == val)),
+                // Map key lookup optimization
+                (Val::Str(s), Val::Map(m)) => Ok(m.contains_key(s.as_ref())),
+                // For non-string keys, try converting to string key
+                (Val::Int(i), Val::Map(m)) => Ok(m.contains_key(&i.to_string())),
+                (Val::Float(f), Val::Map(m)) => Ok(m.contains_key(&f.to_string())),
+                (Val::Bool(b), Val::Map(m)) => Ok(m.contains_key(&b.to_string())),
+                // Other types return false (Nil or complex structures can't be keys)
+                (_, Val::Map(_)) => Ok(false),
 
                 #[cfg(feature = "adv_arith")]
                 (Val::Float(l), Val::Float(r)) => Ok(l < r),

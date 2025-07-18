@@ -3,28 +3,32 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     ops::{Div, Mul, Rem},
+    sync::Arc,
 };
 
 use anyhow::Result;
+use serde::{Serialize, Serializer};
 
 use crate::op::{err_op, BinOp};
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Val {
-    Str(String),
+    /// String type, wrapped in Arc<str> for efficient cloning
+    Str(Arc<str>),
     Int(i64), // Since most arch are 64 bit, we can use i64 for int
     Float(f64),
     Bool(bool),
-    Map(Box<HashMap<String, Val>>),
-    List(Box<Vec<Val>>),
+    /// Map type, wrapped in Arc<HashMap> to avoid deep cloning
+    Map(Arc<HashMap<String, Val>>),
+    /// List type, wrapped in Arc<Vec> for efficient cloning
+    List(Arc<Vec<Val>>),
     Nil,
 }
 
 impl Val {
     pub(crate) fn access(&self, field: &Val) -> Option<&Val> {
         match (self, field) {
-            (Val::Map(m), Val::Str(s)) => m.get(s),
+            (Val::Map(m), Val::Str(s)) => m.get(s.as_ref()),
             (Val::List(l), Val::Int(i)) => {
                 if *i < 0 {
                     return None;
@@ -50,9 +54,9 @@ impl Add for &Val {
             (Val::Int(a), Val::Float(b)) => Ok(Val::Float(*a as f64 + b)),
             (Val::Str(a), Val::Str(b)) => {
                 let mut res = String::with_capacity(a.len() + b.len());
-                res.push_str(a);
-                res.push_str(b);
-                Ok(Val::Str(res))
+                res.push_str(a.as_ref());
+                res.push_str(b.as_ref());
+                Ok(Val::Str(Arc::from(res.as_str())))
             }
             #[cfg(feature = "adv_arith")]
             (Val::Str(a), Val::Int(b)) => Ok(format!("{}{}", a, b).into()),
@@ -64,22 +68,24 @@ impl Add for &Val {
             (Val::Float(a), Val::Str(b)) => Ok(format!("{}{}", a, b).into()),
             #[cfg(feature = "adv_arith")]
             (Val::Map(l), Val::Map(r)) => {
-                let mut res = l.clone();
-                let r = r.iter().map(|(k, v)| (k.clone(), v.clone()));
-                res.extend(r);
-                Ok(res.into())
+                // Map + Map: merge with right side overriding left side for same keys
+                let mut merged = (**l).clone();
+                for (k, v) in (**r).iter() {
+                    merged.insert(k.clone(), v.clone());
+                }
+                Ok(merged.into())
             }
             #[cfg(feature = "adv_arith")]
             (Val::List(l), Val::List(r)) => {
-                let mut res = l.clone();
-                res.extend(r.iter().cloned());
-                Ok(res.into())
+                let mut merged = (**l).clone();
+                merged.extend((**r).iter().cloned());
+                Ok(merged.into())
             }
             #[cfg(feature = "adv_arith")]
             (Val::List(l), r) => {
-                let mut res = l.clone();
-                res.push(r.clone());
-                Ok(res.into())
+                let mut new_list = (**l).clone();
+                new_list.push(r.clone());
+                Ok(new_list.into())
             }
             _ => err_op(self, BinOp::Add, other),
         }
@@ -97,37 +103,36 @@ impl Sub for &Val {
             (Val::Int(a), Val::Float(b)) => Ok((*a as f64 - b).into()),
             #[cfg(feature = "adv_arith")]
             (Val::List(l), Val::List(r)) => {
-                // Semantically, remove vals both inside [l] and [r]
-                let mut res = l.clone();
-                for val in r.iter() {
-                    if let Some(idx) = res.iter().position(|v| v == val) {
-                        res.remove(idx);
+                let mut result = (**l).clone();
+                for val in (**r).iter() {
+                    if let Some(idx) = result.iter().position(|v| v == val) {
+                        result.remove(idx);
                     }
                 }
-                Ok(res.into())
+                Ok(result.into())
             }
             #[cfg(feature = "adv_arith")]
             (Val::List(l), r) => {
-                let mut res = l.clone();
-                if let Some(idx) = res.iter().position(|v| v == r) {
-                    res.remove(idx);
+                let mut result = (**l).clone();
+                if let Some(idx) = result.iter().position(|v| v == r) {
+                    result.remove(idx);
                 }
-                Ok(res.into())
+                Ok(result.into())
             }
             #[cfg(feature = "adv_arith")]
             (Val::Map(l), Val::Map(r)) => {
-                let mut res = l.clone();
-                for (k, _) in r.iter() {
-                    res.remove(k);
+                let mut result = (**l).clone();
+                for (k, _) in (**r).iter() {
+                    result.remove(k);
                 }
-                Ok(res.into())
+                Ok(result.into())
             }
             #[cfg(feature = "adv_arith")]
             (Val::Map(l), r) => {
                 if let Val::Str(k) = r {
-                    let mut res = l.clone();
-                    res.remove(k);
-                    return Ok(res.into());
+                    let mut result = (**l).clone();
+                    result.remove(k.as_ref());
+                    return Ok(result.into());
                 }
                 err_op(self, BinOp::Sub, other)
             }
@@ -191,14 +196,14 @@ impl Rem for &Val {
 impl From<String> for Val {
     #[inline]
     fn from(s: String) -> Self {
-        Val::Str(s)
+        Val::Str(Arc::from(s.as_str()))
     }
 }
 
 impl From<&str> for Val {
     #[inline]
     fn from(s: &str) -> Self {
-        Val::Str(s.to_string())
+        Val::Str(Arc::from(s))
     }
 }
 
@@ -233,7 +238,7 @@ where
             .into_iter()
             .map(|(k, v)| (k.as_ref().to_string(), v.into()))
             .collect();
-        Val::Map(Box::new(inner))
+        Val::Map(Arc::new(inner))
     }
 }
 
@@ -243,7 +248,7 @@ where
 {
     fn from(v: Vec<T>) -> Self {
         let v = v.into_iter().map(Into::into).collect();
-        Val::List(Box::new(v))
+        Val::List(Arc::new(v))
     }
 }
 
@@ -277,7 +282,7 @@ impl From<()> for Val {
 impl From<serde_json::Value> for Val {
     fn from(val: serde_json::Value) -> Self {
         match val {
-            serde_json::Value::String(s) => Val::Str(s.into()),
+            serde_json::Value::String(s) => Val::Str(Arc::from(s.as_str())),
             serde_json::Value::Number(n) => {
                 if let Some(i) = n.as_i64() {
                     Val::Int(i)
@@ -290,14 +295,14 @@ impl From<serde_json::Value> for Val {
             serde_json::Value::Bool(b) => Val::Bool(b),
             serde_json::Value::Array(a) => {
                 let v = a.into_iter().map(Val::from).collect();
-                Val::List(Box::new(v))
+                Val::List(Arc::new(v))
             }
             serde_json::Value::Object(o) => {
                 let m = o
                     .into_iter()
                     .map(|(k, v)| (k.into(), Val::from(v)))
                     .collect();
-                Val::Map(Box::new(m))
+                Val::Map(Arc::new(m))
             }
             serde_json::Value::Null => Val::Nil,
         }
@@ -332,21 +337,38 @@ impl PartialOrd for Val {
     }
 }
 
+impl Serialize for Val {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Val::Str(s) => serializer.serialize_str(s.as_ref()),
+            Val::Int(i) => serializer.serialize_i64(*i),
+            Val::Float(f) => serializer.serialize_f64(*f),
+            Val::Bool(b) => serializer.serialize_bool(*b),
+            Val::Map(m) => (**m).serialize(serializer),
+            Val::List(l) => (**l).serialize(serializer),
+            Val::Nil => serializer.serialize_unit(),
+        }
+    }
+}
+
 impl core::fmt::Display for Val {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Val::Int(i) => write!(f, "{i}"),
             Val::Float(fl) => write!(f, "{fl}"),
             Val::Bool(b) => write!(f, "{b}"),
-            Val::Str(s) => write!(f, "{s}"),
+            Val::Str(s) => write!(f, "{}", s.as_ref()),
             Val::Map(m) => {
                 // Avoid serialization errors by using debug fallback
-                match serde_json::to_string(m) {
+                match serde_json::to_string(&**m) {
                     Ok(s) => write!(f, "{}", s),
                     Err(_) => write!(f, "{:?}", m),
                 }
             }
-            Val::List(l) => match serde_json::to_string(l) {
+            Val::List(l) => match serde_json::to_string(&**l) {
                 Ok(s) => write!(f, "{}", s),
                 Err(_) => write!(f, "{:?}", l),
             },

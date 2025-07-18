@@ -1,8 +1,9 @@
-mod ast;
+pub mod ast;
 pub mod expr;
 mod op;
-mod token;
+pub mod token;
 pub mod val;
+pub mod de;
 
 mod ast_test;
 mod expr_test;

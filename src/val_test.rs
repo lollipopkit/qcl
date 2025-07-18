@@ -75,7 +75,7 @@ mod tests {
             let r: Val = map2.into();
             let result = (&l + &r).unwrap();
 
-            assert_eq!(result, Val::Map(Box::new(expected)));
+            assert_eq!(result, Val::Map(expected.into()));
         }
 
         #[test]
@@ -96,7 +96,7 @@ mod tests {
             let r: Val = map2.into();
             let result = (&l - &r).unwrap();
 
-            assert_eq!(result, Val::Map(Box::new(expected)));
+            assert_eq!(result, Val::Map(expected.into()));
         }
 
         #[test]
@@ -114,7 +114,7 @@ mod tests {
             let r: Val = key.into();
             let result = (&l - &r).unwrap();
 
-            assert_eq!(result, Val::Map(Box::new(expected)));
+            assert_eq!(result, Val::Map(expected.into()));
         }
     }
 
@@ -126,9 +126,9 @@ mod tests {
         map.insert("age", 30.to_string());
 
         let val: Val = map.into();
-        let field = Val::Str("name".to_string());
+        let field = Val::Str("name".into());
 
-        assert_eq!(val.access(&field), Some(&Val::Str("alice".to_string())));
+        assert_eq!(val.access(&field), Some(&Val::Str("alice".into())));
     }
 
     #[test]
@@ -161,14 +161,14 @@ mod tests {
     // Literal creation tests
     #[test]
     fn test_literal_list_creation() {
-        let list = vec![Val::Int(1), Val::Str("hello".to_string()), Val::Bool(true)];
-        let val = Val::List(Box::new(list.clone()));
+        let list = vec![Val::Int(1), Val::Str("hello".into()), Val::Bool(true)];
+        let val = Val::List(list.clone().into());
 
         // Test access
         assert_eq!(val.access(&Val::Int(0)), Some(&Val::Int(1)));
         assert_eq!(
             val.access(&Val::Int(1)),
-            Some(&Val::Str("hello".to_string()))
+            Some(&Val::Str("hello".into()))
         );
         assert_eq!(val.access(&Val::Int(2)), Some(&Val::Bool(true)));
         assert_eq!(val.access(&Val::Int(3)), None);
@@ -177,48 +177,48 @@ mod tests {
     #[test]
     fn test_literal_map_creation() {
         let mut map = HashMap::new();
-        map.insert("name".to_string(), Val::Str("Alice".to_string()));
+        map.insert("name".to_string(), Val::Str("Alice".into()));
         map.insert("age".to_string(), Val::Int(30));
         map.insert("active".to_string(), Val::Bool(true));
 
-        let val = Val::Map(Box::new(map));
+        let val = Val::Map(map.into());
 
         // Test access
         assert_eq!(
-            val.access(&Val::Str("name".to_string())),
-            Some(&Val::Str("Alice".to_string()))
+            val.access(&Val::Str("name".into())),
+            Some(&Val::Str("Alice".into()))
         );
         assert_eq!(
-            val.access(&Val::Str("age".to_string())),
+            val.access(&Val::Str("age".into())),
             Some(&Val::Int(30))
         );
         assert_eq!(
-            val.access(&Val::Str("active".to_string())),
+            val.access(&Val::Str("active".into())),
             Some(&Val::Bool(true))
         );
-        assert_eq!(val.access(&Val::Str("nonexistent".to_string())), None);
+        assert_eq!(val.access(&Val::Str("nonexistent".into())), None);
     }
 
     #[test]
     fn test_nested_literal_access() {
         // Create nested structure: {"users": [{"name": "Alice", "age": 30}]}
         let mut inner_map = HashMap::new();
-        inner_map.insert("name".to_string(), Val::Str("Alice".to_string()));
+        inner_map.insert("name".to_string(), Val::Str("Alice".into()));
         inner_map.insert("age".to_string(), Val::Int(30));
 
-        let users_list = vec![Val::Map(Box::new(inner_map))];
+        let users_list = vec![Val::Map(inner_map.into())];
 
         let mut outer_map = HashMap::new();
-        outer_map.insert("users".to_string(), Val::List(Box::new(users_list)));
+        outer_map.insert("users".to_string(), Val::List(users_list.into()));
 
-        let val = Val::Map(Box::new(outer_map));
+        let val = Val::Map(outer_map.into());
 
         // Test nested access
-        let users = val.access(&Val::Str("users".to_string())).unwrap();
+        let users = val.access(&Val::Str("users".into())).unwrap();
         let first_user = users.access(&Val::Int(0)).unwrap();
-        let name = first_user.access(&Val::Str("name".to_string())).unwrap();
+        let name = first_user.access(&Val::Str("name".into())).unwrap();
 
-        assert_eq!(name, &Val::Str("Alice".to_string()));
+        assert_eq!(name, &Val::Str("Alice".into()));
     }
 
     // Comparison tests
@@ -248,8 +248,8 @@ mod tests {
 
     #[test]
     fn test_partial_ord_strings() {
-        let a = Val::Str("abc".to_string());
-        let b = Val::Str("def".to_string());
+        let a = Val::Str("abc".into());
+        let b = Val::Str("def".into());
 
         assert!(a < b);
     }
@@ -257,7 +257,7 @@ mod tests {
     #[test]
     fn test_incomparable_types() {
         let a = Val::Int(10);
-        let b = Val::Str("abc".to_string());
+        let b = Val::Str("abc".into());
 
         assert_eq!(a.partial_cmp(&b), None);
     }
@@ -265,9 +265,9 @@ mod tests {
     #[test]
     fn test_literal_equality() {
         // Test list equality
-        let list1 = Val::List(Box::new(vec![Val::Int(1), Val::Int(2), Val::Int(3)]));
-        let list2 = Val::List(Box::new(vec![Val::Int(1), Val::Int(2), Val::Int(3)]));
-        let list3 = Val::List(Box::new(vec![Val::Int(1), Val::Int(2), Val::Int(4)]));
+        let list1 = Val::List(vec![Val::Int(1), Val::Int(2), Val::Int(3)].into());
+        let list2 = Val::List(vec![Val::Int(1), Val::Int(2), Val::Int(3)].into());
+        let list3 = Val::List(vec![Val::Int(1), Val::Int(2), Val::Int(4)].into());
 
         assert_eq!(list1, list2);
         assert_ne!(list1, list3);
@@ -285,9 +285,9 @@ mod tests {
         map3.insert("a".to_string(), Val::Int(1));
         map3.insert("b".to_string(), Val::Int(3));
 
-        let val1 = Val::Map(Box::new(map1));
-        let val2 = Val::Map(Box::new(map2));
-        let val3 = Val::Map(Box::new(map3));
+        let val1 = Val::Map(map1.into());
+        let val2 = Val::Map(map2.into());
+        let val3 = Val::Map(map3.into());
 
         assert_eq!(val1, val2);
         assert_ne!(val1, val3);
@@ -296,19 +296,19 @@ mod tests {
     #[test]
     fn test_display_formatting() {
         // Test list display
-        let list = Val::List(Box::new(vec![
+        let list = Val::List(vec![
             Val::Int(1),
-            Val::Str("hello".to_string()),
+            Val::Str("hello".into()),
             Val::Bool(true),
-        ]));
+        ].into());
         let display = format!("{}", list);
         assert!(display.contains("1") && display.contains("hello") && display.contains("true"));
 
         // Test map display
         let mut map = HashMap::new();
-        map.insert("name".to_string(), Val::Str("Alice".to_string()));
+        map.insert("name".to_string(), Val::Str("Alice".into()));
         map.insert("age".to_string(), Val::Int(30));
-        let val = Val::Map(Box::new(map));
+        let val = Val::Map(map.into());
         let display = format!("{}", val);
         assert!(
             display.contains("name")

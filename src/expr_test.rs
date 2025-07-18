@@ -113,7 +113,7 @@ mod test {
         // Mixed types
         expect(
             r#"[1, "hello", true]"#,
-            vec![Val::Int(1), Val::Str("hello".to_string()), Val::Bool(true)],
+            vec![Val::Int(1), Val::Str("hello".into()), Val::Bool(true)],
         );
 
         // Nested lists
@@ -135,7 +135,7 @@ mod test {
 
         // Simple map
         let mut expected = HashMap::new();
-        expected.insert("name".to_string(), Val::Str("Alice".to_string()));
+        expected.insert("name".to_string(), Val::Str("Alice".into()));
         expected.insert("age".to_string(), Val::Int(30));
         expect(r#"{"name": "Alice", "age": 30}"#, expected);
 
@@ -147,7 +147,7 @@ mod test {
 
         // Map with context access
         let mut expected = HashMap::new();
-        expected.insert("user_name".to_string(), Val::Str("lk".to_string()));
+        expected.insert("user_name".to_string(), Val::Str("lk".into()));
         expected.insert("user_age".to_string(), Val::Int(18));
         expect(
             r#"{"user_name": @user.name, "user_age": @user.age}"#,
@@ -156,9 +156,9 @@ mod test {
 
         // Map with different key types
         let mut expected = HashMap::new();
-        expected.insert("42".to_string(), Val::Str("number".to_string()));
-        expected.insert("true".to_string(), Val::Str("bool".to_string()));
-        expected.insert("key".to_string(), Val::Str("string".to_string()));
+        expected.insert("42".to_string(), Val::Str("number".into()));
+        expected.insert("true".to_string(), Val::Str("bool".into()));
+        expected.insert("key".to_string(), Val::Str("string".into()));
         expect(r#"{42: "number", true: "bool", "key": "string"}"#, expected);
     }
 
@@ -168,23 +168,23 @@ mod test {
 
         // List of maps
         let mut map1 = HashMap::new();
-        map1.insert("name".to_string(), Val::Str("Alice".to_string()));
+        map1.insert("name".to_string(), Val::Str("Alice".into()));
         map1.insert("age".to_string(), Val::Int(30));
 
         let mut map2 = HashMap::new();
-        map2.insert("name".to_string(), Val::Str("Bob".to_string()));
+        map2.insert("name".to_string(), Val::Str("Bob".into()));
         map2.insert("age".to_string(), Val::Int(25));
 
         expect(
             r#"[{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]"#,
-            vec![Val::Map(Box::new(map1)), Val::Map(Box::new(map2))],
+            vec![Val::Map(map1.into()), Val::Map(map2.into())],
         );
 
         // Map with lists
         let mut expected = HashMap::new();
         expected.insert(
             "numbers".to_string(),
-            Val::List(Box::new(vec![Val::Int(1), Val::Int(2), Val::Int(3)])),
+            Val::List(vec![Val::Int(1), Val::Int(2), Val::Int(3)].into()),
         );
         expected.insert("active".to_string(), Val::Bool(true));
         expect(r#"{"numbers": [1, 2, 3], "active": true}"#, expected);

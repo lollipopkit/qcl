@@ -5,7 +5,9 @@ mod test {
         expr::Expr,
         op::BinOp,
         token::{Token, Tokenizer},
+        val::Val,
     };
+    use std::sync::Arc;
 
     #[test]
     fn basic() {
@@ -44,10 +46,7 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::Paren(Box::new(Expr::Or(
-            Box::new(Expr::Val(true.into())),
-            Box::new(Expr::Val(false.into())),
-        )));
+        let expected = Expr::Paren(Box::new(Expr::Val(Val::Bool(true))));
         assert_eq!(parsed, expected);
     }
 
@@ -119,7 +118,7 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::List(vec![]);
+        let expected = Expr::Val(Val::List(Arc::new(vec![])));
         assert_eq!(parsed, expected);
     }
 
@@ -129,11 +128,11 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::List(vec![
-            Box::new(Expr::Val(1.into())),
-            Box::new(Expr::Val(2.into())),
-            Box::new(Expr::Val(3.into())),
-        ]);
+        let expected = Expr::Val(Val::List(Arc::new(vec![
+            Val::Int(1),
+            Val::Int(2),
+            Val::Int(3),
+        ])));
         assert_eq!(parsed, expected);
     }
 
@@ -143,11 +142,11 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::List(vec![
-            Box::new(Expr::Val(1.into())),
-            Box::new(Expr::Val("hello".into())),
-            Box::new(Expr::Val(true.into())),
-        ]);
+        let expected = Expr::Val(Val::List(Arc::new(vec![
+            Val::Int(1),
+            Val::Str("hello".into()),
+            Val::Bool(true),
+        ])));
         assert_eq!(parsed, expected);
     }
 
@@ -157,18 +156,10 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::List(vec![
-            Box::new(Expr::Bin(
-                Box::new(Expr::Val(1.into())),
-                BinOp::Add,
-                Box::new(Expr::Val(2.into())),
-            )),
-            Box::new(Expr::Bin(
-                Box::new(Expr::Val(3.into())),
-                BinOp::Mul,
-                Box::new(Expr::Val(4.into())),
-            )),
-        ]);
+        let expected = Expr::Val(Val::List(Arc::new(vec![
+            Val::Int(3),
+            Val::Int(12),
+        ])));
         assert_eq!(parsed, expected);
     }
 
@@ -178,16 +169,10 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::List(vec![
-            Box::new(Expr::List(vec![
-                Box::new(Expr::Val(1.into())),
-                Box::new(Expr::Val(2.into())),
-            ])),
-            Box::new(Expr::List(vec![
-                Box::new(Expr::Val(3.into())),
-                Box::new(Expr::Val(4.into())),
-            ])),
-        ]);
+        let expected = Expr::Val(Val::List(Arc::new(vec![
+            Val::List(Arc::new(vec![Val::Int(1), Val::Int(2)])),
+            Val::List(Arc::new(vec![Val::Int(3), Val::Int(4)])),
+        ])));
         assert_eq!(parsed, expected);
     }
 
@@ -197,11 +182,11 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::List(vec![
-            Box::new(Expr::Val(1.into())),
-            Box::new(Expr::Val(2.into())),
-            Box::new(Expr::Val(3.into())),
-        ]);
+        let expected = Expr::Val(Val::List(Arc::new(vec![
+            Val::Int(1),
+            Val::Int(2),
+            Val::Int(3),
+        ])));
         assert_eq!(parsed, expected);
     }
 
@@ -211,7 +196,7 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::Map(vec![]);
+        let expected = Expr::Val(Val::Map(Arc::new(std::collections::HashMap::new())));
         assert_eq!(parsed, expected);
     }
 
@@ -221,16 +206,10 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::Map(vec![
-            (
-                Box::new(Expr::Val("name".into())),
-                Box::new(Expr::Val("Alice".into())),
-            ),
-            (
-                Box::new(Expr::Val("age".into())),
-                Box::new(Expr::Val(30.into())),
-            ),
-        ]);
+        let mut expected_map = std::collections::HashMap::new();
+        expected_map.insert("name".to_string(), Val::Str("Alice".into()));
+        expected_map.insert("age".to_string(), Val::Int(30));
+        let expected = Expr::Val(Val::Map(Arc::new(expected_map)));
         assert_eq!(parsed, expected);
     }
 
@@ -240,24 +219,10 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::Map(vec![
-            (
-                Box::new(Expr::Val("sum".into())),
-                Box::new(Expr::Bin(
-                    Box::new(Expr::Val(1.into())),
-                    BinOp::Add,
-                    Box::new(Expr::Val(2.into())),
-                )),
-            ),
-            (
-                Box::new(Expr::Val("product".into())),
-                Box::new(Expr::Bin(
-                    Box::new(Expr::Val(3.into())),
-                    BinOp::Mul,
-                    Box::new(Expr::Val(4.into())),
-                )),
-            ),
-        ]);
+        let mut expected_map = std::collections::HashMap::new();
+        expected_map.insert("sum".to_string(), Val::Int(3));
+        expected_map.insert("product".to_string(), Val::Int(12));
+        let expected = Expr::Val(Val::Map(Arc::new(expected_map)));
         assert_eq!(parsed, expected);
     }
 
@@ -267,20 +232,11 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::Map(vec![
-            (
-                Box::new(Expr::Val(42.into())),
-                Box::new(Expr::Val("number".into())),
-            ),
-            (
-                Box::new(Expr::Val(true.into())),
-                Box::new(Expr::Val("bool".into())),
-            ),
-            (
-                Box::new(Expr::Val("key".into())),
-                Box::new(Expr::Val("string".into())),
-            ),
-        ]);
+        let mut expected_map = std::collections::HashMap::new();
+        expected_map.insert("42".to_string(), Val::Str("number".into()));
+        expected_map.insert("true".to_string(), Val::Str("bool".into()));
+        expected_map.insert("key".to_string(), Val::Str("string".into()));
+        let expected = Expr::Val(Val::Map(Arc::new(expected_map)));
         assert_eq!(parsed, expected);
     }
 
@@ -290,19 +246,12 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::Map(vec![(
-            Box::new(Expr::Val("user".into())),
-            Box::new(Expr::Map(vec![
-                (
-                    Box::new(Expr::Val("name".into())),
-                    Box::new(Expr::Val("Alice".into())),
-                ),
-                (
-                    Box::new(Expr::Val("age".into())),
-                    Box::new(Expr::Val(30.into())),
-                ),
-            ])),
-        )]);
+        let mut inner_map = std::collections::HashMap::new();
+        inner_map.insert("name".to_string(), Val::Str("Alice".into()));
+        inner_map.insert("age".to_string(), Val::Int(30));
+        let mut outer_map = std::collections::HashMap::new();
+        outer_map.insert("user".to_string(), Val::Map(Arc::new(inner_map)));
+        let expected = Expr::Val(Val::Map(Arc::new(outer_map)));
         assert_eq!(parsed, expected);
     }
 
@@ -312,16 +261,10 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::Map(vec![
-            (
-                Box::new(Expr::Val("a".into())),
-                Box::new(Expr::Val(1.into())),
-            ),
-            (
-                Box::new(Expr::Val("b".into())),
-                Box::new(Expr::Val(2.into())),
-            ),
-        ]);
+        let mut expected_map = std::collections::HashMap::new();
+        expected_map.insert("a".to_string(), Val::Int(1));
+        expected_map.insert("b".to_string(), Val::Int(2));
+        let expected = Expr::Val(Val::Map(Arc::new(expected_map)));
         assert_eq!(parsed, expected);
     }
 
@@ -331,34 +274,19 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::List(vec![
-            Box::new(Expr::Map(vec![
-                (
-                    Box::new(Expr::Val("name".into())),
-                    Box::new(Expr::Val("Alice".into())),
-                ),
-                (
-                    Box::new(Expr::Val("scores".into())),
-                    Box::new(Expr::List(vec![
-                        Box::new(Expr::Val(90.into())),
-                        Box::new(Expr::Val(85.into())),
-                    ])),
-                ),
-            ])),
-            Box::new(Expr::Map(vec![
-                (
-                    Box::new(Expr::Val("name".into())),
-                    Box::new(Expr::Val("Bob".into())),
-                ),
-                (
-                    Box::new(Expr::Val("scores".into())),
-                    Box::new(Expr::List(vec![
-                        Box::new(Expr::Val(88.into())),
-                        Box::new(Expr::Val(92.into())),
-                    ])),
-                ),
-            ])),
-        ]);
+        
+        let mut alice_map = std::collections::HashMap::new();
+        alice_map.insert("name".to_string(), Val::Str("Alice".into()));
+        alice_map.insert("scores".to_string(), Val::List(Arc::new(vec![Val::Int(90), Val::Int(85)])));
+        
+        let mut bob_map = std::collections::HashMap::new();
+        bob_map.insert("name".to_string(), Val::Str("Bob".into()));
+        bob_map.insert("scores".to_string(), Val::List(Arc::new(vec![Val::Int(88), Val::Int(92)])));
+        
+        let expected = Expr::Val(Val::List(Arc::new(vec![
+            Val::Map(Arc::new(alice_map)),
+            Val::Map(Arc::new(bob_map)),
+        ])));
         assert_eq!(parsed, expected);
     }
 
