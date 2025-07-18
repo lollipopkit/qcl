@@ -6,6 +6,7 @@ pub mod val;
 pub mod de;
 
 mod ast_test;
+mod de_test;
 mod expr_test;
 mod op_test;
 mod token_test;

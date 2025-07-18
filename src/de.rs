@@ -93,10 +93,16 @@ pub fn from_yaml_str(input: &str) -> anyhow::Result<Val> {
     serde_yaml::from_str::<Val>(input).map_err(|e| anyhow::anyhow!(e))
 }
 
+/// Direct TOML string to Val conversion avoiding intermediate toml::Value
+pub fn from_toml_str(input: &str) -> anyhow::Result<Val> {
+    toml::from_str::<Val>(input).map_err(|e| anyhow::anyhow!(e))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Format {
     Json,
     Yaml,
+    Toml,
 }
 
 /// Automatically detect format based on content
@@ -121,6 +127,11 @@ pub fn detect_format(input: &str) -> Format {
         return Format::Yaml;
     }
     
+    // Check for obvious TOML markers
+    if has_toml_indicators(trimmed) {
+        return Format::Toml;
+    }
+    
     // Try parsing as JSON first (faster and more common)
     if serde_json::from_str::<serde_json::Value>(input).is_ok() {
         return Format::Json;
@@ -131,12 +142,17 @@ pub fn detect_format(input: &str) -> Format {
         return Format::Yaml;
     }
     
-    // Default to JSON if both fail
+    // Try parsing as TOML
+    if toml::from_str::<toml::Value>(input).is_ok() {
+        return Format::Toml;
+    }
+    
+    // Default to JSON if all fail
     Format::Json
 }
 
 /// Check for YAML-specific indicators
-fn has_yaml_indicators(input: &str) -> bool {
+pub fn has_yaml_indicators(input: &str) -> bool {
     for line in input.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
@@ -169,6 +185,48 @@ fn has_yaml_indicators(input: &str) -> bool {
     false
 }
 
+/// Check for TOML-specific indicators
+pub fn has_toml_indicators(input: &str) -> bool {
+    for line in input.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        
+        // Look for TOML section headers [section]
+        if trimmed.starts_with('[') && trimmed.ends_with(']') && trimmed.len() > 2 {
+            return true;
+        }
+        
+        // Look for TOML table arrays [[table]]
+        if trimmed.starts_with("[[") && trimmed.ends_with("]]") && trimmed.len() > 4 {
+            return true;
+        }
+        
+        // Look for TOML key = value patterns (with equals sign)
+        if trimmed.contains(" = ") || trimmed.contains("=") {
+            // Check if it's a simple key = value pattern
+            if let Some(eq_pos) = trimmed.find('=') {
+                let key_part = trimmed[..eq_pos].trim();
+                let value_part = trimmed[eq_pos + 1..].trim();
+                
+                // TOML keys are usually unquoted identifiers or quoted strings
+                // Values can be strings, numbers, booleans, arrays, etc.
+                if !key_part.is_empty() && !value_part.is_empty() {
+                    // Check if key looks like a TOML identifier
+                    if key_part.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.') ||
+                       (key_part.starts_with('"') && key_part.ends_with('"')) ||
+                       (key_part.starts_with('\'') && key_part.ends_with('\'')) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    
+    false
+}
+
 /// Parse input using automatic format detection or specified format
 pub fn parse_with_format(input: &str, format_override: Option<Format>) -> anyhow::Result<Val> {
     let format = format_override.unwrap_or_else(|| detect_format(input));
@@ -176,5 +234,6 @@ pub fn parse_with_format(input: &str, format_override: Option<Format>) -> anyhow
     match format {
         Format::Json => from_json_str(input),
         Format::Yaml => from_yaml_str(input),
+        Format::Toml => from_toml_str(input),
     }
 }

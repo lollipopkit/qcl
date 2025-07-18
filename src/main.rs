@@ -5,8 +5,8 @@ use qcl::{expr::Expr, val::Val, de};
 fn main() -> anyhow::Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
     if args.len() < 2 {
-        eprintln!("Usage: cat <json|yaml> | {} [--json|--yaml] <expr>", args[0]);
-        eprintln!("  Format is auto-detected unless --json or --yaml is specified");
+        eprintln!("Usage: cat <json|yaml|toml> | {} [--json|--yaml|--toml] <expr>", args[0]);
+        eprintln!("  Format is auto-detected unless --json, --yaml, or --toml is specified");
         std::process::exit(1);
     }
 
@@ -20,6 +20,7 @@ fn main() -> anyhow::Result<()> {
         match args[1].as_str() {
             "--json" => (Some(de::Format::Json), args[2..].join(" ")),
             "--yaml" => (Some(de::Format::Yaml), args[2..].join(" ")),
+            "--toml" => (Some(de::Format::Toml), args[2..].join(" ")),
             _ => (None, args[1..].join(" ")),
         }
     } else {
