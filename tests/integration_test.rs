@@ -1,10 +1,37 @@
 use std::process::Command;
 use std::io::Write;
 
+fn create_cargo_command(args: &[&str]) -> Command {
+    let mut cmd = Command::new("cargo");
+    cmd.arg("run");
+    
+    // Add feature flags based on what's enabled
+    let mut features = Vec::new();
+    #[cfg(feature = "json")]
+    features.push("json");
+    #[cfg(feature = "yaml")]
+    features.push("yaml");
+    #[cfg(feature = "toml")]
+    features.push("toml");
+    #[cfg(feature = "sem_arith")]
+    features.push("sem_arith");
+    #[cfg(feature = "adv_arith")]
+    features.push("adv_arith");
+    
+    if !features.is_empty() {
+        cmd.arg("--features");
+        cmd.arg(features.join(","));
+    }
+    
+    cmd.arg("--");
+    cmd.args(args);
+    cmd
+}
+
 #[test]
+#[cfg(feature = "json")]
 fn test_cli_json_auto_detection() {
-    let mut cmd = Command::new("cargo")
-        .args(&["run", "--", "@name == \"test\""])
+    let mut cmd = create_cargo_command(&["@name == \"test\""])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -23,9 +50,9 @@ fn test_cli_json_auto_detection() {
 }
 
 #[test]
+#[cfg(feature = "json")]
 fn test_cli_json_explicit_flag() {
-    let mut cmd = Command::new("cargo")
-        .args(&["run", "--", "--json", "@name == \"test\""])
+    let mut cmd = create_cargo_command(&["--json", "@name == \"test\""])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -44,9 +71,9 @@ fn test_cli_json_explicit_flag() {
 }
 
 #[test]
+#[cfg(feature = "yaml")]
 fn test_cli_yaml_auto_detection() {
-    let mut cmd = Command::new("cargo")
-        .args(&["run", "--", "@name == \"test\""])
+    let mut cmd = create_cargo_command(&["@name == \"test\""])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -65,9 +92,9 @@ fn test_cli_yaml_auto_detection() {
 }
 
 #[test]
+#[cfg(feature = "yaml")]
 fn test_cli_yaml_explicit_flag() {
-    let mut cmd = Command::new("cargo")
-        .args(&["run", "--", "--yaml", "@name == \"test\""])
+    let mut cmd = create_cargo_command(&["--yaml", "@name == \"test\""])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -86,9 +113,9 @@ fn test_cli_yaml_explicit_flag() {
 }
 
 #[test]
+#[cfg(feature = "toml")]
 fn test_cli_toml_auto_detection() {
-    let mut cmd = Command::new("cargo")
-        .args(&["run", "--", "@name == \"test\""])
+    let mut cmd = create_cargo_command(&["@name == \"test\""])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -107,9 +134,9 @@ fn test_cli_toml_auto_detection() {
 }
 
 #[test]
+#[cfg(feature = "toml")]
 fn test_cli_toml_explicit_flag() {
-    let mut cmd = Command::new("cargo")
-        .args(&["run", "--", "--toml", "@name == \"test\""])
+    let mut cmd = create_cargo_command(&["--toml", "@name == \"test\""])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -128,9 +155,9 @@ fn test_cli_toml_explicit_flag() {
 }
 
 #[test]
+#[cfg(feature = "yaml")]
 fn test_cli_yaml_nested_structures() {
-    let mut cmd = Command::new("cargo")
-        .args(&["run", "--", "@req.user.role == \"admin\""])
+    let mut cmd = create_cargo_command(&["@req.user.role == \"admin\""])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -149,9 +176,9 @@ fn test_cli_yaml_nested_structures() {
 }
 
 #[test]
+#[cfg(feature = "toml")]
 fn test_cli_toml_nested_structures() {
-    let mut cmd = Command::new("cargo")
-        .args(&["run", "--", "@req.user.role == \"admin\""])
+    let mut cmd = create_cargo_command(&["@req.user.role == \"admin\""])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -170,9 +197,9 @@ fn test_cli_toml_nested_structures() {
 }
 
 #[test]
+#[cfg(feature = "yaml")]
 fn test_cli_yaml_arrays() {
-    let mut cmd = Command::new("cargo")
-        .args(&["run", "--", "@permissions.0 == \"read\""])
+    let mut cmd = create_cargo_command(&["@permissions.0 == \"read\""])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -191,9 +218,9 @@ fn test_cli_yaml_arrays() {
 }
 
 #[test]
+#[cfg(feature = "toml")]
 fn test_cli_toml_arrays() {
-    let mut cmd = Command::new("cargo")
-        .args(&["run", "--", "@permissions.0 == \"read\""])
+    let mut cmd = create_cargo_command(&["@permissions.0 == \"read\""])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -212,9 +239,9 @@ fn test_cli_toml_arrays() {
 }
 
 #[test]
+#[cfg(feature = "toml")]
 fn test_cli_toml_table_arrays() {
-    let mut cmd = Command::new("cargo")
-        .args(&["run", "--", "@users.0.name == \"alice\""])
+    let mut cmd = create_cargo_command(&["@users.0.name == \"alice\""])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -233,9 +260,9 @@ fn test_cli_toml_table_arrays() {
 }
 
 #[test]
+#[cfg(feature = "yaml")]
 fn test_cli_error_handling() {
-    let mut cmd = Command::new("cargo")
-        .args(&["run", "--", "@name == \"test\""])
+    let mut cmd = create_cargo_command(&["@name == \"test\""])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -254,15 +281,20 @@ fn test_cli_error_handling() {
 }
 
 #[test]
+#[cfg(any(feature = "json", feature = "yaml", feature = "toml"))]
 fn test_cli_usage_message() {
-    let output = Command::new("cargo")
-        .args(&["run", "--"])
+    let output = create_cargo_command(&[])
         .output()
         .expect("Failed to execute command");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     
     assert!(stderr.contains("Usage:"));
-    assert!(stderr.contains("json|yaml|toml"));
-    assert!(stderr.contains("--json|--yaml|--toml"));
+    // Check that the usage message contains the enabled formats
+    #[cfg(feature = "json")]
+    assert!(stderr.contains("json"));
+    #[cfg(feature = "yaml")]
+    assert!(stderr.contains("yaml"));
+    #[cfg(feature = "toml")]
+    assert!(stderr.contains("toml"));
 }

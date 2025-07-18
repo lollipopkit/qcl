@@ -84,24 +84,30 @@ impl<'de> Deserialize<'de> for Val {
 }
 
 /// Direct JSON string to Val conversion avoiding intermediate serde_json::Value
+#[cfg(feature = "json")]
 pub fn from_json_str(input: &str) -> anyhow::Result<Val> {
     serde_json::from_str::<Val>(input).map_err(|e| anyhow::anyhow!(e))
 }
 
 /// Direct YAML string to Val conversion avoiding intermediate serde_yaml::Value
+#[cfg(feature = "yaml")]
 pub fn from_yaml_str(input: &str) -> anyhow::Result<Val> {
     serde_yaml::from_str::<Val>(input).map_err(|e| anyhow::anyhow!(e))
 }
 
 /// Direct TOML string to Val conversion avoiding intermediate toml::Value
+#[cfg(feature = "toml")]
 pub fn from_toml_str(input: &str) -> anyhow::Result<Val> {
     toml::from_str::<Val>(input).map_err(|e| anyhow::anyhow!(e))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Format {
+    #[cfg(feature = "json")]
     Json,
+    #[cfg(feature = "yaml")]
     Yaml,
+    #[cfg(feature = "toml")]
     Toml,
 }
 
@@ -109,18 +115,25 @@ pub enum Format {
 pub fn detect_format(input: &str) -> Format {
     let trimmed = input.trim();
     
-    // Empty input defaults to JSON
+    // Empty input defaults to first available format
     if trimmed.is_empty() {
+        #[cfg(feature = "json")]
         return Format::Json;
+        #[cfg(all(feature = "yaml", not(feature = "json")))]
+        return Format::Yaml;
+        #[cfg(all(feature = "toml", not(feature = "json"), not(feature = "yaml")))]
+        return Format::Toml;
     }
     
     // Check for obvious JSON markers
+    #[cfg(feature = "json")]
     if (trimmed.starts_with('{') && trimmed.ends_with('}')) ||
        (trimmed.starts_with('[') && trimmed.ends_with(']')) {
         return Format::Json;
     }
     
     // Check for obvious YAML markers
+    #[cfg(feature = "yaml")]
     if trimmed.contains("---") ||  // YAML document separator
        trimmed.contains("...") ||  // YAML document end
        has_yaml_indicators(trimmed) {
@@ -128,30 +141,40 @@ pub fn detect_format(input: &str) -> Format {
     }
     
     // Check for obvious TOML markers
+    #[cfg(feature = "toml")]
     if has_toml_indicators(trimmed) {
         return Format::Toml;
     }
     
     // Try parsing as JSON first (faster and more common)
+    #[cfg(feature = "json")]
     if serde_json::from_str::<serde_json::Value>(input).is_ok() {
         return Format::Json;
     }
     
     // Try parsing as YAML
+    #[cfg(feature = "yaml")]
     if serde_yaml::from_str::<serde_yaml::Value>(input).is_ok() {
         return Format::Yaml;
     }
     
     // Try parsing as TOML
+    #[cfg(feature = "toml")]
     if toml::from_str::<toml::Value>(input).is_ok() {
         return Format::Toml;
     }
     
-    // Default to JSON if all fail
-    Format::Json
+    // Default to first available format if all fail
+    #[cfg(feature = "json")]
+    return Format::Json;
+    #[cfg(all(feature = "yaml", not(feature = "json")))]
+    return Format::Yaml;
+    #[cfg(all(feature = "toml", not(feature = "json"), not(feature = "yaml")))]
+    return Format::Toml;
 }
 
 /// Check for YAML-specific indicators
+#[cfg(feature = "yaml")]
 pub fn has_yaml_indicators(input: &str) -> bool {
     for line in input.lines() {
         let trimmed = line.trim();
@@ -186,6 +209,7 @@ pub fn has_yaml_indicators(input: &str) -> bool {
 }
 
 /// Check for TOML-specific indicators
+#[cfg(feature = "toml")]
 pub fn has_toml_indicators(input: &str) -> bool {
     for line in input.lines() {
         let trimmed = line.trim();
@@ -232,8 +256,11 @@ pub fn parse_with_format(input: &str, format_override: Option<Format>) -> anyhow
     let format = format_override.unwrap_or_else(|| detect_format(input));
     
     match format {
+        #[cfg(feature = "json")]
         Format::Json => from_json_str(input),
+        #[cfg(feature = "yaml")]
         Format::Yaml => from_yaml_str(input),
+        #[cfg(feature = "toml")]
         Format::Toml => from_toml_str(input),
     }
 }

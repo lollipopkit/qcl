@@ -1,12 +1,14 @@
 #[cfg(test)]
 mod test {
     use anyhow::Result;
+    #[cfg(feature = "json")]
     use serde_json::json;
     use std::collections::HashSet;
 
     use crate::{expr::Expr, val::Val};
 
     #[test]
+    #[cfg(feature = "json")]
     fn simple() {
         expect("@pub", true);
         expect("@user.name + 'pt'", "lkpt");
@@ -34,6 +36,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "json")]
     fn complex_expressions() {
         // Nested arithmetic operations
         expect("(@user.age + 2) * 3", 60);
@@ -54,6 +57,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "json")]
     fn logical_operators() {
         // AND operator
         expect("@pub && @user.age > 17", true);
@@ -73,6 +77,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "json")]
     fn unary_operations() {
         // Logical NOT
         expect("!@pub", false);
@@ -86,6 +91,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "json")]
     fn map_and_list_access() {
         // Nested map access
         expect("@nested.level1.level2", "value");
@@ -103,6 +109,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "json")]
     fn list_literals() {
         // Empty list
         expect("[]", Vec::<Val>::new());
@@ -127,6 +134,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "json")]
     fn map_literals() {
         use std::collections::HashMap;
 
@@ -163,6 +171,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "json")]
     fn nested_structures() {
         use std::collections::HashMap;
 
@@ -191,6 +200,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "json")]
     fn literal_access() {
         // Access elements from list literals
         expect("[1, 2, 3].1", 2);
@@ -206,6 +216,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "json")]
     fn trailing_commas() {
         // List with trailing comma
         expect("[1, 2, 3,]", vec![1, 2, 3]);
@@ -219,6 +230,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "json")]
     fn error_cases() {
         // Invalid map key types
         panic(r#"{[1, 2]: "invalid"}"#);
@@ -252,12 +264,14 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "json")]
     fn test_nil_handling() {
         expect("@nonexistent == nil", true);
         expect("@nonexistent.field == nil", true);
         expect("nil", None::<Val>);
     }
 
+    #[cfg(feature = "json")]
     fn with_ctx(rule: &str) -> Result<Val> {
         let ctx: Val = json!({
             "user": {"name": "lk", "age": 18},
@@ -276,11 +290,13 @@ mod test {
         expr.eval(&ctx)
     }
 
+    #[cfg(feature = "json")]
     fn expect<V: Into<Val>>(rule: &str, val: V) {
         let res = with_ctx(rule);
         assert_eq!(res.unwrap(), val.into());
     }
 
+    #[cfg(feature = "json")]
     fn panic(rule: &str) {
         let res = with_ctx(rule);
         assert!(res.is_err());

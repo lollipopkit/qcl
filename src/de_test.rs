@@ -4,6 +4,7 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
+    #[cfg(feature = "json")]
     fn test_from_json_str_basic() {
         let json = r#"{"name": "test", "age": 25, "active": true}"#;
         let val = from_json_str(json).unwrap();
@@ -18,6 +19,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "json")]
     fn test_from_json_str_array() {
         let json = r#"[1, 2.5, "hello", true, null]"#;
         let val = from_json_str(json).unwrap();
@@ -35,6 +37,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "json")]
     fn test_from_json_str_nested() {
         let json = r#"{"user": {"name": "admin", "permissions": ["read", "write"]}, "count": 42}"#;
         let val = from_json_str(json).unwrap();
@@ -59,6 +62,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "yaml")]
     fn test_from_yaml_str_basic() {
         let yaml = r#"
 name: test
@@ -77,6 +81,7 @@ active: true
     }
 
     #[test]
+    #[cfg(feature = "yaml")]
     fn test_from_yaml_str_array() {
         let yaml = r#"
 - 1
@@ -100,6 +105,7 @@ active: true
     }
 
     #[test]
+    #[cfg(feature = "yaml")]
     fn test_from_yaml_str_nested() {
         let yaml = r#"
 user:
@@ -131,6 +137,7 @@ count: 42
     }
 
     #[test]
+    #[cfg(feature = "yaml")]
     fn test_from_yaml_str_multiline() {
         let yaml = r#"
 description: |
@@ -159,6 +166,7 @@ summary: >
     }
 
     #[test]
+    #[cfg(feature = "toml")]
     fn test_from_toml_str_basic() {
         let toml = r#"
 name = "test"
@@ -177,6 +185,7 @@ active = true
     }
 
     #[test]
+    #[cfg(feature = "toml")]
     fn test_from_toml_str_array() {
         let toml = r#"
 numbers = [1, 2, 3]
@@ -217,6 +226,7 @@ mixed = [1, "hello", true]
     }
 
     #[test]
+    #[cfg(feature = "toml")]
     fn test_from_toml_str_table() {
         let toml = r#"
 [user]
@@ -255,6 +265,7 @@ port = 5432
     }
 
     #[test]
+    #[cfg(feature = "toml")]
     fn test_from_toml_str_nested_table() {
         let toml = r#"
 [req.user]
@@ -291,6 +302,7 @@ name = "test.txt"
     }
 
     #[test]
+    #[cfg(feature = "toml")]
     fn test_from_toml_str_table_array() {
         let toml = r#"
 [[users]]
@@ -329,6 +341,7 @@ role = "user"
     }
 
     #[test]
+    #[cfg(feature = "json")]
     fn test_detect_format_json() {
         assert_eq!(detect_format(r#"{"key": "value"}"#), Format::Json);
         assert_eq!(detect_format(r#"[1, 2, 3]"#), Format::Json);
@@ -337,6 +350,7 @@ role = "user"
     }
 
     #[test]
+    #[cfg(feature = "yaml")]
     fn test_detect_format_yaml() {
         assert_eq!(detect_format("---\nkey: value"), Format::Yaml);
         assert_eq!(detect_format("key: value\nother: 123"), Format::Yaml);
@@ -346,6 +360,7 @@ role = "user"
     }
 
     #[test]
+    #[cfg(feature = "toml")]
     fn test_detect_format_toml() {
         assert_eq!(detect_format("[section]\nkey = value"), Format::Toml);
         assert_eq!(detect_format("key = \"value\""), Format::Toml);
@@ -355,6 +370,7 @@ role = "user"
     }
 
     #[test]
+    #[cfg(all(feature = "json", feature = "yaml", feature = "toml"))]
     fn test_detect_format_edge_cases() {
         // JSON-like but actually YAML
         assert_eq!(detect_format("key: {\"nested\": \"value\"}"), Format::Yaml);
@@ -369,6 +385,7 @@ role = "user"
     }
 
     #[test]
+    #[cfg(feature = "json")]
     fn test_parse_with_format_override() {
         let json_data = r#"{"key": "value"}"#;
         
@@ -390,6 +407,7 @@ role = "user"
     }
 
     #[test]
+    #[cfg(feature = "yaml")]
     fn test_parse_with_format_yaml_override() {
         let yaml_data = "key: value\nother: 123";
         
@@ -404,6 +422,7 @@ role = "user"
     }
 
     #[test]
+    #[cfg(feature = "toml")]
     fn test_parse_with_format_toml_override() {
         let toml_data = "key = \"value\"\nother = 123";
         
@@ -418,6 +437,7 @@ role = "user"
     }
 
     #[test]
+    #[cfg(all(feature = "json", feature = "yaml", feature = "toml"))]
     fn test_error_handling() {
         // Invalid JSON
         assert!(from_json_str(r#"{"invalid": json"#).is_err());
@@ -430,6 +450,7 @@ role = "user"
     }
 
     #[test]
+    #[cfg(feature = "yaml")]
     fn test_has_yaml_indicators() {
         assert!(has_yaml_indicators("key: value"));
         assert!(has_yaml_indicators("- item"));
@@ -443,6 +464,7 @@ role = "user"
     }
 
     #[test]
+    #[cfg(feature = "toml")]
     fn test_has_toml_indicators() {
         assert!(has_toml_indicators("[section]"));
         assert!(has_toml_indicators("[[array]]"));

@@ -26,6 +26,14 @@ The above example is a simple ACL system that checks if the user has access to a
 
 More language details can be found in [LANG.md](LANG.md).
 
+## Features
+
+- `json` (enabled by default)
+- `yaml`
+- `toml`
+
+At least one input format feature must be enabled. The default configuration enables `json`.
+
 ### Usage
 
 #### Integration

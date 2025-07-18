@@ -2,11 +2,13 @@
 mod tests {
     use crate::{expr::Expr, op::BinOp, val::Val};
 
+    #[cfg(feature = "json")]
     use serde_json::json;
 
     macro_rules! test_op {
         ($name:ident, $op:tt, $l:expr, $r:expr, $res:expr) => {
             #[test]
+            #[cfg(feature = "json")]
             fn $name() {
                 let ctx = json!({
                     "req": {"user": {"name": "lk", "age": 18}},
@@ -42,6 +44,7 @@ mod tests {
 
     // Tests with literal expressions
     #[cfg(feature = "adv_arith")]
+    #[cfg(feature = "json")]
     #[test]
     fn literal_list_operations() {
         let ctx: Val = json!({}).into();
@@ -55,6 +58,7 @@ mod tests {
     }
 
     #[cfg(feature = "adv_arith")]
+    #[cfg(feature = "json")]
     #[test]
     fn literal_map_operations() {
         let ctx: Val = json!({}).into();
@@ -75,6 +79,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "json")]
     fn comparison_with_literals() {
         let ctx = json!({
             "user": {"name": "Alice", "age": 25}
@@ -111,6 +116,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "json")]
     fn nested_literal_comparisons() {
         let ctx: Val = json!({}).into();
 
@@ -138,6 +144,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "json")]
     fn mixed_type_comparisons() {
         let ctx: Val = json!({}).into();
 
@@ -161,6 +168,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "json")]
     fn arithmetic_with_context_and_literals() {
         let ctx = json!({
             "base": 10,

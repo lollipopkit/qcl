@@ -279,6 +279,7 @@ impl From<()> for Val {
     }
 }
 
+#[cfg(feature = "json")]
 impl From<serde_json::Value> for Val {
     fn from(val: serde_json::Value) -> Self {
         match val {
@@ -309,6 +310,7 @@ impl From<serde_json::Value> for Val {
     }
 }
 
+#[cfg(feature = "yaml")]
 impl From<serde_yaml::Value> for Val {
     fn from(val: serde_yaml::Value) -> Self {
         match val {
@@ -347,6 +349,7 @@ impl From<serde_yaml::Value> for Val {
 }
 
 impl Val {
+    #[cfg(feature = "json")]
     pub fn try_from<T>(val: T) -> Result<Self>
     where
         T: serde::Serialize,
@@ -400,14 +403,22 @@ impl core::fmt::Display for Val {
             Val::Str(s) => write!(f, "{}", s.as_ref()),
             Val::Map(m) => {
                 // Avoid serialization errors by using debug fallback
+                #[cfg(feature = "json")]
                 match serde_json::to_string(&**m) {
                     Ok(s) => write!(f, "{}", s),
                     Err(_) => write!(f, "{:?}", m),
                 }
+                #[cfg(not(feature = "json"))]
+                write!(f, "{:?}", m)
             }
-            Val::List(l) => match serde_json::to_string(&**l) {
-                Ok(s) => write!(f, "{}", s),
-                Err(_) => write!(f, "{:?}", l),
+            Val::List(l) => {
+                #[cfg(feature = "json")]
+                match serde_json::to_string(&**l) {
+                    Ok(s) => write!(f, "{}", s),
+                    Err(_) => write!(f, "{:?}", l),
+                }
+                #[cfg(not(feature = "json"))]
+                write!(f, "{:?}", l)
             },
             Val::Nil => write!(f, "nil"),
         }
