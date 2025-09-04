@@ -344,4 +344,151 @@ mod test {
         let parsed = Parser::new(&ts).parse();
         assert!(parsed.is_err());
     }
+
+    #[test]
+    fn quoted_field_access_simple() {
+        // Basic quoted field access
+        let r = r#"@"with.&=""#;
+        let ts = Tokenizer::new(r).unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
+        let expected = Expr::At(vec![Box::new(Expr::Val("with.&=".into()))]);
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn quoted_field_access_nested() {
+        // Nested quoted field access
+        let r = r#"@req."user"."name""#;
+        let ts = Tokenizer::new(r).unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
+        let expected = Expr::At(vec![
+            Box::new(Expr::Val("req".into())),
+            Box::new(Expr::Val("user".into())),
+            Box::new(Expr::Val("name".into())),
+        ]);
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn mixed_quoted_unquoted_access() {
+        // Mix of quoted and unquoted field access
+        let r = r#"@req.user."special-field".data"#;
+        let ts = Tokenizer::new(r).unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
+        let expected = Expr::At(vec![
+            Box::new(Expr::Val("req".into())),
+            Box::new(Expr::Val("user".into())),
+            Box::new(Expr::Val("special-field".into())),
+            Box::new(Expr::Val("data".into())),
+        ]);
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn quoted_field_with_special_chars() {
+        // Field name with various special characters
+        let r = r#"@data."field-with@special#chars$""#;
+        let ts = Tokenizer::new(r).unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
+        let expected = Expr::At(vec![
+            Box::new(Expr::Val("data".into())),
+            Box::new(Expr::Val("field-with@special#chars$".into())),
+        ]);
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn quoted_field_numeric_mixed() {
+        // Mix of quoted fields, numeric indices, and regular fields
+        let r = r#"@files.0."name".value"#;
+        let ts = Tokenizer::new(r).unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
+        let expected = Expr::At(vec![
+            Box::new(Expr::Val("files".into())),
+            Box::new(Expr::Val(0.into())),
+            Box::new(Expr::Val("name".into())),
+            Box::new(Expr::Val("value".into())),
+        ]);
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn quoted_field_in_expression() {
+        // Quoted field access in comparison expression
+        let r = r#"@config."debug-mode" == true"#;
+        let ts = Tokenizer::new(r).unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
+        let expected = Expr::Bin(
+            Box::new(Expr::At(vec![
+                Box::new(Expr::Val("config".into())),
+                Box::new(Expr::Val("debug-mode".into())),
+            ])),
+            BinOp::Eq,
+            Box::new(Expr::Val(true.into())),
+        );
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn quoted_field_with_spaces() {
+        // Field name with spaces
+        let r = r#"@data."field with spaces""#;
+        let ts = Tokenizer::new(r).unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
+        let expected = Expr::At(vec![
+            Box::new(Expr::Val("data".into())),
+            Box::new(Expr::Val("field with spaces".into())),
+        ]);
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn quoted_field_with_quotes_inside() {
+        // Field name with single quotes inside double quotes
+        let r = r#"@data."field's name""#;
+        let ts = Tokenizer::new(r).unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
+        let expected = Expr::At(vec![
+            Box::new(Expr::Val("data".into())),
+            Box::new(Expr::Val("field's name".into())),
+        ]);
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn single_quoted_field_access() {
+        // Using single quotes instead of double quotes
+        let r = r#"@data.'special-field'"#;
+        let ts = Tokenizer::new(r).unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
+        let expected = Expr::At(vec![
+            Box::new(Expr::Val("data".into())),
+            Box::new(Expr::Val("special-field".into())),
+        ]);
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn complex_quoted_field_expression() {
+        // Complex expression with multiple quoted fields
+        let r = r#"@req."user-data"."is-active" && @config."debug-enabled" == false"#;
+        let ts = Tokenizer::new(r).unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
+        let expected = Expr::And(
+            Box::new(Expr::At(vec![
+                Box::new(Expr::Val("req".into())),
+                Box::new(Expr::Val("user-data".into())),
+                Box::new(Expr::Val("is-active".into())),
+            ])),
+            Box::new(Expr::Bin(
+                Box::new(Expr::At(vec![
+                    Box::new(Expr::Val("config".into())),
+                    Box::new(Expr::Val("debug-enabled".into())),
+                ])),
+                BinOp::Eq,
+                Box::new(Expr::Val(false.into())),
+            )),
+        );
+        assert_eq!(parsed, expected);
+    }
 }

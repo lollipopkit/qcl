@@ -271,10 +271,39 @@ mod test {
         expect("nil", None::<Val>);
     }
 
+    #[test]
+    #[cfg(feature = "json")]
+    fn test_quoted_field_access() {
+        // Basic quoted field access
+        expect(r#"@"with.&=""#, true);
+        
+        // Nested quoted field access
+        expect(r#"@req."user"."name""#, "lk");
+        
+        // Mixed quoted and unquoted access
+        expect(r#"@user."name""#, "lk");
+        expect(r#"@"user".name"#, "lk");
+        expect(r#"@"user"."name""#, "lk");
+        
+        // Quoted field with special characters
+        expect(r#"@"special-chars""#, "test-value");
+        
+        // Quoted field in complex expression
+        expect(r#"@"with.&=" && @user.age > 17"#, true);
+        expect(r#"@user."name" + "-suffix""#, "lk-suffix");
+        
+        // Quoted numeric field name
+        expect(r#"@"123""#, "numeric-field");
+        
+        // Single quotes vs double quotes
+        expect(r#"@'special-chars'"#, "test-value");
+    }
+
     #[cfg(feature = "json")]
     fn with_ctx(rule: &str) -> Result<Val> {
         let ctx: Val = json!({
             "user": {"name": "lk", "age": 18},
+            "req": {"user": {"name": "lk"}},
             "list": [1, 2, 3],
             "list-2": [2],
             "pub": true,
@@ -283,7 +312,10 @@ mod test {
                 "level1": {
                     "level2": "value"
                 }
-            }
+            },
+            "with.&=": true,
+            "special-chars": "test-value",
+            "123": "numeric-field"
         })
         .into();
         let expr = Expr::try_from(rule)?;

@@ -461,6 +461,11 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
                 Ok(expr)
             }
+            Token::Str(s) => {
+                let expr = Expr::Val(Val::Str(Arc::from(s.as_str())));
+                self.pos += 1;
+                Ok(expr)
+            }
             Token::Int(i) => {
                 let expr = Expr::Val(Val::Int(*i));
                 self.pos += 1;
@@ -517,7 +522,7 @@ impl<'a> Parser<'a> {
             if paths.is_empty() {
                 let first = &self.tokens[self.pos];
                 match first {
-                    Token::Id(_) | Token::LParen => {}
+                    Token::Id(_) | Token::LParen | Token::Str(_) => {}
                     _ => {
                         let msg = format!("Expecting field name, found {:?}", first);
                         return Err(anyhow!(self.err(&msg)));
