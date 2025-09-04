@@ -168,7 +168,7 @@ impl Expr {
                 Ok(Val::Map(Arc::new(map)))
             }
             Expr::Paren(expr) => expr.eval(ctx),
-            Expr::Val(val) => Ok(val.clone()), // TODO
+            Expr::Val(val) => Ok(val.clone()), // Clone necessary as eval returns owned Val
         }
     }
 
@@ -241,17 +241,17 @@ impl Expr {
 
     /// Cached parsing: parse expression string to Expr with caching to avoid repeated parsing overhead
     pub fn parse_cached(expression: &str) -> Result<Expr> {
-        // Global static cache: Key is expression string, Value is parsed Expr
-        static PARSE_CACHE: Lazy<Mutex<HashMap<String, Expr>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+        // Global static cache: Key is expression string, Value is parsed Expr wrapped in Arc
+        static PARSE_CACHE: Lazy<Mutex<HashMap<String, Arc<Expr>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
         let mut cache = PARSE_CACHE.lock().unwrap();
         if let Some(cached) = cache.get(expression) {
-            // Cache hit, return clone (avoid modifying original AST)
-            return Ok(cached.clone());
+            // Cache hit, clone the Arc (cheap)
+            return Ok((*cached.clone()).clone());
         }
         // Cache miss, perform normal parsing
         let tokens = Tokenizer::new(expression)?;
         let expr = Parser::new(&tokens).parse()?;  // Internal constant folding happens in parser
-        cache.insert(expression.to_string(), expr.clone());
+        cache.insert(expression.to_string(), Arc::new(expr.clone()));
         Ok(expr)
     }
 
@@ -366,7 +366,7 @@ impl Expr {
                     .map(|(k, v)| (Box::new(k.fold_constants()), Box::new(v.fold_constants())) )
                     .collect();
                 if folded_pairs.iter().all(|(k, v)| matches!(&**k, Expr::Val(_)) && matches!(&**v, Expr::Val(_))) {
-                    let mut const_map = HashMap::new();
+                    let mut const_map = HashMap::with_capacity(folded_pairs.len());
                     for (k_expr, v_expr) in &folded_pairs {
                         if let (Expr::Val(k_val), Expr::Val(v_val)) = (&**k_expr, &**v_expr) {
                             // Convert key to string (only allow basic type keys)
@@ -400,7 +400,7 @@ impl TryInto<Val> for &Expr {
 
     fn try_into(self) -> Result<Val> {
         match self {
-            Expr::Val(val) => Ok(val.clone()), // TODO
+            Expr::Val(val) => Ok(val.clone()), // Clone necessary as eval returns owned Val
             _ => {
                 let msg = format!("Can't convert Expr::{:?} to Val", self);
                 Err(anyhow!(msg))

@@ -38,6 +38,20 @@ impl Val {
             _ => None,
         }
     }
+
+    /// Efficient string concatenation using Cow to avoid intermediate allocations
+    fn concat_strings(a: &str, b: &str) -> Val {
+        if a.is_empty() {
+            Val::Str(Arc::from(b))
+        } else if b.is_empty() {
+            Val::Str(Arc::from(a))
+        } else {
+            let mut result = String::with_capacity(a.len() + b.len());
+            result.push_str(a);
+            result.push_str(b);
+            Val::Str(Arc::from(result.as_str()))
+        }
+    }
 }
 
 impl Add for &Val {
@@ -52,38 +66,55 @@ impl Add for &Val {
             (Val::Float(a), Val::Float(b)) => Ok(Val::Float(a + b)),
             (Val::Float(a), Val::Int(b)) => Ok(Val::Float(a + *b as f64)),
             (Val::Int(a), Val::Float(b)) => Ok(Val::Float(*a as f64 + b)),
-            (Val::Str(a), Val::Str(b)) => {
-                let mut res = String::with_capacity(a.len() + b.len());
-                res.push_str(a.as_ref());
-                res.push_str(b.as_ref());
-                Ok(Val::Str(Arc::from(res.as_str())))
-            }
+            (Val::Str(a), Val::Str(b)) => Ok(Val::concat_strings(a.as_ref(), b.as_ref())),
             #[cfg(feature = "adv_arith")]
-            (Val::Str(a), Val::Int(b)) => Ok(format!("{}{}", a, b).into()),
+            (Val::Str(a), Val::Int(b)) => {
+                let b_str = b.to_string();
+                Ok(Val::concat_strings(a.as_ref(), &b_str))
+            },
             #[cfg(feature = "adv_arith")]
-            (Val::Str(a), Val::Float(b)) => Ok(format!("{}{}", a, b).into()),
+            (Val::Str(a), Val::Float(b)) => {
+                let b_str = b.to_string();
+                Ok(Val::concat_strings(a.as_ref(), &b_str))
+            },
             #[cfg(feature = "adv_arith")]
-            (Val::Int(a), Val::Str(b)) => Ok(format!("{}{}", a, b).into()),
+            (Val::Int(a), Val::Str(b)) => {
+                let a_str = a.to_string();
+                Ok(Val::concat_strings(&a_str, b.as_ref()))
+            },
             #[cfg(feature = "adv_arith")]
-            (Val::Float(a), Val::Str(b)) => Ok(format!("{}{}", a, b).into()),
+            (Val::Float(a), Val::Str(b)) => {
+                let a_str = a.to_string();
+                Ok(Val::concat_strings(&a_str, b.as_ref()))
+            },
             #[cfg(feature = "adv_arith")]
             (Val::Map(l), Val::Map(r)) => {
                 // Map + Map: merge with right side overriding left side for same keys
-                let mut merged = (**l).clone();
-                for (k, v) in (**r).iter() {
+                // Use with_capacity for better performance
+                let mut merged = HashMap::with_capacity(l.len() + r.len());
+                // First insert all from left map
+                for (k, v) in l.iter() {
+                    merged.insert(k.clone(), v.clone());
+                }
+                // Then insert from right map (overriding duplicates)
+                for (k, v) in r.iter() {
                     merged.insert(k.clone(), v.clone());
                 }
                 Ok(merged.into())
             }
             #[cfg(feature = "adv_arith")]
             (Val::List(l), Val::List(r)) => {
-                let mut merged = (**l).clone();
-                merged.extend((**r).iter().cloned());
+                // Use with_capacity for better performance
+                let mut merged = Vec::with_capacity(l.len() + r.len());
+                merged.extend(l.iter().cloned());
+                merged.extend(r.iter().cloned());
                 Ok(merged.into())
             }
             #[cfg(feature = "adv_arith")]
             (Val::List(l), r) => {
-                let mut new_list = (**l).clone();
+                // Use with_capacity for better performance
+                let mut new_list = Vec::with_capacity(l.len() + 1);
+                new_list.extend(l.iter().cloned());
                 new_list.push(r.clone());
                 Ok(new_list.into())
             }
@@ -103,35 +134,49 @@ impl Sub for &Val {
             (Val::Int(a), Val::Float(b)) => Ok((*a as f64 - b).into()),
             #[cfg(feature = "adv_arith")]
             (Val::List(l), Val::List(r)) => {
-                let mut result = (**l).clone();
-                for val in (**r).iter() {
-                    if let Some(idx) = result.iter().position(|v| v == val) {
-                        result.remove(idx);
+                let mut result = Vec::with_capacity(l.len());
+                'outer: for left_val in l.iter() {
+                    for right_val in r.iter() {
+                        if left_val == right_val {
+                            continue 'outer; // Skip this element
+                        }
                     }
+                    result.push(left_val.clone());
                 }
                 Ok(result.into())
             }
             #[cfg(feature = "adv_arith")]
             (Val::List(l), r) => {
-                let mut result = (**l).clone();
-                if let Some(idx) = result.iter().position(|v| v == r) {
-                    result.remove(idx);
+                let mut result = Vec::with_capacity(l.len());
+                let mut found = false;
+                for val in l.iter() {
+                    if !found && val == r {
+                        found = true; // Skip first occurrence
+                        continue;
+                    }
+                    result.push(val.clone());
                 }
                 Ok(result.into())
             }
             #[cfg(feature = "adv_arith")]
             (Val::Map(l), Val::Map(r)) => {
-                let mut result = (**l).clone();
-                for (k, _) in (**r).iter() {
-                    result.remove(k);
+                let mut result = HashMap::with_capacity(l.len());
+                for (k, v) in l.iter() {
+                    if !r.contains_key(k) {
+                        result.insert(k.clone(), v.clone());
+                    }
                 }
                 Ok(result.into())
             }
             #[cfg(feature = "adv_arith")]
             (Val::Map(l), r) => {
                 if let Val::Str(k) = r {
-                    let mut result = (**l).clone();
-                    result.remove(k.as_ref());
+                    let mut result = HashMap::with_capacity(l.len());
+                    for (existing_k, v) in l.iter() {
+                        if existing_k != k.as_ref() {
+                            result.insert(existing_k.clone(), v.clone());
+                        }
+                    }
                     return Ok(result.into());
                 }
                 err_op(self, BinOp::Sub, other)

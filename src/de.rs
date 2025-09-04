@@ -55,7 +55,8 @@ impl<'de> Visitor<'de> for ValVisitor {
     where
         A: SeqAccess<'de>,
     {
-        let mut elements = Vec::new();
+        let size_hint = seq.size_hint().unwrap_or(0);
+        let mut elements = Vec::with_capacity(size_hint);
         while let Some(elem) = seq.next_element::<Val>()? {
             elements.push(elem);
         }
@@ -66,7 +67,8 @@ impl<'de> Visitor<'de> for ValVisitor {
     where
         M: MapAccess<'de>,
     {
-        let mut map = HashMap::new();
+        let size_hint = map_access.size_hint().unwrap_or(0);
+        let mut map = HashMap::with_capacity(size_hint);
         while let Some((key, value)) = map_access.next_entry::<String, Val>()? {
             map.insert(key, value);
         }
