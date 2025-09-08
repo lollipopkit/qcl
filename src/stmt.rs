@@ -1,4 +1,4 @@
-use crate::{expr::Expr, val::Val};
+use crate::{expr::Expr, val::{Val, Type}};
 use anyhow::{Result, anyhow};
 use std::{collections::HashMap, fmt::Display};
 
@@ -9,7 +9,7 @@ use std::{collections::HashMap, fmt::Display};
 /// statement ::= if_stmt | while_stmt | let_stmt | assign_stmt | goto_stmt | label_stmt | break_stmt | continue_stmt | return_stmt | expr_stmt | block_stmt
 /// if_stmt  ::= 'if' '(' expr ')' statement ['else' statement]
 /// while_stmt ::= 'while' '(' expr ')' statement
-/// let_stmt ::= 'let' id '=' expr ';'
+/// let_stmt ::= 'let' id [':' type] '=' expr ';'
 /// assign_stmt ::= id '=' expr ';'
 /// goto_stmt ::= 'goto' id ';'
 /// label_stmt ::= id ':'
@@ -31,9 +31,10 @@ pub enum Stmt {
         condition: Box<Expr>,
         body: Box<Stmt>,
     },
-    /// let name = value;
+    /// let name [: type] = value;
     Let {
         name: String,
+        type_annotation: Option<Type>,
         value: Box<Expr>,
     },
     /// name = value; (赋值语句)
@@ -181,8 +182,14 @@ impl Stmt {
                 }
                 Ok(ControlFlow::None)
             }
-            Stmt::Let { name, value } => {
+            Stmt::Let { name, type_annotation, value } => {
                 let val = value.eval_with_env(ctx, Some(env))?;
+                
+                // Validate type annotation if provided
+                if let Some(expected_type) = type_annotation {
+                    expected_type.validate(&val)?;
+                }
+                
                 env.define(name.clone(), val);
                 Ok(ControlFlow::None)
             }
@@ -312,8 +319,12 @@ impl Display for Stmt {
             Stmt::While { condition, body } => {
                 write!(f, "while ({}) {}", condition, body)
             }
-            Stmt::Let { name, value } => {
-                write!(f, "let {} = {};", name, value)
+            Stmt::Let { name, type_annotation, value } => {
+                if let Some(typ) = type_annotation {
+                    write!(f, "let {}: {:?} = {};", name, typ, value)
+                } else {
+                    write!(f, "let {} = {};", name, value)
+                }
             }
             Stmt::Assign { name, value } => {
                 write!(f, "{} = {};", name, value)

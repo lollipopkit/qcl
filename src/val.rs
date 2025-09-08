@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use serde::{Serialize, Serializer};
 
 use crate::op::{err_op, BinOp};
@@ -25,7 +25,63 @@ pub enum Val {
     Nil,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum Type {
+    Int,
+    Float,
+    String,
+    Bool,
+    List,
+    Map,
+    Nil,
+}
+
+impl Type {
+    pub fn from_str(s: &str) -> Option<Type> {
+        match s {
+            "Int" => Some(Type::Int),
+            "Float" => Some(Type::Float),
+            "String" => Some(Type::String),
+            "Bool" => Some(Type::Bool),
+            "List" => Some(Type::List),
+            "Map" => Some(Type::Map),
+            "Nil" => Some(Type::Nil),
+            _ => None,
+        }
+    }
+
+    pub fn validate(&self, val: &Val) -> Result<()> {
+        let matches = match (self, val) {
+            (Type::Int, Val::Int(_)) => true,
+            (Type::Float, Val::Float(_)) => true,
+            (Type::String, Val::Str(_)) => true,
+            (Type::Bool, Val::Bool(_)) => true,
+            (Type::List, Val::List(_)) => true,
+            (Type::Map, Val::Map(_)) => true,
+            (Type::Nil, Val::Nil) => true,
+            _ => false,
+        };
+
+        if matches {
+            Ok(())
+        } else {
+            Err(anyhow!("Type mismatch: expected {:?}, got {:?}", self, val.type_name()))
+        }
+    }
+}
+
 impl Val {
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Val::Str(_) => "String",
+            Val::Int(_) => "Int",
+            Val::Float(_) => "Float",
+            Val::Bool(_) => "Bool",
+            Val::Map(_) => "Map",
+            Val::List(_) => "List",
+            Val::Nil => "Nil",
+        }
+    }
     pub(crate) fn access(&self, field: &Val) -> Option<&Val> {
         match (self, field) {
             (Val::Map(m), Val::Str(s)) => m.get(s.as_ref()),

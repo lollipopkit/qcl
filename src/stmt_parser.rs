@@ -3,6 +3,7 @@ use crate::{
     expr::Expr,
     stmt::{Stmt, Program},
     token::Token,
+    val::Type,
 };
 use anyhow::{Result, anyhow};
 
@@ -124,12 +125,29 @@ impl<'a> StmtParser<'a> {
             return Err(anyhow!(self.err("Expected variable name after 'let'")));
         };
 
+        // Check for optional type annotation
+        let type_annotation = if !self.eof() && self.tokens[self.pos] == Token::Colon {
+            self.pos += 1; // consume ':'
+            
+            if let Token::Id(type_name) = &self.tokens[self.pos] {
+                let typ = Type::from_str(type_name)
+                    .ok_or_else(|| anyhow!(self.err(&format!("Unknown type: {}", type_name))))?;
+                self.pos += 1;
+                Some(typ)
+            } else {
+                return Err(anyhow!(self.err("Expected type name after ':'")));
+            }
+        } else {
+            None
+        };
+
         self.expect_token(Token::Assign)?;
         let value = self.parse_expression()?;
         self.expect_token(Token::Semicolon)?;
 
         Ok(Stmt::Let {
             name,
+            type_annotation,
             value: Box::new(value),
         })
     }

@@ -347,4 +347,132 @@ mod tests {
         let result = program.execute(&ctx).expect("Failed to execute");
         assert_eq!(result, Val::Int(30));
     }
+
+    // Type annotation tests
+    #[test]
+    fn test_let_with_type_annotation_int() {
+        let program = parse_program("let x: Int = 42;");
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Nil);
+    }
+
+    #[test]
+    fn test_let_with_type_annotation_string() {
+        let program = parse_program(r#"let name: String = "hello";"#);
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Nil);
+    }
+
+    #[test]
+    fn test_let_with_type_annotation_bool() {
+        let program = parse_program("let flag: Bool = true;");
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Nil);
+    }
+
+    #[test]
+    fn test_let_with_type_annotation_float() {
+        let program = parse_program("let pi: Float = 3.14;");
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Nil);
+    }
+
+    #[test]
+    fn test_let_with_type_annotation_nil() {
+        let program = parse_program("let empty: Nil = nil;");
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Nil);
+    }
+
+    #[test]
+    fn test_let_with_type_annotation_list() {
+        let program = parse_program("let items: List = [1, 2, 3];");
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Nil);
+    }
+
+    #[test]
+    fn test_let_with_type_annotation_map() {
+        let program = parse_program(r#"let data: Map = {"key": "value"};"#);
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Nil);
+    }
+
+    #[test]
+    fn test_let_type_mismatch_int() {
+        let program = parse_program(r#"let x: Int = "not_int";"#);
+        let ctx = empty_context();
+        let result = program.execute(&ctx);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Type mismatch"));
+    }
+
+    #[test]
+    fn test_let_type_mismatch_string() {
+        let program = parse_program("let name: String = 42;");
+        let ctx = empty_context();
+        let result = program.execute(&ctx);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Type mismatch"));
+    }
+
+    #[test]
+    fn test_let_type_mismatch_bool() {
+        let program = parse_program("let flag: Bool = 123;");
+        let ctx = empty_context();
+        let result = program.execute(&ctx);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Type mismatch"));
+    }
+
+    #[test]
+    fn test_let_type_mismatch_float() {
+        let program = parse_program("let pi: Float = true;");
+        let ctx = empty_context();
+        let result = program.execute(&ctx);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Type mismatch"));
+    }
+
+    #[test]
+    fn test_unknown_type_error() {
+        let tokens = Tokenizer::new("let x: UnknownType = 42;").expect("Failed to tokenize");
+        let mut parser = StmtParser::new(&tokens);
+        let result = parser.parse_program();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Unknown type"));
+    }
+
+    #[test]
+    fn test_mixed_typed_and_untyped_variables() {
+        let program = parse_program(r#"
+            let x: Int = 42;
+            let y = "hello";
+            let z: Bool = true;
+            let w = 3.14;
+        "#);
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Nil);
+    }
+
+    #[test]
+    fn test_type_annotation_in_complex_expression() {
+        let program = parse_program(r#"
+            let x: Int = 10;
+            let y: Int = 20;
+            let sum: Int = x + y;
+            let result: Bool = sum > 25;
+        "#);
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Nil);
+    }
 }
