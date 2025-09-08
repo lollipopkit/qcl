@@ -25,15 +25,8 @@ adv_arith = []
 json = ["serde_json"]
 yaml = ["serde_yaml"]
 toml = ["dep:toml"]
-# Standard library modules (Lua-inspired modular design)
-stdlib-math = []
-stdlib-string = []
-stdlib-datetime = ["chrono"]
-stdlib-os = []
-stdlib-core = ["stdlib-math", "stdlib-string"]
-stdlib-extended = ["stdlib-core", "stdlib-datetime"]
-stdlib-all = ["stdlib-extended", "stdlib-os"]
-all = ["sem_arith", "adv_arith", "json", "yaml", "toml", "stdlib-all"]
+# All features
+all = ["sem_arith", "adv_arith", "json", "yaml", "toml"]
 
 [dev-dependencies]
 criterion = "0.3"

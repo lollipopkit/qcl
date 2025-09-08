@@ -6,6 +6,8 @@ use std::{
     sync::Arc,
 };
 
+use crate::concurrency::{Channel, GoroutineHandle};
+
 use anyhow::{Result, anyhow};
 use serde::{Serialize, Serializer};
 
@@ -34,6 +36,10 @@ pub enum Val {
     },
     /// Rust function - contains a function pointer that can be called
     RustFunction(RustFunction),
+    /// Channel for goroutine communication
+    Channel(Channel),
+    /// Goroutine handle for managing spawned tasks
+    Goroutine(GoroutineHandle),
     Nil,
 }
 
@@ -46,6 +52,8 @@ pub enum Type {
     List,
     Map,
     Function,
+    Channel,
+    Goroutine,
     Nil,
 }
 
@@ -59,6 +67,8 @@ impl Type {
             "List" => Some(Type::List),
             "Map" => Some(Type::Map),
             "Function" => Some(Type::Function),
+            "Channel" => Some(Type::Channel),
+            "Goroutine" => Some(Type::Goroutine),
             "Nil" => Some(Type::Nil),
             _ => None,
         }
@@ -73,6 +83,8 @@ impl Type {
             (Type::List, Val::List(_)) => true,
             (Type::Map, Val::Map(_)) => true,
             (Type::Function, Val::Closure { .. } | Val::RustFunction(_)) => true,
+            (Type::Channel, Val::Channel(_)) => true,
+            (Type::Goroutine, Val::Goroutine(_)) => true,
             (Type::Nil, Val::Nil) => true,
             _ => false,
         };
@@ -100,6 +112,8 @@ impl Val {
             Val::List(_) => "List",
             Val::Closure { .. } => "Function",
             Val::RustFunction(_) => "Function",
+            Val::Channel(_) => "Channel",
+            Val::Goroutine(_) => "Goroutine",
             Val::Nil => "Nil",
         }
     }
@@ -553,6 +567,8 @@ impl PartialEq for Val {
                 // Use fn_addr_eq for meaningful function pointer comparison
                 std::ptr::fn_addr_eq(*a, *b)
             }
+            (Val::Channel(a), Val::Channel(b)) => a == b,
+            (Val::Goroutine(a), Val::Goroutine(b)) => a == b,
             (Val::Nil, Val::Nil) => true,
             _ => false,
         }
@@ -587,6 +603,14 @@ impl Serialize for Val {
             Val::Closure { .. } | Val::RustFunction(_) => {
                 // Functions can't be serialized, use placeholder
                 serializer.serialize_str("<function>")
+            }
+            Val::Channel(_) => {
+                // Channels can't be serialized, use placeholder
+                serializer.serialize_str("<channel>")
+            }
+            Val::Goroutine(g) => {
+                // Serialize goroutine as its ID
+                serializer.serialize_str(&format!("<goroutine:{}>", g.id()))
             }
             Val::Nil => serializer.serialize_unit(),
         }
@@ -624,6 +648,12 @@ impl core::fmt::Display for Val {
             }
             Val::RustFunction(_) => {
                 write!(f, "<native function>")
+            }
+            Val::Channel(_) => {
+                write!(f, "<channel>")
+            }
+            Val::Goroutine(g) => {
+                write!(f, "<goroutine:{}>", g.id())
             }
             Val::Nil => write!(f, "nil"),
         }

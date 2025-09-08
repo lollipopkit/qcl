@@ -1,7 +1,12 @@
+#[cfg(feature = "stdlib-datetime")]
 use qcl_core::module::Module;
+#[cfg(feature = "stdlib-datetime")]
 use qcl_core::val::Val;
+#[cfg(feature = "stdlib-datetime")]
 use anyhow::Result;
+#[cfg(feature = "stdlib-datetime")]
 use std::collections::HashMap;
+#[cfg(feature = "stdlib-datetime")]
 use chrono::Datelike;
 
 #[cfg(feature = "stdlib-datetime")]

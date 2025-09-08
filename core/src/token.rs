@@ -46,6 +46,16 @@ pub enum Token {
     Import,      // import
     From,        // from
     As,          // as
+    // Concurrency keywords
+    Go,          // go
+    Chan,        // chan
+    Select,      // select
+    Case,        // case
+    Default,     // default
+    // Channel operations
+    Send,        // <- (for channel send)
+    Recv,        // <- (for channel receive)
+    MakeChan,    // make_chan
     Str(String), // "abc"
     Int(i64),    // 1
     Float(f64),  // 1.1
@@ -257,6 +267,24 @@ impl Tokenizer {
             Ok(())
         } else if self.expect("as") {
             self.tokens.push(Token::As);
+            Ok(())
+        } else if self.expect("make_chan") {
+            self.tokens.push(Token::MakeChan);
+            Ok(())
+        } else if self.expect("go") {
+            self.tokens.push(Token::Go);
+            Ok(())
+        } else if self.expect("chan") {
+            self.tokens.push(Token::Chan);
+            Ok(())
+        } else if self.expect("select") {
+            self.tokens.push(Token::Select);
+            Ok(())
+        } else if self.expect("case") {
+            self.tokens.push(Token::Case);
+            Ok(())
+        } else if self.expect("default") {
+            self.tokens.push(Token::Default);
             Ok(())
         } else {
             self.parse_id()
@@ -474,6 +502,9 @@ impl Tokenizer {
             '<' => {
                 if self.expect("<=") {
                     self.tokens.push(Token::Le);
+                    Ok(())
+                } else if self.expect("<-") {
+                    self.tokens.push(Token::Recv);
                     Ok(())
                 } else {
                     self.idx += 1;

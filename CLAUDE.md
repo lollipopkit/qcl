@@ -75,7 +75,12 @@ The language supports both expressions and full statement programs:
 #### Statement Grammar:
 ```
 program  ::= statement*
-statement ::= import_stmt | if_stmt | while_stmt | let_stmt | assign_stmt | goto_stmt | label_stmt | break_stmt | continue_stmt | return_stmt | fn_stmt | expr_stmt | block_stmt
+statement ::= import_stmt | if_stmt | while_stmt | let_stmt | assign_stmt | goto_stmt | label_stmt | break_stmt | continue_stmt | return_stmt | fn_stmt | expr_stmt | block_stmt | go_stmt | select_stmt | channel_send_stmt | channel_recv_stmt
+go_stmt ::= 'go' statement
+select_stmt ::= 'select' '{' select_case* '}'
+select_case ::= 'case' (channel_recv | channel_send) ':' statement | 'default' ':' statement
+channel_send ::= expr '<-' expr ';'
+channel_recv ::= [id '='] '<-' expr ';'
 import_stmt ::= 'import' import_spec ';'
 if_stmt  ::= 'if' '(' expr ')' statement ['else' statement]
 while_stmt ::= 'while' '(' expr ')' statement
@@ -102,6 +107,18 @@ The `Expr::parse_cached()` method uses `once_cell::sync::Lazy` for caching parse
 - `@` prefix accesses context objects (e.g., `@req.user.name`)
 - Context must be provided as `Val` (typically parsed from JSON/YAML/TOML)
 - Use `expr.requested_ctx()` to discover required context keys
+
+#### Concurrency Features
+
+QCL supports Go-style concurrency with:
+
+- **Goroutines**: Spawn concurrent tasks with `go statement`
+- **Channels**: Thread-safe communication primitives
+  - Unbuffered channels: `make_chan()`
+  - Buffered channels: `make_chan(size)`
+  - Channel operations: `ch <- value` (send), `<-ch` (receive)
+- **Select statements**: Handle multiple channel operations
+- **Channel functions**: `send()`, `recv()`, `try_send()`, `try_recv()`, `close()`
 
 #### Feature Flags
 

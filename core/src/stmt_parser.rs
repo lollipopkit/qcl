@@ -2,7 +2,7 @@ use crate::{
     ast::Parser as ExprParser,
     expr::Expr,
     import::{ImportItem, ImportSource, ImportStmt},
-    stmt::{Program, Stmt},
+    stmt::{Program, SelectCase, Stmt},
     token::Token,
     val::Type,
 };
@@ -61,6 +61,9 @@ impl<'a> StmtParser<'a> {
             Token::Goto => self.parse_goto_stmt(),
             Token::Fn => self.parse_function_stmt(),
             Token::LBrace => self.parse_block_stmt(),
+            Token::Go => self.parse_go_stmt(),
+            Token::Select => self.parse_select_stmt(),
+            Token::Recv => self.parse_channel_recv_stmt(),
             Token::Id(id) => {
                 // 检查是否为标签 (id:) 或赋值语句 (id = expr;)
                 if self.peek_ahead(1) == Some(&Token::Colon) {
@@ -504,5 +507,93 @@ impl<'a> StmtParser<'a> {
             format!("at end, near '{:?}'", chars)
         };
         format!("Syntax error: {} ({})", msg, ctx)
+    }
+
+    /// 解析 go 语句: go { statements } 或 go function_call
+    fn parse_go_stmt(&mut self) -> Result<Stmt> {
+        self.expect_token(Token::Go)?;
+        let body = Box::new(self.parse_statement()?);
+        Ok(Stmt::Go { body })
+    }
+
+    /// 解析 select 语句: select { case ... }
+    fn parse_select_stmt(&mut self) -> Result<Stmt> {
+        self.expect_token(Token::Select)?;
+        self.expect_token(Token::LBrace)?;
+
+        let mut cases = Vec::new();
+
+        while !self.eof() && self.tokens[self.pos] != Token::RBrace {
+            match &self.tokens[self.pos] {
+                Token::Case => {
+                    self.pos += 1; // consume 'case'
+                    
+                    // Check if this is a receive or send case
+                    if self.peek_ahead(1) == Some(&Token::Assign) && self.peek_ahead(2) == Some(&Token::Recv) {
+                        // case var := <-ch:
+                        let var_name = self.expect_id()?;
+                        self.expect_token(Token::Assign)?;
+                        self.expect_token(Token::Recv)?;
+                        let channel = Box::new(self.parse_expression()?);
+                        self.expect_token(Token::Colon)?;
+                        let body = Box::new(self.parse_statement()?);
+                        
+                        cases.push(SelectCase::Recv {
+                            variable: Some(var_name),
+                            channel,
+                            body,
+                        });
+                    } else if self.peek_ahead(0) == Some(&Token::Recv) {
+                        // case <-ch:
+                        self.expect_token(Token::Recv)?;
+                        let channel = Box::new(self.parse_expression()?);
+                        self.expect_token(Token::Colon)?;
+                        let body = Box::new(self.parse_statement()?);
+                        
+                        cases.push(SelectCase::Recv {
+                            variable: None,
+                            channel,
+                            body,
+                        });
+                    } else {
+                        // case ch <- value:
+                        let channel = Box::new(self.parse_expression()?);
+                        self.expect_token(Token::Recv)?; // We use Recv token for <- in both directions
+                        let value = Box::new(self.parse_expression()?);
+                        self.expect_token(Token::Colon)?;
+                        let body = Box::new(self.parse_statement()?);
+                        
+                        cases.push(SelectCase::Send {
+                            channel,
+                            value,
+                            body,
+                        });
+                    }
+                }
+                Token::Default => {
+                    self.pos += 1; // consume 'default'
+                    self.expect_token(Token::Colon)?;
+                    let body = Box::new(self.parse_statement()?);
+                    
+                    cases.push(SelectCase::Default { body });
+                }
+                _ => break,
+            }
+        }
+
+        self.expect_token(Token::RBrace)?;
+        Ok(Stmt::Select { cases })
+    }
+
+    /// 解析 channel receive 语句: <-ch 或 var = <-ch
+    fn parse_channel_recv_stmt(&mut self) -> Result<Stmt> {
+        self.expect_token(Token::Recv)?; // <-
+        let channel = Box::new(self.parse_expression()?);
+        self.expect_token(Token::Semicolon)?;
+        
+        Ok(Stmt::ChannelRecv {
+            variable: None,
+            channel,
+        })
     }
 }

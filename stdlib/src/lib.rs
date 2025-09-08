@@ -2,6 +2,11 @@ pub mod datetime;
 pub mod math;
 pub mod os;
 pub mod string;
+pub mod tcp;
+
+#[cfg(test)]
+#[cfg(feature = "stdlib-tcp")]
+mod tcp_test;
 
 use qcl_core::module::ModuleRegistry;
 
@@ -25,5 +30,10 @@ pub fn register_stdlib_modules(registry: &mut ModuleRegistry) {
     #[cfg(feature = "stdlib-os")]
     {
         registry.register_module("os", Box::new(os::OsModule::new()));
+    }
+
+    #[cfg(feature = "stdlib-tcp")]
+    {
+        registry.register_module("tcp", Box::new(tcp::TcpModule::new()));
     }
 }

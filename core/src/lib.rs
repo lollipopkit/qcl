@@ -1,4 +1,5 @@
 pub mod ast;
+pub mod concurrency;
 pub mod de;
 pub mod expr;
 pub mod import;
@@ -6,12 +7,12 @@ pub mod module;
 mod op;
 pub mod stmt;
 pub mod stmt_parser;
-pub mod stdlib;
 pub mod token;
 pub mod val;
 
 
 mod ast_test;
+mod concurrency_test;
 mod de_test;
 mod expr_test;
 mod function_test;

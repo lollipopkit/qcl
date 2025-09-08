@@ -12,12 +12,10 @@ anyhow = { workspace = true }
 chrono = { workspace = true, optional = true }
 
 [features]
-default = ["stdlib-math", "stdlib-string"]
-# Standard library modules (Lua-inspired modular design)
+default = ["stdlib-string", "stdlib-math", "stdlib-datetime", "stdlib-os", "stdlib-tcp"]
+# Standard library modules
 stdlib-math = []
 stdlib-string = []
 stdlib-datetime = ["chrono"]
 stdlib-os = []
-stdlib-core = ["stdlib-math", "stdlib-string"]
-stdlib-extended = ["stdlib-core", "stdlib-datetime"]
-stdlib-all = ["stdlib-extended", "stdlib-os"]
+stdlib-tcp = []
