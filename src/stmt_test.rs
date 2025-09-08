@@ -243,4 +243,108 @@ mod tests {
         let result = program.execute(&ctx).expect("Failed to execute");
         assert_eq!(result, Val::Nil);
     }
+
+    #[test]
+    fn test_return_with_value() {
+        let program = parse_program(r#"
+            let x = 42;
+            return x + 8;
+            let y = 100; // This should not be executed
+        "#);
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Int(50));
+    }
+
+    #[test] 
+    fn test_simple_return_with_literal() {
+        let program = parse_program("return 123;");
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Int(123));
+    }
+
+    #[test]
+    fn test_return_with_variable() {
+        let program = parse_program(r#"
+            let x = 42;
+            return x;
+        "#);
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Int(42));
+    }
+
+    #[test]
+    fn test_return_with_addition() {
+        let program = parse_program(r#"
+            let x = 1;
+            let y = 2;
+            return x + y;
+        "#);
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Int(3));
+    }
+
+    #[test]
+    fn test_return_without_value() {
+        let program = parse_program(r#"
+            let x = 10;
+            return;
+            let y = 20; // This should not be executed
+        "#);
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Nil);
+    }
+
+    #[test]
+    fn test_return_in_block() {
+        let program = parse_program(r#"
+            let x = 1;
+            {
+                let y = 2;
+                return x + y;
+                let z = 999; // This should not be executed
+            }
+            let w = 100; // This should not be executed either
+        "#);
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Int(3));
+    }
+
+    #[test]
+    fn test_return_in_if_statement() {
+        let program = parse_program(r#"
+            let x = 5;
+            if (x > 3) {
+                return x * 2;
+            } else {
+                return x;
+            }
+            let y = 999; // This should not be executed
+        "#);
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Int(10));
+    }
+
+    #[test]
+    fn test_return_in_while_loop() {
+        let program = parse_program(r#"
+            let i = 0;
+            while (i < 5) {
+                i = i + 1;
+                if (i == 3) {
+                    return i * 10;
+                }
+            }
+            let done = 999; // This should not be executed
+        "#);
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Int(30));
+    }
 }

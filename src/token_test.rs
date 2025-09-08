@@ -99,6 +99,19 @@ mod tests {
     }
 
     #[test]
+    fn test_return_keyword() {
+        let tokens = Tokenizer::new("return").expect("Invalid tokens");
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0], Token::Return);
+
+        let tokens = Tokenizer::new("return 42;").expect("Invalid tokens");
+        assert_eq!(tokens.len(), 3);
+        assert_eq!(tokens[0], Token::Return);
+        assert_eq!(tokens[1], Token::Int(42));
+        assert_eq!(tokens[2], Token::Semicolon);
+    }
+
+    #[test]
     fn token_eq() {
         assert_eq!(Token::Str("a".to_string()), Token::Str("a".to_string()));
         assert_eq!(Token::Int(1), Token::Int(1));

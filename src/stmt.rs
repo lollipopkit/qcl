@@ -6,7 +6,7 @@ use std::{collections::HashMap, fmt::Display};
 /// 
 /// 语法设计：
 /// program  ::= statement*
-/// statement ::= if_stmt | while_stmt | let_stmt | assign_stmt | goto_stmt | label_stmt | break_stmt | continue_stmt | expr_stmt | block_stmt
+/// statement ::= if_stmt | while_stmt | let_stmt | assign_stmt | goto_stmt | label_stmt | break_stmt | continue_stmt | return_stmt | expr_stmt | block_stmt
 /// if_stmt  ::= 'if' '(' expr ')' statement ['else' statement]
 /// while_stmt ::= 'while' '(' expr ')' statement
 /// let_stmt ::= 'let' id '=' expr ';'
@@ -15,6 +15,7 @@ use std::{collections::HashMap, fmt::Display};
 /// label_stmt ::= id ':'
 /// break_stmt ::= 'break' ';'
 /// continue_stmt ::= 'continue' ';'
+/// return_stmt ::= 'return' [expr] ';'
 /// expr_stmt ::= expr ';'
 /// block_stmt ::= '{' statement* '}'
 #[derive(Debug, Clone, PartialEq)]
@@ -52,6 +53,10 @@ pub enum Stmt {
     Break,
     /// continue;
     Continue,
+    /// return [expression];
+    Return {
+        value: Option<Box<Expr>>,
+    },
     /// expression;
     Expr(Box<Expr>),
     /// { statements }
@@ -199,6 +204,14 @@ impl Stmt {
             Stmt::Continue => {
                 Ok(ControlFlow::Continue)
             }
+            Stmt::Return { value } => {
+                let return_val = if let Some(expr) = value {
+                    expr.eval_with_env(ctx, Some(env))?
+                } else {
+                    Val::Nil
+                };
+                Ok(ControlFlow::Return(return_val))
+            }
             Stmt::Expr(expr) => {
                 // 执行表达式，忽略返回值
                 expr.eval_with_env(ctx, Some(env))?;
@@ -316,6 +329,13 @@ impl Display for Stmt {
             }
             Stmt::Continue => {
                 write!(f, "continue;")
+            }
+            Stmt::Return { value } => {
+                if let Some(expr) = value {
+                    write!(f, "return {};", expr)
+                } else {
+                    write!(f, "return;")
+                }
             }
             Stmt::Expr(expr) => {
                 write!(f, "{};", expr)

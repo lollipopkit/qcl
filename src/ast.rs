@@ -229,7 +229,7 @@ impl<'a> Parser<'a> {
             // This is where the recursion issue was - we need a terminal case
             match &self.tokens[self.pos] {
                 Token::Id(id) => {
-                    let expr = Expr::Val(Val::Str(Arc::from(id.as_str())));
+                    let expr = Expr::Var(id.clone());
                     self.pos += 1;
                     Ok(expr)
                 }

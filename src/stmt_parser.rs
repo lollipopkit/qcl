@@ -54,6 +54,7 @@ impl<'a> StmtParser<'a> {
             Token::Let => self.parse_let_stmt(),
             Token::Break => self.parse_break_stmt(),
             Token::Continue => self.parse_continue_stmt(),
+            Token::Return => self.parse_return_stmt(),
             Token::Goto => self.parse_goto_stmt(),
             Token::LBrace => self.parse_block_stmt(),
             Token::Id(id) => {
@@ -187,6 +188,22 @@ impl<'a> StmtParser<'a> {
         self.expect_token(Token::Continue)?;
         self.expect_token(Token::Semicolon)?;
         Ok(Stmt::Continue)
+    }
+
+    /// 解析 return 语句
+    fn parse_return_stmt(&mut self) -> Result<Stmt> {
+        self.expect_token(Token::Return)?;
+        
+        // 检查是否有返回值（如果下一个token不是分号，则有返回值）
+        let value = if !self.eof() && self.tokens[self.pos] != Token::Semicolon {
+            Some(Box::new(self.parse_expression()?))
+        } else {
+            None
+        };
+
+        self.expect_token(Token::Semicolon)?;
+        
+        Ok(Stmt::Return { value })
     }
 
     /// 解析块语句

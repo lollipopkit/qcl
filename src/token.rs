@@ -40,6 +40,7 @@ pub enum Token {
     Break,       // break
     Continue,    // continue
     Goto,        // goto
+    Return,      // return
     Str(String), // "abc"
     Int(i64),    // 1
     Float(f64),  // 1.1
@@ -233,6 +234,9 @@ impl Tokenizer {
             Ok(())
         } else if self.expect("continue") {
             self.tokens.push(Token::Continue);
+            Ok(())
+        } else if self.expect("return") {
+            self.tokens.push(Token::Return);
             Ok(())
         } else if self.expect("goto") {
             self.tokens.push(Token::Goto);
@@ -478,8 +482,8 @@ impl Tokenizer {
                 '0'..='9' => {
                     self.parse_num()?;
                 }
-                // true false nil in if else while let break continue goto
-                't' | 'f' | 'n' | 'i' | 'e' | 'w' | 'l' | 'b' | 'c' | 'g' => {
+                // true false nil in if else while let break continue return goto
+                't' | 'f' | 'n' | 'i' | 'e' | 'w' | 'l' | 'b' | 'c' | 'r' | 'g' => {
                     self.parse_keywords()?;
                 }
                 _ => {

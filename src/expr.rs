@@ -79,6 +79,8 @@ pub enum Expr {
     List(Vec<Box<Expr>>),
     /// {expr: expr, expr: expr, ...}
     Map(Vec<(Box<Expr>, Box<Expr>)>),
+    /// Variable identifier
+    Var(String),
     Val(Val),
 }
 
@@ -180,6 +182,17 @@ impl Expr {
                 Ok(Val::Map(Arc::new(map)))
             }
             Expr::Paren(expr) => expr.eval_with_env(ctx, env),
+            Expr::Var(name) => {
+                if let Some(env) = env {
+                    if let Some(var_val) = env.get(name) {
+                        Ok(var_val.clone())
+                    } else {
+                        Err(anyhow!("Undefined variable: {}", name))
+                    }
+                } else {
+                    Err(anyhow!("Variable {} used without environment", name))
+                }
+            }
             Expr::Val(Val::Str(s)) if env.is_some() => {
                 // 如果有变量环境，尝试查找变量
                 if let Some(env) = env {
@@ -258,6 +271,8 @@ impl Expr {
             Expr::Paren(expr) => {
                 expr.collect_ctx_names(names);
             }
+            // Variables don't contribute context names
+            Expr::Var(_) => {}
             // Only collect string values when they are actual context names, not field names
             Expr::Val(_) => {}
         }
@@ -415,6 +430,10 @@ impl Expr {
                 // Keep parentheses structure, but fold internal expression
                 Expr::Paren(Box::new((*expr_box).fold_constants()))
             }
+            Expr::Var(name) => {
+                // Variables can't be folded without environment
+                Expr::Var(name)
+            }
         }
     }
 }
@@ -477,6 +496,7 @@ impl Display for Expr {
                 write!(f, "{{{}}}", pairs.join(", "))
             }
             Expr::Paren(expr) => write!(f, "{expr}"),
+            Expr::Var(name) => write!(f, "{}", name),
             Expr::Val(val) => write!(f, "{}", val),
         }
     }
