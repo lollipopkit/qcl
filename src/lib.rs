@@ -1,13 +1,13 @@
 pub mod ast;
+pub mod de;
 pub mod expr;
-pub mod stmt;
-pub mod stmt_parser;
 pub mod import;
 pub mod module;
 mod op;
+pub mod stmt;
+pub mod stmt_parser;
 pub mod token;
 pub mod val;
-pub mod de;
 
 pub mod stdlibs;
 

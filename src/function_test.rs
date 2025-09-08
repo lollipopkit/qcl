@@ -1,14 +1,14 @@
 #[cfg(test)]
 mod tests {
     use crate::{
-        stmt::{Stmt, Environment},
-        token::Tokenizer,
-        stmt_parser::StmtParser,
-        val::Val,
         expr::Expr,
+        stmt::{Environment, Stmt},
+        stmt_parser::StmtParser,
+        token::Tokenizer,
+        val::Val,
     };
-    use std::sync::Arc;
     use anyhow::Result;
+    use std::sync::Arc;
 
     #[test]
     fn test_function_definition_parsing() -> Result<()> {
@@ -16,7 +16,7 @@ mod tests {
         let tokens = Tokenizer::new(source)?;
         let mut parser = StmtParser::new(&tokens);
         let stmt = parser.parse_statement()?;
-        
+
         if let Stmt::Function { name, params, body } = stmt {
             assert_eq!(name, "add");
             assert_eq!(params, vec!["a", "b"]);
@@ -24,7 +24,7 @@ mod tests {
         } else {
             panic!("Expected Function statement, got: {:?}", stmt);
         }
-        
+
         Ok(())
     }
 
@@ -34,14 +34,19 @@ mod tests {
         let tokens = Tokenizer::new(source)?;
         let mut parser = StmtParser::new(&tokens);
         let stmt = parser.parse_statement()?;
-        
-        if let Stmt::Function { name, params, body: _ } = stmt {
+
+        if let Stmt::Function {
+            name,
+            params,
+            body: _,
+        } = stmt
+        {
             assert_eq!(name, "hello");
             assert!(params.is_empty());
         } else {
             panic!("Expected Function statement");
         }
-        
+
         Ok(())
     }
 
@@ -50,7 +55,7 @@ mod tests {
         let tokens = Tokenizer::new("add(1, 2)")?;
         let mut parser = crate::ast::Parser::new(&tokens);
         let expr = parser.parse()?;
-        
+
         if let Expr::CallExpr(expr, args) = expr {
             if let Expr::Var(name) = *expr {
                 assert_eq!(name, "add");
@@ -63,7 +68,7 @@ mod tests {
         } else {
             panic!("Expected function call, got: {:?}", expr);
         }
-        
+
         Ok(())
     }
 
@@ -72,7 +77,7 @@ mod tests {
         let tokens = Tokenizer::new("hello()")?;
         let mut parser = crate::ast::Parser::new(&tokens);
         let expr = parser.parse()?;
-        
+
         if let Expr::CallExpr(expr, args) = expr {
             if let Expr::Var(name) = *expr {
                 assert_eq!(name, "hello");
@@ -83,7 +88,7 @@ mod tests {
         } else {
             panic!("Expected function call");
         }
-        
+
         Ok(())
     }
 
@@ -94,10 +99,10 @@ mod tests {
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
-        
+
         let result = program.execute(&ctx)?;
         assert_eq!(result, Val::Int(7));
-        
+
         Ok(())
     }
 
@@ -108,10 +113,10 @@ mod tests {
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
-        
+
         let result = program.execute(&ctx)?;
         assert_eq!(result, Val::Str(Arc::from("Hello!")));
-        
+
         Ok(())
     }
 
@@ -130,10 +135,10 @@ mod tests {
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
-        
+
         let result = program.execute(&ctx)?;
         assert_eq!(result, Val::Int(30));
-        
+
         Ok(())
     }
 
@@ -150,11 +155,11 @@ mod tests {
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
-        
+
         let result = program.execute(&ctx)?;
         // Should return 6 (5 + 1), not 11 (10 + 1)
         assert_eq!(result, Val::Int(6));
-        
+
         Ok(())
     }
 
@@ -165,10 +170,10 @@ mod tests {
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
-        
+
         let result = program.execute(&ctx)?;
         assert_eq!(result, Val::Nil);
-        
+
         Ok(())
     }
 
@@ -188,10 +193,10 @@ mod tests {
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
-        
+
         let result = program.execute(&ctx)?;
         assert_eq!(result, Val::Int(120));
-        
+
         Ok(())
     }
 
@@ -206,16 +211,16 @@ mod tests {
         let tokens = Tokenizer::new(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        
+
         let mut ctx_map = std::collections::HashMap::new();
         let mut user_map = std::collections::HashMap::new();
         user_map.insert("age".to_string(), Val::Int(25));
         ctx_map.insert("user".to_string(), Val::Map(Arc::new(user_map)));
         let ctx = Val::Map(Arc::new(ctx_map));
-        
+
         let result = program.execute(&ctx)?;
         assert_eq!(result, Val::Int(25));
-        
+
         Ok(())
     }
 
@@ -226,11 +231,17 @@ mod tests {
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
-        
+
         let result = program.execute(&ctx);
         assert!(result.is_err());
-        assert!(result.err().unwrap().to_string().contains("expects 2 arguments"));
-        
+        assert!(
+            result
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("expects 2 arguments")
+        );
+
         Ok(())
     }
 
@@ -241,12 +252,12 @@ mod tests {
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
-        
+
         let result = program.execute(&ctx);
         assert!(result.is_err());
         let error_msg = result.err().unwrap().to_string();
         assert!(error_msg.contains("Undefined variable: nonexistent"));
-        
+
         Ok(())
     }
 
@@ -257,11 +268,17 @@ mod tests {
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
-        
+
         let result = program.execute(&ctx);
         assert!(result.is_err());
-        assert!(result.err().unwrap().to_string().contains("is not a function"));
-        
+        assert!(
+            result
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("is not a function")
+        );
+
         Ok(())
     }
 
@@ -272,11 +289,11 @@ mod tests {
             body: Arc::new(Stmt::Empty),
             env: Arc::new(Environment::new()),
         };
-        
+
         assert_eq!(func_val.to_string(), "fn(x, y)");
     }
 
-    #[test] 
+    #[test]
     fn test_nested_function_calls() -> Result<()> {
         let source = r#"
             fn add(a, b) { return a + b; }
@@ -288,10 +305,10 @@ mod tests {
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
-        
+
         let result = program.execute(&ctx)?;
         assert_eq!(result, Val::Int(10)); // multiply(2, 3) = 6, add(6, 4) = 10
-        
+
         Ok(())
     }
 }

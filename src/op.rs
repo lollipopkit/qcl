@@ -2,7 +2,7 @@ use core::cmp::Ordering;
 use core::fmt::Debug;
 use std::fmt::Display;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
 use crate::{expr::Expr, val::Val};
 
@@ -18,12 +18,10 @@ pub enum UnaryOp {
 impl UnaryOp {
     pub(crate) fn eval_val(&self, val: &Val) -> Result<Val> {
         match self {
-            UnaryOp::Not => {
-                match val {
-                    Val::Bool(b) => Ok(Val::Bool(!b)),
-                    _ => Err(anyhow!("Invalid operand: !{val}")),
-                }
-            }
+            UnaryOp::Not => match val {
+                Val::Bool(b) => Ok(Val::Bool(!b)),
+                _ => Err(anyhow!("Invalid operand: !{val}")),
+            },
         }
     }
 }
@@ -95,20 +93,33 @@ impl BinOp {
                         use std::collections::HashSet;
                         match l {
                             Val::Int(i) => {
-                                let set: HashSet<_> = (**r).iter()
-                                    .filter_map(|v| if let Val::Int(x) = v { Some(*x) } else { None })
+                                let set: HashSet<_> = (**r)
+                                    .iter()
+                                    .filter_map(
+                                        |v| if let Val::Int(x) = v { Some(*x) } else { None },
+                                    )
                                     .collect();
                                 Ok(set.contains(i))
                             }
                             Val::Str(s) => {
-                                let set: HashSet<_> = (**r).iter()
-                                    .filter_map(|v| if let Val::Str(t) = v { Some(t.as_ref()) } else { None })
+                                let set: HashSet<_> = (**r)
+                                    .iter()
+                                    .filter_map(|v| {
+                                        if let Val::Str(t) = v {
+                                            Some(t.as_ref())
+                                        } else {
+                                            None
+                                        }
+                                    })
                                     .collect();
                                 Ok(set.contains(s.as_ref()))
                             }
                             Val::Bool(b) => {
-                                let set: HashSet<_> = (**r).iter()
-                                    .filter_map(|v| if let Val::Bool(x) = v { Some(*x) } else { None })
+                                let set: HashSet<_> = (**r)
+                                    .iter()
+                                    .filter_map(
+                                        |v| if let Val::Bool(x) = v { Some(*x) } else { None },
+                                    )
                                     .collect();
                                 Ok(set.contains(b))
                             }
@@ -117,7 +128,7 @@ impl BinOp {
                     } else {
                         Ok((**r).contains(l))
                     }
-                },
+                }
 
                 // Map key lookup optimization
                 (Val::Str(s), Val::Map(m)) => Ok(m.contains_key(s.as_ref())),

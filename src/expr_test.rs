@@ -276,25 +276,25 @@ mod test {
     fn test_quoted_field_access() {
         // Basic quoted field access
         expect(r#"@"with.&=""#, true);
-        
+
         // Nested quoted field access
         expect(r#"@req."user"."name""#, "lk");
-        
+
         // Mixed quoted and unquoted access
         expect(r#"@user."name""#, "lk");
         expect(r#"@"user".name"#, "lk");
         expect(r#"@"user"."name""#, "lk");
-        
+
         // Quoted field with special characters
         expect(r#"@"special-chars""#, "test-value");
-        
+
         // Quoted field in complex expression
         expect(r#"@"with.&=" && @user.age > 17"#, true);
         expect(r#"@user."name" + "-suffix""#, "lk-suffix");
-        
+
         // Quoted numeric field name
         expect(r#"@"123""#, "numeric-field");
-        
+
         // Single quotes vs double quotes
         expect(r#"@'special-chars'"#, "test-value");
     }

@@ -4,44 +4,44 @@ use anyhow::{Result, anyhow};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
-    LParen,      // (
-    RParen,      // )
-    LBrace,      // {
-    RBrace,      // }
-    LBracket,    // [
-    RBracket,    // ]
-    Dot,         // .
-    Colon,       // :
-    Comma,       // ,
-    Semicolon,   // ;
-    Assign,      // =
-    Nil,         // nil
-    Eq,          // ==
-    Ne,          // !=
-    Gt,          // >
-    Lt,          // <
-    Ge,          // >=
-    Le,          // <=
-    In,          // in
-    And,         // &&
-    Or,          // ||
-    Not,         // !
-    Add,         // +
-    Sub,         // -
-    Mul,         // *
-    Div,         // /
-    Mod,         // %
-    At,          // @
+    LParen,    // (
+    RParen,    // )
+    LBrace,    // {
+    RBrace,    // }
+    LBracket,  // [
+    RBracket,  // ]
+    Dot,       // .
+    Colon,     // :
+    Comma,     // ,
+    Semicolon, // ;
+    Assign,    // =
+    Nil,       // nil
+    Eq,        // ==
+    Ne,        // !=
+    Gt,        // >
+    Lt,        // <
+    Ge,        // >=
+    Le,        // <=
+    In,        // in
+    And,       // &&
+    Or,        // ||
+    Not,       // !
+    Add,       // +
+    Sub,       // -
+    Mul,       // *
+    Div,       // /
+    Mod,       // %
+    At,        // @
     // Statement keywords
-    If,          // if
-    Else,        // else
-    While,       // while
-    Let,         // let
-    Break,       // break
-    Continue,    // continue
-    Goto,        // goto
-    Return,      // return
-    Fn,          // fn (function definition)
+    If,       // if
+    Else,     // else
+    While,    // while
+    Let,      // let
+    Break,    // break
+    Continue, // continue
+    Goto,     // goto
+    Return,   // return
+    Fn,       // fn (function definition)
     // Import keywords
     Import,      // import
     From,        // from

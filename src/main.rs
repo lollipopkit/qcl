@@ -1,6 +1,6 @@
 use std::io::BufRead;
 
-use qcl::{expr::Expr, val::Val, de, stmt_parser::StmtParser, token::Tokenizer};
+use qcl::{de, expr::Expr, stmt_parser::StmtParser, token::Tokenizer, val::Val};
 
 fn main() -> anyhow::Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
@@ -12,11 +12,18 @@ fn main() -> anyhow::Result<()> {
         formats.push("yaml");
         #[cfg(feature = "toml")]
         formats.push("toml");
-        
+
         let format_str = formats.join("|");
-        let flag_str = formats.iter().map(|f| format!("--{}", f)).collect::<Vec<_>>().join("|");
-        
-        eprintln!("Usage: cat <{}> | {} [{}] [--stmt] <expr|program>", format_str, args[0], flag_str);
+        let flag_str = formats
+            .iter()
+            .map(|f| format!("--{}", f))
+            .collect::<Vec<_>>()
+            .join("|");
+
+        eprintln!(
+            "Usage: cat <{}> | {} [{}] [--stmt] <expr|program>",
+            format_str, args[0], flag_str
+        );
         eprintln!("  Format is auto-detected unless {} is specified", flag_str);
         eprintln!("  Use --stmt to execute statement programs instead of expressions");
         std::process::exit(1);
@@ -27,7 +34,7 @@ fn main() -> anyhow::Result<()> {
         .lines()
         .collect::<Result<Vec<_>, _>>()?
         .join("\n");
-    
+
     let mut arg_idx = 1;
     let mut format_override = None;
     let mut is_statement_mode = false;
@@ -65,7 +72,7 @@ fn main() -> anyhow::Result<()> {
 
     let input = args[arg_idx..].join(" ");
     let ctx: Val = de::parse_with_format(&raw, format_override)?;
-    
+
     if is_statement_mode {
         // 执行语句程序
         let tokens = Tokenizer::new(&input)?;

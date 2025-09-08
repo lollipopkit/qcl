@@ -8,7 +8,7 @@ mod tests {
     fn test_from_json_str_basic() {
         let json = r#"{"name": "test", "age": 25, "active": true}"#;
         let val = from_json_str(json).unwrap();
-        
+
         if let Val::Map(map) = val {
             assert_eq!(map.get("name"), Some(&Val::Str(Arc::from("test"))));
             assert_eq!(map.get("age"), Some(&Val::Int(25)));
@@ -23,7 +23,7 @@ mod tests {
     fn test_from_json_str_array() {
         let json = r#"[1, 2.5, "hello", true, null]"#;
         let val = from_json_str(json).unwrap();
-        
+
         if let Val::List(list) = val {
             assert_eq!(list.len(), 5);
             assert_eq!(list[0], Val::Int(1));
@@ -41,7 +41,7 @@ mod tests {
     fn test_from_json_str_nested() {
         let json = r#"{"user": {"name": "admin", "permissions": ["read", "write"]}, "count": 42}"#;
         let val = from_json_str(json).unwrap();
-        
+
         if let Val::Map(map) = val {
             if let Some(Val::Map(user_map)) = map.get("user") {
                 assert_eq!(user_map.get("name"), Some(&Val::Str(Arc::from("admin"))));
@@ -70,7 +70,7 @@ age: 25
 active: true
 "#;
         let val = from_yaml_str(yaml).unwrap();
-        
+
         if let Val::Map(map) = val {
             assert_eq!(map.get("name"), Some(&Val::Str(Arc::from("test"))));
             assert_eq!(map.get("age"), Some(&Val::Int(25)));
@@ -91,7 +91,7 @@ active: true
 - null
 "#;
         let val = from_yaml_str(yaml).unwrap();
-        
+
         if let Val::List(list) = val {
             assert_eq!(list.len(), 5);
             assert_eq!(list[0], Val::Int(1));
@@ -116,7 +116,7 @@ user:
 count: 42
 "#;
         let val = from_yaml_str(yaml).unwrap();
-        
+
         if let Val::Map(map) = val {
             if let Some(Val::Map(user_map)) = map.get("user") {
                 assert_eq!(user_map.get("name"), Some(&Val::Str(Arc::from("admin"))));
@@ -148,7 +148,7 @@ summary: >
   string in YAML
 "#;
         let val = from_yaml_str(yaml).unwrap();
-        
+
         if let Val::Map(map) = val {
             if let Some(Val::Str(desc)) = map.get("description") {
                 assert!(desc.contains("This is a multiline\nstring in YAML"));
@@ -174,7 +174,7 @@ age = 25
 active = true
 "#;
         let val = from_toml_str(toml).unwrap();
-        
+
         if let Val::Map(map) = val {
             assert_eq!(map.get("name"), Some(&Val::Str(Arc::from("test"))));
             assert_eq!(map.get("age"), Some(&Val::Int(25)));
@@ -193,7 +193,7 @@ strings = ["hello", "world"]
 mixed = [1, "hello", true]
 "#;
         let val = from_toml_str(toml).unwrap();
-        
+
         if let Val::Map(map) = val {
             if let Some(Val::List(numbers)) = map.get("numbers") {
                 assert_eq!(numbers.len(), 3);
@@ -203,7 +203,7 @@ mixed = [1, "hello", true]
             } else {
                 panic!("Expected numbers array");
             }
-            
+
             if let Some(Val::List(strings)) = map.get("strings") {
                 assert_eq!(strings.len(), 2);
                 assert_eq!(strings[0], Val::Str(Arc::from("hello")));
@@ -211,7 +211,7 @@ mixed = [1, "hello", true]
             } else {
                 panic!("Expected strings array");
             }
-            
+
             if let Some(Val::List(mixed)) = map.get("mixed") {
                 assert_eq!(mixed.len(), 3);
                 assert_eq!(mixed[0], Val::Int(1));
@@ -238,7 +238,7 @@ host = "localhost"
 port = 5432
 "#;
         let val = from_toml_str(toml).unwrap();
-        
+
         if let Val::Map(map) = val {
             if let Some(Val::Map(user_map)) = map.get("user") {
                 assert_eq!(user_map.get("name"), Some(&Val::Str(Arc::from("admin"))));
@@ -252,7 +252,7 @@ port = 5432
             } else {
                 panic!("Expected user map");
             }
-            
+
             if let Some(Val::Map(db_map)) = map.get("database") {
                 assert_eq!(db_map.get("host"), Some(&Val::Str(Arc::from("localhost"))));
                 assert_eq!(db_map.get("port"), Some(&Val::Int(5432)));
@@ -277,7 +277,7 @@ type = "document"
 name = "test.txt"
 "#;
         let val = from_toml_str(toml).unwrap();
-        
+
         if let Val::Map(map) = val {
             if let Some(Val::Map(req_map)) = map.get("req") {
                 if let Some(Val::Map(user_map)) = req_map.get("user") {
@@ -286,10 +286,16 @@ name = "test.txt"
                 } else {
                     panic!("Expected user map");
                 }
-                
+
                 if let Some(Val::Map(resource_map)) = req_map.get("resource") {
-                    assert_eq!(resource_map.get("type"), Some(&Val::Str(Arc::from("document"))));
-                    assert_eq!(resource_map.get("name"), Some(&Val::Str(Arc::from("test.txt"))));
+                    assert_eq!(
+                        resource_map.get("type"),
+                        Some(&Val::Str(Arc::from("document")))
+                    );
+                    assert_eq!(
+                        resource_map.get("name"),
+                        Some(&Val::Str(Arc::from("test.txt")))
+                    );
                 } else {
                     panic!("Expected resource map");
                 }
@@ -314,18 +320,18 @@ name = "bob"
 role = "user"
 "#;
         let val = from_toml_str(toml).unwrap();
-        
+
         if let Val::Map(map) = val {
             if let Some(Val::List(users)) = map.get("users") {
                 assert_eq!(users.len(), 2);
-                
+
                 if let Val::Map(alice) = &users[0] {
                     assert_eq!(alice.get("name"), Some(&Val::Str(Arc::from("alice"))));
                     assert_eq!(alice.get("role"), Some(&Val::Str(Arc::from("admin"))));
                 } else {
                     panic!("Expected alice map");
                 }
-                
+
                 if let Val::Map(bob) = &users[1] {
                     assert_eq!(bob.get("name"), Some(&Val::Str(Arc::from("bob"))));
                     assert_eq!(bob.get("role"), Some(&Val::Str(Arc::from("user"))));
@@ -345,7 +351,10 @@ role = "user"
     fn test_detect_format_json() {
         assert_eq!(detect_format(r#"{"key": "value"}"#), Format::Json);
         assert_eq!(detect_format(r#"[1, 2, 3]"#), Format::Json);
-        assert_eq!(detect_format(r#"{"nested": {"key": "value"}}"#), Format::Json);
+        assert_eq!(
+            detect_format(r#"{"nested": {"key": "value"}}"#),
+            Format::Json
+        );
         assert_eq!(detect_format(""), Format::Json); // Empty defaults to JSON
     }
 
@@ -364,7 +373,10 @@ role = "user"
     fn test_detect_format_toml() {
         assert_eq!(detect_format("[section]\nkey = value"), Format::Toml);
         assert_eq!(detect_format("key = \"value\""), Format::Toml);
-        assert_eq!(detect_format("number = 42\nstring = \"hello\""), Format::Toml);
+        assert_eq!(
+            detect_format("number = 42\nstring = \"hello\""),
+            Format::Toml
+        );
         assert_eq!(detect_format("[[array]]\nname = \"test\""), Format::Toml);
         assert_eq!(detect_format("nested.key = \"value\""), Format::Toml);
     }
@@ -374,21 +386,27 @@ role = "user"
     fn test_detect_format_edge_cases() {
         // JSON-like but actually YAML
         assert_eq!(detect_format("key: {\"nested\": \"value\"}"), Format::Yaml);
-        
+
         // TOML with spaces around equals
         assert_eq!(detect_format("key = value"), Format::Toml);
         assert_eq!(detect_format("key=value"), Format::Toml);
-        
+
         // Complex nested structures
-        assert_eq!(detect_format("user:\n  name: test\n  age: 25"), Format::Yaml);
-        assert_eq!(detect_format("[user]\nname = \"test\"\nage = 25"), Format::Toml);
+        assert_eq!(
+            detect_format("user:\n  name: test\n  age: 25"),
+            Format::Yaml
+        );
+        assert_eq!(
+            detect_format("[user]\nname = \"test\"\nage = 25"),
+            Format::Toml
+        );
     }
 
     #[test]
     #[cfg(feature = "json")]
     fn test_parse_with_format_override() {
         let json_data = r#"{"key": "value"}"#;
-        
+
         // Test JSON override
         let val = parse_with_format(json_data, Some(Format::Json)).unwrap();
         if let Val::Map(map) = val {
@@ -396,7 +414,7 @@ role = "user"
         } else {
             panic!("Expected Map");
         }
-        
+
         // Test auto-detection
         let val = parse_with_format(json_data, None).unwrap();
         if let Val::Map(map) = val {
@@ -410,7 +428,7 @@ role = "user"
     #[cfg(feature = "yaml")]
     fn test_parse_with_format_yaml_override() {
         let yaml_data = "key: value\nother: 123";
-        
+
         // Test YAML override
         let val = parse_with_format(yaml_data, Some(Format::Yaml)).unwrap();
         if let Val::Map(map) = val {
@@ -425,7 +443,7 @@ role = "user"
     #[cfg(feature = "toml")]
     fn test_parse_with_format_toml_override() {
         let toml_data = "key = \"value\"\nother = 123";
-        
+
         // Test TOML override
         let val = parse_with_format(toml_data, Some(Format::Toml)).unwrap();
         if let Val::Map(map) = val {
@@ -441,10 +459,10 @@ role = "user"
     fn test_error_handling() {
         // Invalid JSON
         assert!(from_json_str(r#"{"invalid": json"#).is_err());
-        
+
         // Invalid YAML
         assert!(from_yaml_str("invalid: [\n  - yaml\n  - structure\n").is_err());
-        
+
         // Invalid TOML
         assert!(from_toml_str("invalid = toml = syntax").is_err());
     }
@@ -457,7 +475,7 @@ role = "user"
         assert!(has_yaml_indicators("multiline: |"));
         assert!(has_yaml_indicators("folded: >"));
         assert!(has_yaml_indicators("# comment\nkey: value"));
-        
+
         assert!(!has_yaml_indicators(r#"{"key": "value"}"#));
         assert!(!has_yaml_indicators("key = value"));
         assert!(!has_yaml_indicators(""));
@@ -472,7 +490,7 @@ role = "user"
         assert!(has_toml_indicators("key=\"value\""));
         assert!(has_toml_indicators("nested.key = \"value\""));
         assert!(has_toml_indicators("# comment\nkey = value"));
-        
+
         assert!(!has_toml_indicators(r#"{"key": "value"}"#));
         assert!(!has_toml_indicators("key: value"));
         assert!(!has_toml_indicators("- item"));

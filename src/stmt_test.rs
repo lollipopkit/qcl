@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::{
-        stmt::{Program, Environment},
+        stmt::{Environment, Program},
         stmt_parser::StmtParser,
         token::Tokenizer,
         val::Val,
@@ -68,7 +68,8 @@ mod tests {
 
     #[test]
     fn test_continue_statement() {
-        let program = parse_program(r#"
+        let program = parse_program(
+            r#"
             let i = 0; 
             let sum = 0; 
             while (i < 5) { 
@@ -76,7 +77,8 @@ mod tests {
                 if (i == 3) continue; 
                 sum = sum + i; 
             }
-        "#);
+        "#,
+        );
         let ctx = empty_context();
         let result = program.execute(&ctx).expect("Failed to execute");
         assert_eq!(result, Val::Nil);
@@ -84,13 +86,15 @@ mod tests {
 
     #[test]
     fn test_goto_label() {
-        let program = parse_program(r#"
+        let program = parse_program(
+            r#"
             let x = 0;
             goto end;
             x = 999;
             end:
             x = 42;
-        "#);
+        "#,
+        );
         let ctx = empty_context();
         let result = program.execute(&ctx).expect("Failed to execute");
         assert_eq!(result, Val::Nil);
@@ -98,13 +102,15 @@ mod tests {
 
     #[test]
     fn test_block_scope() {
-        let program = parse_program(r#"
+        let program = parse_program(
+            r#"
             let x = 1;
             {
                 let y = 2;
                 x = x + y;
             }
-        "#);
+        "#,
+        );
         let ctx = empty_context();
         let result = program.execute(&ctx).expect("Failed to execute");
         assert_eq!(result, Val::Nil);
@@ -121,21 +127,21 @@ mod tests {
     #[test]
     fn test_environment() {
         let mut env = Environment::new();
-        
+
         // Test define and get
         env.define("x".to_string(), Val::Int(42));
         assert_eq!(env.get("x"), Some(&Val::Int(42)));
-        
+
         // Test assign
         env.assign("x", Val::Int(100)).expect("Failed to assign");
         assert_eq!(env.get("x"), Some(&Val::Int(100)));
-        
+
         // Test scoping
         env.push_scope();
         env.define("y".to_string(), Val::Int(20));
         assert_eq!(env.get("y"), Some(&Val::Int(20)));
         assert_eq!(env.get("x"), Some(&Val::Int(100))); // Still accessible
-        
+
         env.pop_scope();
         assert_eq!(env.get("y"), None); // No longer accessible
         assert_eq!(env.get("x"), Some(&Val::Int(100))); // Still accessible
@@ -147,7 +153,12 @@ mod tests {
         let ctx = empty_context();
         let result = program.execute(&ctx);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Undefined variable"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Undefined variable")
+        );
     }
 
     #[test]
@@ -165,7 +176,12 @@ mod tests {
         let ctx = empty_context();
         let result = program.execute(&ctx);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("break statement outside of loop"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("break statement outside of loop")
+        );
     }
 
     #[test]
@@ -174,13 +190,19 @@ mod tests {
         let ctx = empty_context();
         let result = program.execute(&ctx);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("continue statement outside of loop"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("continue statement outside of loop")
+        );
     }
 
     #[test]
     fn test_complex_program() {
         // 简化程序，避免无限循环
-        let program = parse_program(r#"
+        let program = parse_program(
+            r#"
             let n = 3;
             let sum = 0;
             let i = 1;
@@ -189,7 +211,8 @@ mod tests {
                 sum = sum + i;
                 i = i + 1;
             }
-        "#);
+        "#,
+        );
         let ctx = empty_context();
         let result = program.execute(&ctx).expect("Failed to execute");
         assert_eq!(result, Val::Nil);
@@ -197,11 +220,13 @@ mod tests {
 
     #[test]
     fn test_variable_in_expression() {
-        let program = parse_program(r#"
+        let program = parse_program(
+            r#"
             let x = 5;
             let y = x + 3;
             let result = x * y;
-        "#);
+        "#,
+        );
         let ctx = empty_context();
         let result = program.execute(&ctx).expect("Failed to execute");
         assert_eq!(result, Val::Nil);
@@ -209,7 +234,8 @@ mod tests {
 
     #[test]
     fn test_nested_blocks() {
-        let program = parse_program(r#"
+        let program = parse_program(
+            r#"
             let x = 1;
             {
                 let y = 2;
@@ -218,7 +244,8 @@ mod tests {
                     x = x + y + z;
                 }
             }
-        "#);
+        "#,
+        );
         let ctx = empty_context();
         let result = program.execute(&ctx).expect("Failed to execute");
         assert_eq!(result, Val::Nil);
@@ -227,36 +254,43 @@ mod tests {
     #[test]
     fn test_context_access_with_variables() {
         let mut ctx_map = HashMap::new();
-        ctx_map.insert("user".to_string(), Val::Map(std::sync::Arc::new({
-            let mut user_map = HashMap::new();
-            user_map.insert("age".to_string(), Val::Int(25));
-            user_map
-        })));
+        ctx_map.insert(
+            "user".to_string(),
+            Val::Map(std::sync::Arc::new({
+                let mut user_map = HashMap::new();
+                user_map.insert("age".to_string(), Val::Int(25));
+                user_map
+            })),
+        );
         let ctx = Val::Map(std::sync::Arc::new(ctx_map));
 
-        let program = parse_program(r#"
+        let program = parse_program(
+            r#"
             let min_age = 18;
             let user_age = @user.age;
             let is_adult = user_age >= min_age;
-        "#);
-        
+        "#,
+        );
+
         let result = program.execute(&ctx).expect("Failed to execute");
         assert_eq!(result, Val::Nil);
     }
 
     #[test]
     fn test_return_with_value() {
-        let program = parse_program(r#"
+        let program = parse_program(
+            r#"
             let x = 42;
             return x + 8;
             let y = 100; // This should not be executed
-        "#);
+        "#,
+        );
         let ctx = empty_context();
         let result = program.execute(&ctx).expect("Failed to execute");
         assert_eq!(result, Val::Int(50));
     }
 
-    #[test] 
+    #[test]
     fn test_simple_return_with_literal() {
         let program = parse_program("return 123;");
         let ctx = empty_context();
@@ -266,10 +300,12 @@ mod tests {
 
     #[test]
     fn test_return_with_variable() {
-        let program = parse_program(r#"
+        let program = parse_program(
+            r#"
             let x = 42;
             return x;
-        "#);
+        "#,
+        );
         let ctx = empty_context();
         let result = program.execute(&ctx).expect("Failed to execute");
         assert_eq!(result, Val::Int(42));
@@ -277,11 +313,13 @@ mod tests {
 
     #[test]
     fn test_return_with_addition() {
-        let program = parse_program(r#"
+        let program = parse_program(
+            r#"
             let x = 1;
             let y = 2;
             return x + y;
-        "#);
+        "#,
+        );
         let ctx = empty_context();
         let result = program.execute(&ctx).expect("Failed to execute");
         assert_eq!(result, Val::Int(3));
@@ -289,11 +327,13 @@ mod tests {
 
     #[test]
     fn test_return_without_value() {
-        let program = parse_program(r#"
+        let program = parse_program(
+            r#"
             let x = 10;
             return;
             let y = 20; // This should not be executed
-        "#);
+        "#,
+        );
         let ctx = empty_context();
         let result = program.execute(&ctx).expect("Failed to execute");
         assert_eq!(result, Val::Nil);
@@ -301,7 +341,8 @@ mod tests {
 
     #[test]
     fn test_return_in_block() {
-        let program = parse_program(r#"
+        let program = parse_program(
+            r#"
             let x = 1;
             {
                 let y = 2;
@@ -309,7 +350,8 @@ mod tests {
                 let z = 999; // This should not be executed
             }
             let w = 100; // This should not be executed either
-        "#);
+        "#,
+        );
         let ctx = empty_context();
         let result = program.execute(&ctx).expect("Failed to execute");
         assert_eq!(result, Val::Int(3));
@@ -317,7 +359,8 @@ mod tests {
 
     #[test]
     fn test_return_in_if_statement() {
-        let program = parse_program(r#"
+        let program = parse_program(
+            r#"
             let x = 5;
             if (x > 3) {
                 return x * 2;
@@ -325,7 +368,8 @@ mod tests {
                 return x;
             }
             let y = 999; // This should not be executed
-        "#);
+        "#,
+        );
         let ctx = empty_context();
         let result = program.execute(&ctx).expect("Failed to execute");
         assert_eq!(result, Val::Int(10));
@@ -333,7 +377,8 @@ mod tests {
 
     #[test]
     fn test_return_in_while_loop() {
-        let program = parse_program(r#"
+        let program = parse_program(
+            r#"
             let i = 0;
             while (i < 5) {
                 i = i + 1;
@@ -342,7 +387,8 @@ mod tests {
                 }
             }
             let done = 999; // This should not be executed
-        "#);
+        "#,
+        );
         let ctx = empty_context();
         let result = program.execute(&ctx).expect("Failed to execute");
         assert_eq!(result, Val::Int(30));
@@ -452,12 +498,14 @@ mod tests {
 
     #[test]
     fn test_mixed_typed_and_untyped_variables() {
-        let program = parse_program(r#"
+        let program = parse_program(
+            r#"
             let x: Int = 42;
             let y = "hello";
             let z: Bool = true;
             let w = 3.14;
-        "#);
+        "#,
+        );
         let ctx = empty_context();
         let result = program.execute(&ctx).expect("Failed to execute");
         assert_eq!(result, Val::Nil);
@@ -465,12 +513,14 @@ mod tests {
 
     #[test]
     fn test_type_annotation_in_complex_expression() {
-        let program = parse_program(r#"
+        let program = parse_program(
+            r#"
             let x: Int = 10;
             let y: Int = 20;
             let sum: Int = x + y;
             let result: Bool = sum > 25;
-        "#);
+        "#,
+        );
         let ctx = empty_context();
         let result = program.execute(&ctx).expect("Failed to execute");
         assert_eq!(result, Val::Nil);

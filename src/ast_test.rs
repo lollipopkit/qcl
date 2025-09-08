@@ -156,10 +156,7 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::Val(Val::List(Arc::new(vec![
-            Val::Int(3),
-            Val::Int(12),
-        ])));
+        let expected = Expr::Val(Val::List(Arc::new(vec![Val::Int(3), Val::Int(12)])));
         assert_eq!(parsed, expected);
     }
 
@@ -274,15 +271,21 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        
+
         let mut alice_map = std::collections::HashMap::new();
         alice_map.insert("name".to_string(), Val::Str("Alice".into()));
-        alice_map.insert("scores".to_string(), Val::List(Arc::new(vec![Val::Int(90), Val::Int(85)])));
-        
+        alice_map.insert(
+            "scores".to_string(),
+            Val::List(Arc::new(vec![Val::Int(90), Val::Int(85)])),
+        );
+
         let mut bob_map = std::collections::HashMap::new();
         bob_map.insert("name".to_string(), Val::Str("Bob".into()));
-        bob_map.insert("scores".to_string(), Val::List(Arc::new(vec![Val::Int(88), Val::Int(92)])));
-        
+        bob_map.insert(
+            "scores".to_string(),
+            Val::List(Arc::new(vec![Val::Int(88), Val::Int(92)])),
+        );
+
         let expected = Expr::Val(Val::List(Arc::new(vec![
             Val::Map(Arc::new(alice_map)),
             Val::Map(Arc::new(bob_map)),

@@ -1,9 +1,13 @@
-use crate::{expr::Expr, val::{Val, Type}, import::{ImportStmt, ImportContext, ModuleResolver}};
+use crate::{
+    expr::Expr,
+    import::{ImportContext, ImportStmt, ModuleResolver},
+    val::{Type, Val},
+};
 use anyhow::{Result, anyhow};
 use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 /// Statement AST 节点类型定义
-/// 
+///
 /// 语法设计：
 /// program  ::= statement*
 /// statement ::= import_stmt | if_stmt | while_stmt | let_stmt | assign_stmt | goto_stmt | label_stmt | break_stmt | continue_stmt | return_stmt | fn_stmt | expr_stmt | block_stmt
@@ -42,26 +46,17 @@ pub enum Stmt {
         value: Box<Expr>,
     },
     /// name = value; (赋值语句)
-    Assign {
-        name: String,
-        value: Box<Expr>,
-    },
+    Assign { name: String, value: Box<Expr> },
     /// goto label;
-    Goto {
-        label: String,
-    },
+    Goto { label: String },
     /// label:
-    Label {
-        name: String,
-    },
+    Label { name: String },
     /// break;
     Break,
     /// continue;
     Continue,
     /// return [expression];
-    Return {
-        value: Option<Box<Expr>>,
-    },
+    Return { value: Option<Box<Expr>> },
     /// fn name(param1, param2) { body }
     Function {
         name: String,
@@ -71,9 +66,7 @@ pub enum Stmt {
     /// expression;
     Expr(Box<Expr>),
     /// { statements }
-    Block {
-        statements: Vec<Box<Stmt>>,
-    },
+    Block { statements: Vec<Box<Stmt>> },
     /// 空语句 (用于处理解析时的占位)
     Empty,
 }
@@ -116,7 +109,7 @@ impl Environment {
     pub fn with_resolver(resolver: Arc<ModuleResolver>) -> Self {
         Self {
             scopes: vec![HashMap::new()],
-            import_ctx: ImportContext::new(), 
+            import_ctx: ImportContext::new(),
             resolver,
         }
     }
@@ -178,7 +171,11 @@ impl Stmt {
                 env.execute_import(import_stmt)?;
                 Ok(ControlFlow::None)
             }
-            Stmt::If { condition, then_stmt, else_stmt } => {
+            Stmt::If {
+                condition,
+                then_stmt,
+                else_stmt,
+            } => {
                 let cond_val = condition.eval_with_env(ctx, Some(env))?;
                 let is_true = match cond_val {
                     Val::Bool(b) => b,
@@ -217,14 +214,18 @@ impl Stmt {
                 }
                 Ok(ControlFlow::None)
             }
-            Stmt::Let { name, type_annotation, value } => {
+            Stmt::Let {
+                name,
+                type_annotation,
+                value,
+            } => {
                 let val = value.eval_with_env(ctx, Some(env))?;
-                
+
                 // Validate type annotation if provided
                 if let Some(expected_type) = type_annotation {
                     expected_type.validate(&val)?;
                 }
-                
+
                 env.define(name.clone(), val);
                 Ok(ControlFlow::None)
             }
@@ -233,19 +234,13 @@ impl Stmt {
                 env.assign(name, val)?;
                 Ok(ControlFlow::None)
             }
-            Stmt::Goto { label } => {
-                Ok(ControlFlow::Goto(label.clone()))
-            }
+            Stmt::Goto { label } => Ok(ControlFlow::Goto(label.clone())),
             Stmt::Label { .. } => {
                 // 标签本身不执行任何操作
                 Ok(ControlFlow::None)
             }
-            Stmt::Break => {
-                Ok(ControlFlow::Break)
-            }
-            Stmt::Continue => {
-                Ok(ControlFlow::Continue)
-            }
+            Stmt::Break => Ok(ControlFlow::Break),
+            Stmt::Continue => Ok(ControlFlow::Continue),
             Stmt::Return { value } => {
                 let return_val = if let Some(expr) = value {
                     expr.eval_with_env(ctx, Some(env))?
@@ -271,7 +266,7 @@ impl Stmt {
             Stmt::Block { statements } => {
                 env.push_scope();
                 let mut result = ControlFlow::None;
-                
+
                 for stmt in statements {
                     match stmt.execute(env, ctx)? {
                         ControlFlow::None => {}
@@ -281,13 +276,11 @@ impl Stmt {
                         }
                     }
                 }
-                
+
                 env.pop_scope();
                 Ok(result)
             }
-            Stmt::Empty => {
-                Ok(ControlFlow::None)
-            }
+            Stmt::Empty => Ok(ControlFlow::None),
         }
     }
 }
@@ -302,7 +295,7 @@ pub struct Program {
 impl Program {
     pub fn new(statements: Vec<Box<Stmt>>) -> Result<Self> {
         let mut labels = HashMap::new();
-        
+
         // 构建标签映射
         for (index, stmt) in statements.iter().enumerate() {
             if let Stmt::Label { name } = stmt.as_ref() {
@@ -312,7 +305,7 @@ impl Program {
                 labels.insert(name.clone(), index);
             }
         }
-        
+
         Ok(Program { statements, labels })
     }
 
@@ -327,10 +320,16 @@ impl Program {
                     pc += 1;
                 }
                 ControlFlow::Break => {
-                    return Err(anyhow!("break statement outside of loop at statement {}", pc));
+                    return Err(anyhow!(
+                        "break statement outside of loop at statement {}",
+                        pc
+                    ));
                 }
                 ControlFlow::Continue => {
-                    return Err(anyhow!("continue statement outside of loop at statement {}", pc));
+                    return Err(anyhow!(
+                        "continue statement outside of loop at statement {}",
+                        pc
+                    ));
                 }
                 ControlFlow::Goto(label) => {
                     if let Some(&target_pc) = self.labels.get(&label) {
@@ -356,7 +355,11 @@ impl Display for Stmt {
             Stmt::Import(import_stmt) => {
                 write!(f, "{};", format_import_stmt(import_stmt))
             }
-            Stmt::If { condition, then_stmt, else_stmt } => {
+            Stmt::If {
+                condition,
+                then_stmt,
+                else_stmt,
+            } => {
                 if let Some(else_stmt) = else_stmt {
                     write!(f, "if ({}) {} else {}", condition, then_stmt, else_stmt)
                 } else {
@@ -366,7 +369,11 @@ impl Display for Stmt {
             Stmt::While { condition, body } => {
                 write!(f, "while ({}) {}", condition, body)
             }
-            Stmt::Let { name, type_annotation, value } => {
+            Stmt::Let {
+                name,
+                type_annotation,
+                value,
+            } => {
                 if let Some(typ) = type_annotation {
                     write!(f, "let {}: {:?} = {};", name, typ, value)
                 } else {
@@ -417,8 +424,8 @@ impl Display for Stmt {
 
 /// Helper function to format import statements for display
 fn format_import_stmt(import: &ImportStmt) -> String {
-    use crate::import::{ImportStmt, ImportSource};
-    
+    use crate::import::{ImportSource, ImportStmt};
+
     match import {
         ImportStmt::Module { module } => {
             format!("import {}", module)
@@ -427,7 +434,8 @@ fn format_import_stmt(import: &ImportStmt) -> String {
             format!("import \"{}\"", path)
         }
         ImportStmt::Items { items, source } => {
-            let items_str = items.iter()
+            let items_str = items
+                .iter()
                 .map(|item| {
                     if let Some(alias) = &item.alias {
                         format!("{} as {}", item.name, alias)
@@ -437,12 +445,12 @@ fn format_import_stmt(import: &ImportStmt) -> String {
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
-            
+
             let source_str = match source {
                 ImportSource::Module(name) => name.clone(),
                 ImportSource::File(path) => format!("\"{}\"", path),
             };
-            
+
             format!("import {{ {} }} from {}", items_str, source_str)
         }
         ImportStmt::Namespace { alias, source } => {

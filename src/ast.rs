@@ -4,8 +4,8 @@ use crate::{
     token::Token,
     val::Val,
 };
-use std::sync::Arc;
 use anyhow::{Result, anyhow};
+use std::sync::Arc;
 
 pub struct Parser<'a> {
     tokens: &'a [Token],
@@ -149,25 +149,25 @@ impl<'a> Parser<'a> {
             if !self.eof() && self.tokens[self.pos] == Token::LParen {
                 // 函数调用 - 允许任何表达式作为函数调用目标
                 self.pos += 1; // skip '('
-                
+
                 let mut args = Vec::new();
-                
+
                 // 解析参数列表
                 while !self.eof() && self.tokens[self.pos] != Token::RParen {
                     args.push(Box::new(self.parse_expr()?));
-                    
+
                     if !self.eof() && self.tokens[self.pos] == Token::Comma {
                         self.pos += 1;
                     } else if self.tokens[self.pos] != Token::RParen {
                         return Err(anyhow!(self.err("Expected ',' or ')' in function call")));
                     }
                 }
-                
+
                 if self.eof() || self.tokens[self.pos] != Token::RParen {
                     return Err(anyhow!(self.err("Expected ')' to close function call")));
                 }
                 self.pos += 1; // skip ')'
-                
+
                 expr = Expr::CallExpr(Box::new(expr), args);
             } else if !self.eof() && self.tokens[self.pos] == Token::Dot {
                 // 点访问

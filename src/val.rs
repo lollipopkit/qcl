@@ -9,7 +9,7 @@ use std::{
 use anyhow::{Result, anyhow};
 use serde::{Serialize, Serializer};
 
-use crate::op::{err_op, BinOp};
+use crate::op::{BinOp, err_op};
 
 /// Type for Rust functions that can be called from QCL
 pub type RustFunction = fn(args: &[Val], env: &crate::stmt::Environment, ctx: &Val) -> Result<Val>;
@@ -80,7 +80,11 @@ impl Type {
         if matches {
             Ok(())
         } else {
-            Err(anyhow!("Type mismatch: expected {:?}, got {:?}", self, val.type_name()))
+            Err(anyhow!(
+                "Type mismatch: expected {:?}, got {:?}",
+                self,
+                val.type_name()
+            ))
         }
     }
 }
@@ -99,28 +103,33 @@ impl Val {
             Val::Nil => "Nil",
         }
     }
-    
+
     /// Call this value as a function with the given arguments
     pub fn call(&self, args: &[Val], env: &crate::stmt::Environment, ctx: &Val) -> Result<Val> {
         match self {
-            Val::Closure { params, body, env: _ } => {
+            Val::Closure {
+                params,
+                body,
+                env: _,
+            } => {
                 // Check parameter count
                 if args.len() != params.len() {
                     return Err(anyhow!(
                         "Function expects {} arguments, got {}",
-                        params.len(), args.len()
+                        params.len(),
+                        args.len()
                     ));
                 }
-                
+
                 // Create new scope for function execution using the provided environment
                 let mut call_env = env.clone();
                 call_env.push_scope();
-                
+
                 // Bind parameters to arguments
                 for (param, arg_val) in params.iter().zip(args.iter()) {
                     call_env.define(param.clone(), arg_val.clone());
                 }
-                
+
                 // Execute function body
                 match body.execute(&mut call_env, ctx)? {
                     crate::stmt::ControlFlow::Return(val) => Ok(val),
@@ -179,22 +188,22 @@ impl Add for &Val {
             (Val::Str(a), Val::Int(b)) => {
                 let b_str = b.to_string();
                 Ok(Val::concat_strings(a.as_ref(), &b_str))
-            },
+            }
             #[cfg(feature = "adv_arith")]
             (Val::Str(a), Val::Float(b)) => {
                 let b_str = b.to_string();
                 Ok(Val::concat_strings(a.as_ref(), &b_str))
-            },
+            }
             #[cfg(feature = "adv_arith")]
             (Val::Int(a), Val::Str(b)) => {
                 let a_str = a.to_string();
                 Ok(Val::concat_strings(&a_str, b.as_ref()))
-            },
+            }
             #[cfg(feature = "adv_arith")]
             (Val::Float(a), Val::Str(b)) => {
                 let a_str = a.to_string();
                 Ok(Val::concat_strings(&a_str, b.as_ref()))
-            },
+            }
             #[cfg(feature = "adv_arith")]
             (Val::Map(l), Val::Map(r)) => {
                 // Map + Map: merge with right side overriding left side for same keys
@@ -528,14 +537,22 @@ impl PartialEq for Val {
             (Val::Bool(a), Val::Bool(b)) => a == b,
             (Val::Map(a), Val::Map(b)) => a == b,
             (Val::List(a), Val::List(b)) => a == b,
-            (Val::Closure { params: params_a, body: body_a, env: env_a }, 
-             Val::Closure { params: params_b, body: body_b, env: env_b }) => {
-                params_a == params_b && Arc::ptr_eq(body_a, body_b) && Arc::ptr_eq(env_a, env_b)
-            },
+            (
+                Val::Closure {
+                    params: params_a,
+                    body: body_a,
+                    env: env_a,
+                },
+                Val::Closure {
+                    params: params_b,
+                    body: body_b,
+                    env: env_b,
+                },
+            ) => params_a == params_b && Arc::ptr_eq(body_a, body_b) && Arc::ptr_eq(env_a, env_b),
             (Val::RustFunction(a), Val::RustFunction(b)) => {
                 // Use fn_addr_eq for meaningful function pointer comparison
                 std::ptr::fn_addr_eq(*a, *b)
-            },
+            }
             (Val::Nil, Val::Nil) => true,
             _ => false,
         }
@@ -570,7 +587,7 @@ impl Serialize for Val {
             Val::Closure { .. } | Val::RustFunction(_) => {
                 // Functions can't be serialized, use placeholder
                 serializer.serialize_str("<function>")
-            },
+            }
             Val::Nil => serializer.serialize_unit(),
         }
     }
@@ -601,13 +618,13 @@ impl core::fmt::Display for Val {
                 }
                 #[cfg(not(feature = "json"))]
                 write!(f, "{:?}", l)
-            },
+            }
             Val::Closure { params, .. } => {
                 write!(f, "fn({})", params.join(", "))
-            },
+            }
             Val::RustFunction(_) => {
                 write!(f, "<native function>")
-            },
+            }
             Val::Nil => write!(f, "nil"),
         }
     }

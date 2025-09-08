@@ -1,12 +1,12 @@
-use crate::val::Val;
 use crate::module::ModuleRegistry;
+use crate::val::Val;
 use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 /// Import system for QCL - supports various import syntaxes and plugin-style module resolution
-/// 
+///
 /// Supported import syntaxes:
 /// 1. `import math;` - imports stdlib module 'math' with all exports
 /// 2. `import "path/to/file.qcl";` - imports file with all exports  
@@ -19,28 +19,18 @@ use std::sync::{Arc, RwLock};
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImportStmt {
     /// `import module;` - import entire module
-    Module {
-        module: String,
-    },
+    Module { module: String },
     /// `import "path";` - import from file path
-    File {
-        path: String,
-    },
+    File { path: String },
     /// `import { items } from source;` - import specific items
     Items {
         items: Vec<ImportItem>,
         source: ImportSource,
     },
     /// `import * as alias from source;` - import all as namespace
-    Namespace {
-        alias: String,
-        source: ImportSource,
-    },
+    Namespace { alias: String, source: ImportSource },
     /// `import module as alias;` - import module with alias
-    ModuleAlias {
-        module: String,
-        alias: String,
-    },
+    ModuleAlias { module: String, alias: String },
 }
 
 /// Import source - either stdlib module or file path
@@ -87,9 +77,9 @@ impl ModuleResolver {
             stdlib_modules: HashMap::new(),
             file_modules: Arc::new(RwLock::new(HashMap::new())),
             search_paths: vec![
-                PathBuf::from("."),  // Current directory
-                PathBuf::from("./lib"),  // Local lib directory
-                PathBuf::from("./modules"),  // Local modules directory
+                PathBuf::from("."),         // Current directory
+                PathBuf::from("./lib"),     // Local lib directory
+                PathBuf::from("./modules"), // Local modules directory
             ],
         };
 
@@ -108,7 +98,7 @@ impl ModuleResolver {
             let exports = module.exports();
             return Ok(Val::Map(exports.into()));
         }
-        
+
         // Check cache
         self.stdlib_modules
             .get(name)
@@ -119,7 +109,7 @@ impl ModuleResolver {
     /// Resolve a file module - loads if not already cached
     pub fn resolve_file(&self, path: &str) -> Result<Val> {
         let resolved_path = self.resolve_file_path(path)?;
-        
+
         // Check cache first
         if let Ok(cache) = self.file_modules.read() {
             if let Some(module) = cache.get(&resolved_path) {
@@ -129,19 +119,19 @@ impl ModuleResolver {
 
         // Load and parse the file
         let module = self.load_file_module(&resolved_path)?;
-        
+
         // Cache the loaded module
         if let Ok(mut cache) = self.file_modules.write() {
             cache.insert(resolved_path, module.clone());
         }
-        
+
         Ok(module)
     }
 
     /// Resolve file path using search paths
     fn resolve_file_path(&self, path: &str) -> Result<PathBuf> {
         let path = Path::new(path);
-        
+
         // If absolute path, use directly
         if path.is_absolute() {
             if path.exists() {
@@ -157,7 +147,7 @@ impl ModuleResolver {
             if full_path.exists() {
                 return Ok(full_path);
             }
-            
+
             // Also try with .qcl extension
             let with_ext = full_path.with_extension("qcl");
             if with_ext.exists() {
@@ -165,7 +155,11 @@ impl ModuleResolver {
             }
         }
 
-        Err(anyhow!("File not found: {} (searched in {:?})", path.display(), self.search_paths))
+        Err(anyhow!(
+            "File not found: {} (searched in {:?})",
+            path.display(),
+            self.search_paths
+        ))
     }
 
     /// Load and parse a file module (placeholder - will integrate with parser)
@@ -219,14 +213,16 @@ impl ImportContext {
                     ImportSource::Module(name) => resolver.resolve_module(name)?,
                     ImportSource::File(path) => resolver.resolve_file(path)?,
                 };
-                
+
                 if let Val::Map(exports) = mod_def {
                     for item in items {
-                        let export_value = exports.get(&item.name)
+                        let export_value = exports
+                            .get(&item.name)
                             .ok_or_else(|| anyhow!("Export '{}' not found in module", item.name))?;
-                        
+
                         let symbol_name = item.alias.as_ref().unwrap_or(&item.name);
-                        self.symbols.insert(symbol_name.clone(), export_value.clone());
+                        self.symbols
+                            .insert(symbol_name.clone(), export_value.clone());
                     }
                 }
             }
@@ -235,7 +231,7 @@ impl ImportContext {
                     ImportSource::Module(name) => resolver.resolve_module(name)?,
                     ImportSource::File(path) => resolver.resolve_file(path)?,
                 };
-                
+
                 // The module is already a map, so we can use it directly
                 self.symbols.insert(alias.clone(), mod_def);
             }
@@ -278,11 +274,16 @@ mod tests {
 
     #[test]
     fn test_import_stmt_variants() {
-        let import = ImportStmt::Module { module: "math".to_string() };
+        let import = ImportStmt::Module {
+            module: "math".to_string(),
+        };
         assert!(matches!(import, ImportStmt::Module { .. }));
 
         let import = ImportStmt::Items {
-            items: vec![ImportItem { name: "abs".to_string(), alias: None }],
+            items: vec![ImportItem {
+                name: "abs".to_string(),
+                alias: None,
+            }],
             source: ImportSource::Module("math".to_string()),
         };
         assert!(matches!(import, ImportStmt::Items { .. }));
@@ -291,14 +292,14 @@ mod tests {
     #[test]
     fn test_module_resolver() {
         let resolver = ModuleResolver::new();
-        
+
         // Test with default features
         #[cfg(feature = "stdlib-math")]
         assert!(resolver.resolve_module("math").is_ok());
-        
+
         #[cfg(not(feature = "stdlib-math"))]
         assert!(resolver.resolve_module("math").is_err());
-        
+
         assert!(resolver.resolve_module("nonexistent").is_err());
     }
 
@@ -306,15 +307,17 @@ mod tests {
     fn test_import_context() {
         let mut ctx = ImportContext::new();
         let resolver = ModuleResolver::new();
-        
-        let import = ImportStmt::Module { module: "math".to_string() };
-        
+
+        let import = ImportStmt::Module {
+            module: "math".to_string(),
+        };
+
         // Test will succeed if math module is enabled, fail otherwise
         let result = ctx.execute_import(&import, &resolver);
-        
+
         #[cfg(feature = "stdlib-math")]
         assert!(result.is_ok());
-        
+
         #[cfg(not(feature = "stdlib-math"))]
         assert!(result.is_err());
     }

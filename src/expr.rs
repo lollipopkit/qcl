@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashSet, HashMap},
+    collections::{HashMap, HashSet},
     fmt::{Debug, Display},
     sync::Arc,
 };
@@ -202,7 +202,11 @@ impl Expr {
                     // Look up the function in the environment
                     if let Some(func_val) = env.get(func_name) {
                         match func_val {
-                            Val::Closure { params, body, env: _ } => {
+                            Val::Closure {
+                                params,
+                                body,
+                                env: _,
+                            } => {
                                 // Evaluate arguments
                                 let mut arg_values = Vec::new();
                                 for arg in args {
@@ -213,7 +217,9 @@ impl Expr {
                                 if arg_values.len() != params.len() {
                                     return Err(anyhow!(
                                         "Function {} expects {} arguments, got {}",
-                                        func_name, params.len(), arg_values.len()
+                                        func_name,
+                                        params.len(),
+                                        arg_values.len()
                                     ));
                                 }
 
@@ -232,7 +238,7 @@ impl Expr {
                                     _ => Ok(Val::Nil), // Functions return nil by default
                                 }
                             }
-                            _ => Err(anyhow!("{} is not a function", func_name))
+                            _ => Err(anyhow!("{} is not a function", func_name)),
                         }
                     } else {
                         Err(anyhow!("Undefined function: {}", func_name))
@@ -244,13 +250,13 @@ impl Expr {
             Expr::CallExpr(expr, args) => {
                 // Evaluate the expression to get the function
                 let func_val = expr.eval_with_env(ctx, env)?;
-                
+
                 // Evaluate arguments
                 let mut arg_values = Vec::new();
                 for arg in args {
                     arg_values.push(arg.eval_with_env(ctx, env)?);
                 }
-                
+
                 // Call the function using the unified call method
                 if let Some(env) = env {
                     func_val.call(&arg_values, env, ctx)
@@ -358,7 +364,8 @@ impl Expr {
     /// Cached parsing: parse expression string to Expr with caching to avoid repeated parsing overhead
     pub fn parse_cached(expression: &str) -> Result<Expr> {
         // Global static cache: Key is expression string, Value is parsed Expr wrapped in Arc
-        static PARSE_CACHE: Lazy<Mutex<HashMap<String, Arc<Expr>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+        static PARSE_CACHE: Lazy<Mutex<HashMap<String, Arc<Expr>>>> =
+            Lazy::new(|| Mutex::new(HashMap::new()));
         let mut cache = PARSE_CACHE.lock().unwrap();
         if let Some(cached) = cache.get(expression) {
             // Cache hit, clone the Arc (cheap)
@@ -366,7 +373,7 @@ impl Expr {
         }
         // Cache miss, perform normal parsing
         let tokens = Tokenizer::new(expression)?;
-        let expr = Parser::new(&tokens).parse()?;  // Internal constant folding happens in parser
+        let expr = Parser::new(&tokens).parse()?; // Internal constant folding happens in parser
         cache.insert(expression.to_string(), Arc::new(expr.clone()));
         Ok(expr)
     }
@@ -374,7 +381,7 @@ impl Expr {
     /// Constant folding: calculate pure constant sub-expressions as Val constants
     pub(crate) fn fold_constants(self) -> Expr {
         match self {
-            Expr::Val(_) => self,  // Constant value, return directly
+            Expr::Val(_) => self, // Constant value, return directly
             Expr::Bin(l_box, op, r_box) => {
                 // Recursively fold left and right sub-expressions
                 let left = (*l_box).fold_constants();
@@ -448,7 +455,10 @@ impl Expr {
             }
             Expr::At(paths) => {
                 // @path expressions depend on context, don't fold
-                let folded_paths = paths.into_iter().map(|p| Box::new(p.fold_constants())).collect();
+                let folded_paths = paths
+                    .into_iter()
+                    .map(|p| Box::new(p.fold_constants()))
+                    .collect();
                 Expr::At(folded_paths)
             }
             Expr::Access(base_box, field_box) => {
@@ -466,22 +476,34 @@ impl Expr {
             }
             Expr::List(exprs) => {
                 // List constant folding: if all elements are constants then fold to one Val::List
-                let folded_elems: Vec<Expr> = exprs.into_iter().map(|e| e.fold_constants()).collect();
+                let folded_elems: Vec<Expr> =
+                    exprs.into_iter().map(|e| e.fold_constants()).collect();
                 if folded_elems.iter().all(|e| matches!(e, Expr::Val(_))) {
                     // Extract all constant values as new list elements
-                    let const_vals: Vec<Val> = folded_elems.into_iter().map(|e| {
-                        if let Expr::Val(v) = e { v } else { unreachable!() }
-                    }).collect();
+                    let const_vals: Vec<Val> = folded_elems
+                        .into_iter()
+                        .map(|e| {
+                            if let Expr::Val(v) = e {
+                                v
+                            } else {
+                                unreachable!()
+                            }
+                        })
+                        .collect();
                     return Expr::Val(Val::List(Arc::new(const_vals)));
                 }
                 Expr::List(folded_elems.into_iter().map(Box::new).collect())
             }
             Expr::Map(pairs) => {
                 // Map constant folding: if all keys and values are constants, then construct constant Map
-                let folded_pairs: Vec<(Box<Expr>, Box<Expr>)> = pairs.into_iter()
-                    .map(|(k, v)| (Box::new(k.fold_constants()), Box::new(v.fold_constants())) )
+                let folded_pairs: Vec<(Box<Expr>, Box<Expr>)> = pairs
+                    .into_iter()
+                    .map(|(k, v)| (Box::new(k.fold_constants()), Box::new(v.fold_constants())))
                     .collect();
-                if folded_pairs.iter().all(|(k, v)| matches!(&**k, Expr::Val(_)) && matches!(&**v, Expr::Val(_))) {
+                if folded_pairs
+                    .iter()
+                    .all(|(k, v)| matches!(&**k, Expr::Val(_)) && matches!(&**v, Expr::Val(_)))
+                {
                     let mut const_map = HashMap::with_capacity(folded_pairs.len());
                     for (k_expr, v_expr) in &folded_pairs {
                         if let (Expr::Val(k_val), Expr::Val(v_val)) = (&**k_expr, &**v_expr) {
@@ -513,13 +535,19 @@ impl Expr {
             }
             Expr::Call(name, args) => {
                 // Function calls can't be folded at compile time, but fold arguments
-                let folded_args = args.into_iter().map(|a| Box::new(a.fold_constants())).collect();
+                let folded_args = args
+                    .into_iter()
+                    .map(|a| Box::new(a.fold_constants()))
+                    .collect();
                 Expr::Call(name, folded_args)
             }
             Expr::CallExpr(expr, args) => {
                 // Function calls can't be folded at compile time, but fold expression and arguments
                 let folded_expr = Box::new(expr.fold_constants());
-                let folded_args = args.into_iter().map(|a| Box::new(a.fold_constants())).collect();
+                let folded_args = args
+                    .into_iter()
+                    .map(|a| Box::new(a.fold_constants()))
+                    .collect();
                 Expr::CallExpr(folded_expr, folded_args)
             }
         }

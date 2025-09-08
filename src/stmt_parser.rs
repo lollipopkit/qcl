@@ -1,10 +1,10 @@
 use crate::{
     ast::Parser as ExprParser,
     expr::Expr,
-    stmt::{Stmt, Program},
+    import::{ImportItem, ImportSource, ImportStmt},
+    stmt::{Program, Stmt},
     token::Token,
     val::Type,
-    import::{ImportStmt, ImportSource, ImportItem},
 };
 use anyhow::{Result, anyhow};
 
@@ -80,12 +80,12 @@ impl<'a> StmtParser<'a> {
     fn parse_if_stmt(&mut self) -> Result<Stmt> {
         self.expect_token(Token::If)?;
         self.expect_token(Token::LParen)?;
-        
+
         let condition = self.parse_expression()?;
-        
+
         self.expect_token(Token::RParen)?;
         let then_stmt = Box::new(self.parse_statement()?);
-        
+
         let else_stmt = if !self.eof() && self.tokens[self.pos] == Token::Else {
             self.pos += 1;
             Some(Box::new(self.parse_statement()?))
@@ -104,9 +104,9 @@ impl<'a> StmtParser<'a> {
     fn parse_while_stmt(&mut self) -> Result<Stmt> {
         self.expect_token(Token::While)?;
         self.expect_token(Token::LParen)?;
-        
+
         let condition = self.parse_expression()?;
-        
+
         self.expect_token(Token::RParen)?;
         let body = Box::new(self.parse_statement()?);
 
@@ -119,7 +119,7 @@ impl<'a> StmtParser<'a> {
     /// 解析 let 语句
     fn parse_let_stmt(&mut self) -> Result<Stmt> {
         self.expect_token(Token::Let)?;
-        
+
         let name = if let Token::Id(id) = &self.tokens[self.pos] {
             let name = id.clone();
             self.pos += 1;
@@ -131,7 +131,7 @@ impl<'a> StmtParser<'a> {
         // Check for optional type annotation
         let type_annotation = if !self.eof() && self.tokens[self.pos] == Token::Colon {
             self.pos += 1; // consume ':'
-            
+
             if let Token::Id(type_name) = &self.tokens[self.pos] {
                 let typ = Type::from_str(type_name)
                     .ok_or_else(|| anyhow!(self.err(&format!("Unknown type: {}", type_name))))?;
@@ -155,7 +155,6 @@ impl<'a> StmtParser<'a> {
         })
     }
 
-
     /// 解析赋值语句（已匹配标识符）
     fn parse_assign_stmt_with_id(&mut self, name: String) -> Result<Stmt> {
         // 我们已经在parse_statement中匹配了Id，现在跳过它并继续解析赋值
@@ -170,7 +169,6 @@ impl<'a> StmtParser<'a> {
         })
     }
 
-
     /// 解析标签语句（已匹配标识符）
     fn parse_label_stmt_with_id(&mut self, name: String) -> Result<Stmt> {
         // 我们已经在parse_statement中匹配了Id，现在跳过它并继续解析标签
@@ -183,7 +181,7 @@ impl<'a> StmtParser<'a> {
     /// 解析 goto 语句
     fn parse_goto_stmt(&mut self) -> Result<Stmt> {
         self.expect_token(Token::Goto)?;
-        
+
         let label = if let Token::Id(id) = &self.tokens[self.pos] {
             let label = id.clone();
             self.pos += 1;
@@ -214,7 +212,7 @@ impl<'a> StmtParser<'a> {
     /// 解析 return 语句
     fn parse_return_stmt(&mut self) -> Result<Stmt> {
         self.expect_token(Token::Return)?;
-        
+
         // 检查是否有返回值（如果下一个token不是分号，则有返回值）
         let value = if !self.eof() && self.tokens[self.pos] != Token::Semicolon {
             Some(Box::new(self.parse_expression()?))
@@ -223,14 +221,14 @@ impl<'a> StmtParser<'a> {
         };
 
         self.expect_token(Token::Semicolon)?;
-        
+
         Ok(Stmt::Return { value })
     }
 
     /// 解析函数定义语句
     fn parse_function_stmt(&mut self) -> Result<Stmt> {
         self.expect_token(Token::Fn)?;
-        
+
         // 解析函数名
         let name = if let Token::Id(id) = &self.tokens[self.pos] {
             let name = id.clone();
@@ -239,16 +237,16 @@ impl<'a> StmtParser<'a> {
         } else {
             return Err(anyhow!(self.err("Expected function name")));
         };
-        
+
         // 解析参数列表
         self.expect_token(Token::LParen)?;
         let mut params = Vec::new();
-        
+
         while !self.eof() && self.tokens[self.pos] != Token::RParen {
             if let Token::Id(param) = &self.tokens[self.pos] {
                 params.push(param.clone());
                 self.pos += 1;
-                
+
                 // 如果下一个token是逗号，则继续解析参数
                 if !self.eof() && self.tokens[self.pos] == Token::Comma {
                     self.pos += 1;
@@ -259,19 +257,19 @@ impl<'a> StmtParser<'a> {
                 return Err(anyhow!(self.err("Expected parameter name")));
             }
         }
-        
+
         self.expect_token(Token::RParen)?;
-        
+
         // 解析函数体 (必须是块语句)
         let body = Box::new(self.parse_block_stmt()?);
-        
+
         Ok(Stmt::Function { name, params, body })
     }
 
     /// 解析块语句
     fn parse_block_stmt(&mut self) -> Result<Stmt> {
         self.expect_token(Token::LBrace)?;
-        
+
         let mut statements = Vec::new();
         while !self.eof() && self.tokens[self.pos] != Token::RBrace {
             // 跳过空语句
@@ -344,10 +342,10 @@ impl<'a> StmtParser<'a> {
         let expr_tokens = &self.tokens[start_pos..end_pos];
         let mut expr_parser = ExprParser::new(expr_tokens);
         let expr = expr_parser.parse()?;
-        
+
         // 更新位置
         self.pos = end_pos;
-        
+
         Ok(expr)
     }
 
@@ -381,7 +379,7 @@ impl<'a> StmtParser<'a> {
     /// 解析 import 语句
     fn parse_import_stmt(&mut self) -> Result<Stmt> {
         self.expect_token(Token::Import)?;
-        
+
         // Check for different import patterns
         let import_stmt = match &self.tokens[self.pos] {
             // import "path";
@@ -412,7 +410,7 @@ impl<'a> StmtParser<'a> {
             Token::Id(module) => {
                 let module = module.clone();
                 self.pos += 1;
-                
+
                 if !self.eof() && self.tokens[self.pos] == Token::As {
                     self.pos += 1; // consume 'as'
                     let alias = self.expect_id()?;
@@ -425,15 +423,15 @@ impl<'a> StmtParser<'a> {
                 return Err(anyhow!(self.err("Expected import specifier")));
             }
         };
-        
+
         self.expect_token(Token::Semicolon)?;
         Ok(Stmt::Import(import_stmt))
     }
-    
+
     /// Parse import items list: name, name as alias, ...
     fn parse_import_items(&mut self) -> Result<Vec<ImportItem>> {
         let mut items = Vec::new();
-        
+
         loop {
             let name = self.expect_id()?;
             let alias = if !self.eof() && self.tokens[self.pos] == Token::As {
@@ -442,9 +440,9 @@ impl<'a> StmtParser<'a> {
             } else {
                 None
             };
-            
+
             items.push(ImportItem { name, alias });
-            
+
             // Check for more items
             if !self.eof() && self.tokens[self.pos] == Token::Comma {
                 self.pos += 1; // consume comma
@@ -452,10 +450,10 @@ impl<'a> StmtParser<'a> {
                 break;
             }
         }
-        
+
         Ok(items)
     }
-    
+
     /// Parse import source (module name or file path)
     fn parse_import_source(&mut self) -> Result<ImportSource> {
         match &self.tokens[self.pos] {
@@ -469,27 +467,23 @@ impl<'a> StmtParser<'a> {
                 self.pos += 1;
                 Ok(ImportSource::Module(name))
             }
-            _ => {
-                Err(anyhow!(self.err("Expected module name or file path")))
-            }
+            _ => Err(anyhow!(self.err("Expected module name or file path"))),
         }
     }
-    
+
     /// Helper to expect an identifier token
     fn expect_id(&mut self) -> Result<String> {
         if self.eof() {
             return Err(anyhow!(self.err("Expected identifier")));
         }
-        
+
         match &self.tokens[self.pos] {
             Token::Id(id) => {
                 let id = id.clone();
                 self.pos += 1;
                 Ok(id)
             }
-            _ => {
-                Err(anyhow!(self.err("Expected identifier")))
-            }
+            _ => Err(anyhow!(self.err("Expected identifier"))),
         }
     }
 

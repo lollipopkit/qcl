@@ -1,10 +1,10 @@
-use std::process::Command;
 use std::io::Write;
+use std::process::Command;
 
 fn create_cargo_command(args: &[&str]) -> Command {
     let mut cmd = Command::new("cargo");
     cmd.arg("run");
-    
+
     // Add feature flags based on what's enabled
     let mut features = Vec::new();
     #[cfg(feature = "json")]
@@ -17,12 +17,12 @@ fn create_cargo_command(args: &[&str]) -> Command {
     features.push("sem_arith");
     #[cfg(feature = "adv_arith")]
     features.push("adv_arith");
-    
+
     if !features.is_empty() {
         cmd.arg("--features");
         cmd.arg(features.join(","));
     }
-    
+
     cmd.arg("--");
     cmd.args(args);
     cmd
@@ -39,13 +39,15 @@ fn test_cli_json_auto_detection() {
         .expect("Failed to spawn command");
 
     let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
-    stdin.write_all(b"{\"name\": \"test\", \"age\": 25}").expect("Failed to write to stdin");
+    stdin
+        .write_all(b"{\"name\": \"test\", \"age\": 25}")
+        .expect("Failed to write to stdin");
     stdin.flush().expect("Failed to flush stdin");
     let _ = stdin;
 
     let output = cmd.wait_with_output().expect("Failed to wait for command");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     assert!(stdout.contains("true"));
 }
 
@@ -60,13 +62,15 @@ fn test_cli_json_explicit_flag() {
         .expect("Failed to spawn command");
 
     let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
-    stdin.write_all(b"{\"name\": \"test\", \"age\": 25}").expect("Failed to write to stdin");
+    stdin
+        .write_all(b"{\"name\": \"test\", \"age\": 25}")
+        .expect("Failed to write to stdin");
     stdin.flush().expect("Failed to flush stdin");
     let _ = stdin;
 
     let output = cmd.wait_with_output().expect("Failed to wait for command");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     assert!(stdout.contains("true"));
 }
 
@@ -81,13 +85,15 @@ fn test_cli_yaml_auto_detection() {
         .expect("Failed to spawn command");
 
     let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
-    stdin.write_all(b"name: test\nage: 25").expect("Failed to write to stdin");
+    stdin
+        .write_all(b"name: test\nage: 25")
+        .expect("Failed to write to stdin");
     stdin.flush().expect("Failed to flush stdin");
     let _ = stdin;
 
     let output = cmd.wait_with_output().expect("Failed to wait for command");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     assert!(stdout.contains("true"));
 }
 
@@ -102,13 +108,15 @@ fn test_cli_yaml_explicit_flag() {
         .expect("Failed to spawn command");
 
     let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
-    stdin.write_all(b"name: test\nage: 25").expect("Failed to write to stdin");
+    stdin
+        .write_all(b"name: test\nage: 25")
+        .expect("Failed to write to stdin");
     stdin.flush().expect("Failed to flush stdin");
     let _ = stdin;
 
     let output = cmd.wait_with_output().expect("Failed to wait for command");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     assert!(stdout.contains("true"));
 }
 
@@ -123,13 +131,15 @@ fn test_cli_toml_auto_detection() {
         .expect("Failed to spawn command");
 
     let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
-    stdin.write_all(b"name = \"test\"\nage = 25").expect("Failed to write to stdin");
+    stdin
+        .write_all(b"name = \"test\"\nage = 25")
+        .expect("Failed to write to stdin");
     stdin.flush().expect("Failed to flush stdin");
     let _ = stdin;
 
     let output = cmd.wait_with_output().expect("Failed to wait for command");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     assert!(stdout.contains("true"));
 }
 
@@ -144,13 +154,15 @@ fn test_cli_toml_explicit_flag() {
         .expect("Failed to spawn command");
 
     let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
-    stdin.write_all(b"name = \"test\"\nage = 25").expect("Failed to write to stdin");
+    stdin
+        .write_all(b"name = \"test\"\nage = 25")
+        .expect("Failed to write to stdin");
     stdin.flush().expect("Failed to flush stdin");
     let _ = stdin;
 
     let output = cmd.wait_with_output().expect("Failed to wait for command");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     assert!(stdout.contains("true"));
 }
 
@@ -165,13 +177,15 @@ fn test_cli_yaml_nested_structures() {
         .expect("Failed to spawn command");
 
     let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
-    stdin.write_all(b"req:\n  user:\n    role: admin\n    name: test").expect("Failed to write to stdin");
+    stdin
+        .write_all(b"req:\n  user:\n    role: admin\n    name: test")
+        .expect("Failed to write to stdin");
     stdin.flush().expect("Failed to flush stdin");
     let _ = stdin;
 
     let output = cmd.wait_with_output().expect("Failed to wait for command");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     assert!(stdout.contains("true"));
 }
 
@@ -186,13 +200,15 @@ fn test_cli_toml_nested_structures() {
         .expect("Failed to spawn command");
 
     let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
-    stdin.write_all(b"[req.user]\nrole = \"admin\"\nname = \"test\"").expect("Failed to write to stdin");
+    stdin
+        .write_all(b"[req.user]\nrole = \"admin\"\nname = \"test\"")
+        .expect("Failed to write to stdin");
     stdin.flush().expect("Failed to flush stdin");
     let _ = stdin;
 
     let output = cmd.wait_with_output().expect("Failed to wait for command");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     assert!(stdout.contains("true"));
 }
 
@@ -207,13 +223,15 @@ fn test_cli_yaml_arrays() {
         .expect("Failed to spawn command");
 
     let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
-    stdin.write_all(b"permissions:\n  - read\n  - write\n  - execute").expect("Failed to write to stdin");
+    stdin
+        .write_all(b"permissions:\n  - read\n  - write\n  - execute")
+        .expect("Failed to write to stdin");
     stdin.flush().expect("Failed to flush stdin");
     let _ = stdin;
 
     let output = cmd.wait_with_output().expect("Failed to wait for command");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     assert!(stdout.contains("true"));
 }
 
@@ -228,13 +246,15 @@ fn test_cli_toml_arrays() {
         .expect("Failed to spawn command");
 
     let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
-    stdin.write_all(b"permissions = [\"read\", \"write\", \"execute\"]").expect("Failed to write to stdin");
+    stdin
+        .write_all(b"permissions = [\"read\", \"write\", \"execute\"]")
+        .expect("Failed to write to stdin");
     stdin.flush().expect("Failed to flush stdin");
     let _ = stdin;
 
     let output = cmd.wait_with_output().expect("Failed to wait for command");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     assert!(stdout.contains("true"));
 }
 
@@ -255,7 +275,7 @@ fn test_cli_toml_table_arrays() {
 
     let output = cmd.wait_with_output().expect("Failed to wait for command");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     assert!(stdout.contains("true"));
 }
 
@@ -270,12 +290,14 @@ fn test_cli_error_handling() {
         .expect("Failed to spawn command");
 
     let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
-    stdin.write_all(b"invalid: [\n  - yaml\n  - structure\n").expect("Failed to write to stdin");
+    stdin
+        .write_all(b"invalid: [\n  - yaml\n  - structure\n")
+        .expect("Failed to write to stdin");
     stdin.flush().expect("Failed to flush stdin");
     let _ = stdin;
 
     let output = cmd.wait_with_output().expect("Failed to wait for command");
-    
+
     // Should exit with non-zero code for invalid input
     assert!(!output.status.success());
 }
@@ -288,7 +310,7 @@ fn test_cli_usage_message() {
         .expect("Failed to execute command");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    
+
     assert!(stderr.contains("Usage:"));
     // Check that the usage message contains the enabled formats
     #[cfg(feature = "json")]
@@ -316,40 +338,48 @@ fn test_cli_statement_mode_simple() {
 
     let output = cmd.wait_with_output().expect("Failed to wait for command");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     assert!(stdout.contains("nil"));
 }
 
 #[test]
 #[cfg(feature = "json")]
 fn test_cli_statement_mode_with_context() {
-    let mut cmd = create_cargo_command(&["--stmt", "let user_age = @user.age; if (user_age >= 18) { user_age; } else { 0; }"])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("Failed to spawn command");
+    let mut cmd = create_cargo_command(&[
+        "--stmt",
+        "let user_age = @user.age; if (user_age >= 18) { user_age; } else { 0; }",
+    ])
+    .stdin(std::process::Stdio::piped())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::piped())
+    .spawn()
+    .expect("Failed to spawn command");
 
     let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
-    stdin.write_all(b"{\"user\": {\"age\": 25}}").expect("Failed to write to stdin");
+    stdin
+        .write_all(b"{\"user\": {\"age\": 25}}")
+        .expect("Failed to write to stdin");
     stdin.flush().expect("Failed to flush stdin");
     let _ = stdin;
 
     let output = cmd.wait_with_output().expect("Failed to wait for command");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     assert!(stdout.contains("nil"));
 }
 
 #[test]
 #[cfg(feature = "json")]
 fn test_cli_statement_mode_loops() {
-    let mut cmd = create_cargo_command(&["--stmt", "let sum = 0; let i = 1; while (i <= 3) { sum = sum + i; i = i + 1; }"])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("Failed to spawn command");
+    let mut cmd = create_cargo_command(&[
+        "--stmt",
+        "let sum = 0; let i = 1; while (i <= 3) { sum = sum + i; i = i + 1; }",
+    ])
+    .stdin(std::process::Stdio::piped())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::piped())
+    .spawn()
+    .expect("Failed to spawn command");
 
     let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
     stdin.write_all(b"{}").expect("Failed to write to stdin");
@@ -358,6 +388,6 @@ fn test_cli_statement_mode_loops() {
 
     let output = cmd.wait_with_output().expect("Failed to wait for command");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     assert!(stdout.contains("nil"));
 }
