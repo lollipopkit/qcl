@@ -22,10 +22,25 @@ pub enum Val {
     Map(Arc<HashMap<String, Val>>),
     /// List type, wrapped in Arc<Vec> for efficient cloning
     List(Arc<Vec<Val>>),
-    /// Function value - contains parameters and body
+    /// QCL source function - contains parameters and body with captured environment
     Fn {
         params: Arc<Vec<String>>,
         body: Arc<crate::stmt::Stmt>,
+        /// Captured environment for closure support
+        env: Arc<crate::stmt::Environment>,
+    },
+    /// Rust built-in function with native implementation
+    BuiltinFn {
+        name: String,
+    },
+    /// Dynamically loaded QCL source closure
+    Closure {
+        params: Arc<Vec<String>>,
+        body: Arc<crate::stmt::Stmt>,
+        /// Parent environment for upvalue capture
+        parent_env: Arc<crate::stmt::Environment>,
+        /// Captured variables (upvalues)
+        upvalues: Arc<HashMap<String, Val>>,
     },
     Nil,
 }
@@ -66,6 +81,8 @@ impl Type {
             (Type::List, Val::List(_)) => true,
             (Type::Map, Val::Map(_)) => true,
             (Type::Function, Val::Fn { .. }) => true,
+            (Type::Function, Val::BuiltinFn { .. }) => true,
+            (Type::Function, Val::Closure { .. }) => true,
             (Type::Nil, Val::Nil) => true,
             _ => false,
         };
@@ -88,6 +105,8 @@ impl Val {
             Val::Map(_) => "Map",
             Val::List(_) => "List",
             Val::Fn { .. } => "Function",
+            Val::BuiltinFn { .. } => "BuiltinFunction",
+            Val::Closure { .. } => "Closure",
             Val::Nil => "Nil",
         }
     }
@@ -389,6 +408,8 @@ impl From<()> for Val {
     }
 }
 
+// Clone is derived for Val enum
+
 #[cfg(feature = "json")]
 impl From<serde_json::Value> for Val {
     fn from(val: serde_json::Value) -> Self {
@@ -503,6 +524,14 @@ impl Serialize for Val {
                 // Functions can't be serialized, use placeholder
                 serializer.serialize_str("<function>")
             },
+            Val::BuiltinFn { name, .. } => {
+                // Serialize builtin function name
+                serializer.serialize_str(&format!("<builtin:{}>", name))
+            },
+            Val::Closure { .. } => {
+                // Closures can't be serialized, use placeholder
+                serializer.serialize_str("<closure>")
+            },
             Val::Nil => serializer.serialize_unit(),
         }
     }
@@ -536,6 +565,12 @@ impl core::fmt::Display for Val {
             },
             Val::Fn { params, .. } => {
                 write!(f, "fn({})", params.join(", "))
+            },
+            Val::BuiltinFn { name } => {
+                write!(f, "<builtin:{}>", name)
+            },
+            Val::Closure { params, .. } => {
+                write!(f, "closure({})", params.join(", "))
             },
             Val::Nil => write!(f, "nil"),
         }

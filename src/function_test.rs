@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::{
-        stmt::Stmt,
+        stmt::{Stmt, Environment},
         token::Tokenizer,
         stmt_parser::StmtParser,
         val::Val,
@@ -261,6 +261,7 @@ mod tests {
         let func_val = Val::Fn {
             params: Arc::new(vec!["x".to_string(), "y".to_string()]),
             body: Arc::new(Stmt::Empty),
+            env: Arc::new(Environment::new()),
         };
         
         assert_eq!(func_val.to_string(), "fn(x, y)");

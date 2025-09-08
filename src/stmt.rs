@@ -1,4 +1,4 @@
-use crate::{expr::Expr, val::{Val, Type}};
+use crate::{expr::Expr, val::{Val, Type}, import::{ImportStmt, ImportContext, ModuleResolver}};
 use anyhow::{Result, anyhow};
 use std::{collections::HashMap, fmt::Display, sync::Arc};
 
@@ -6,7 +6,8 @@ use std::{collections::HashMap, fmt::Display, sync::Arc};
 /// 
 /// 语法设计：
 /// program  ::= statement*
-/// statement ::= if_stmt | while_stmt | let_stmt | assign_stmt | goto_stmt | label_stmt | break_stmt | continue_stmt | return_stmt | fn_stmt | expr_stmt | block_stmt
+/// statement ::= import_stmt | if_stmt | while_stmt | let_stmt | assign_stmt | goto_stmt | label_stmt | break_stmt | continue_stmt | return_stmt | fn_stmt | expr_stmt | block_stmt
+/// import_stmt ::= 'import' import_spec ';'
 /// if_stmt  ::= 'if' '(' expr ')' statement ['else' statement]
 /// while_stmt ::= 'while' '(' expr ')' statement
 /// let_stmt ::= 'let' id [':' type] '=' expr ';'
@@ -21,6 +22,8 @@ use std::{collections::HashMap, fmt::Display, sync::Arc};
 /// block_stmt ::= '{' statement* '}'
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
+    /// import statement
+    Import(ImportStmt),
     /// if (condition) then_stmt [else else_stmt]
     If {
         condition: Box<Expr>,
@@ -91,16 +94,30 @@ pub enum ControlFlow {
 }
 
 /// 变量作用域管理
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Environment {
     /// 变量存储栈，每个作用域对应一个 HashMap
     scopes: Vec<HashMap<String, Val>>,
+    /// Import context for managing imported symbols
+    import_ctx: ImportContext,
+    /// Module resolver (shared across all environments)
+    resolver: Arc<ModuleResolver>,
 }
 
 impl Environment {
     pub fn new() -> Self {
         Self {
             scopes: vec![HashMap::new()], // 全局作用域
+            import_ctx: ImportContext::new(),
+            resolver: Arc::new(ModuleResolver::new()),
+        }
+    }
+
+    pub fn with_resolver(resolver: Arc<ModuleResolver>) -> Self {
+        Self {
+            scopes: vec![HashMap::new()],
+            import_ctx: ImportContext::new(), 
+            resolver,
         }
     }
 
@@ -136,12 +153,19 @@ impl Environment {
 
     /// 获取变量值
     pub fn get(&self, name: &str) -> Option<&Val> {
+        // Check local scopes first
         for scope in self.scopes.iter().rev() {
             if let Some(value) = scope.get(name) {
                 return Some(value);
             }
         }
-        None
+        // Check imported symbols
+        self.import_ctx.get_symbol(name)
+    }
+
+    /// Execute import statement
+    pub fn execute_import(&mut self, import: &ImportStmt) -> Result<()> {
+        self.import_ctx.execute_import(import, &self.resolver)
     }
 }
 
@@ -150,6 +174,10 @@ impl Stmt {
     /// 执行语句，返回控制流状态
     pub fn execute(&self, env: &mut Environment, ctx: &Val) -> Result<ControlFlow> {
         match self {
+            Stmt::Import(import_stmt) => {
+                env.execute_import(import_stmt)?;
+                Ok(ControlFlow::None)
+            }
             Stmt::If { condition, then_stmt, else_stmt } => {
                 let cond_val = condition.eval_with_env(ctx, Some(env))?;
                 let is_true = match cond_val {
@@ -230,6 +258,7 @@ impl Stmt {
                 let func_val = Val::Fn {
                     params: Arc::new(params.clone()),
                     body: Arc::new((**body).clone()),
+                    env: Arc::new(env.clone()),
                 };
                 env.define(name.clone(), func_val);
                 Ok(ControlFlow::None)
@@ -324,6 +353,9 @@ impl Program {
 impl Display for Stmt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Stmt::Import(import_stmt) => {
+                write!(f, "{};", format_import_stmt(import_stmt))
+            }
             Stmt::If { condition, then_stmt, else_stmt } => {
                 if let Some(else_stmt) = else_stmt {
                     write!(f, "if ({}) {} else {}", condition, then_stmt, else_stmt)
@@ -379,6 +411,49 @@ impl Display for Stmt {
             Stmt::Empty => {
                 write!(f, ";")
             }
+        }
+    }
+}
+
+/// Helper function to format import statements for display
+fn format_import_stmt(import: &ImportStmt) -> String {
+    use crate::import::{ImportStmt, ImportSource};
+    
+    match import {
+        ImportStmt::Module { module } => {
+            format!("import {}", module)
+        }
+        ImportStmt::File { path } => {
+            format!("import \"{}\"", path)
+        }
+        ImportStmt::Items { items, source } => {
+            let items_str = items.iter()
+                .map(|item| {
+                    if let Some(alias) = &item.alias {
+                        format!("{} as {}", item.name, alias)
+                    } else {
+                        item.name.clone()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            
+            let source_str = match source {
+                ImportSource::Module(name) => name.clone(),
+                ImportSource::File(path) => format!("\"{}\"", path),
+            };
+            
+            format!("import {{ {} }} from {}", items_str, source_str)
+        }
+        ImportStmt::Namespace { alias, source } => {
+            let source_str = match source {
+                ImportSource::Module(name) => name.clone(),
+                ImportSource::File(path) => format!("\"{}\"", path),
+            };
+            format!("import * as {} from {}", alias, source_str)
+        }
+        ImportStmt::ModuleAlias { module, alias } => {
+            format!("import {} as {}", module, alias)
         }
     }
 }

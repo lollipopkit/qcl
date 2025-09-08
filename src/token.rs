@@ -42,6 +42,10 @@ pub enum Token {
     Goto,        // goto
     Return,      // return
     Fn,          // fn (function definition)
+    // Import keywords
+    Import,      // import
+    From,        // from
+    As,          // as
     Str(String), // "abc"
     Int(i64),    // 1
     Float(f64),  // 1.1
@@ -244,6 +248,15 @@ impl Tokenizer {
             Ok(())
         } else if self.expect("fn") {
             self.tokens.push(Token::Fn);
+            Ok(())
+        } else if self.expect("import") {
+            self.tokens.push(Token::Import);
+            Ok(())
+        } else if self.expect("from") {
+            self.tokens.push(Token::From);
+            Ok(())
+        } else if self.expect("as") {
+            self.tokens.push(Token::As);
             Ok(())
         } else {
             self.parse_id()

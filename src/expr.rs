@@ -200,7 +200,7 @@ impl Expr {
                     // Look up the function in the environment
                     if let Some(func_val) = env.get(func_name) {
                         match func_val {
-                            Val::Fn { params, body } => {
+                            Val::Fn { params, body, env: _ } => {
                                 // Evaluate arguments
                                 let mut arg_values = Vec::new();
                                 for arg in args {
@@ -229,6 +229,17 @@ impl Expr {
                                     crate::stmt::ControlFlow::Return(val) => Ok(val),
                                     _ => Ok(Val::Nil), // Functions return nil by default
                                 }
+                            }
+                            Val::BuiltinFn { name } => {
+                                // Evaluate arguments for builtin function
+                                let mut arg_values = Vec::new();
+                                for arg in args {
+                                    arg_values.push(arg.eval_with_env(ctx, Some(env))?);
+                                }
+                                
+                                // Call builtin function
+                                // TODO: Implement builtin function dispatch
+                                return Err(anyhow!("Builtin function '{}' not yet implemented", name));
                             }
                             _ => Err(anyhow!("{} is not a function", func_name))
                         }

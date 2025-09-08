@@ -2,6 +2,8 @@ pub mod ast;
 pub mod expr;
 pub mod stmt;
 pub mod stmt_parser;
+pub mod import;
+pub mod module;
 mod op;
 pub mod token;
 pub mod val;

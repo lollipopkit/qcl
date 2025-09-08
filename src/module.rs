@@ -1,0 +1,543 @@
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use crate::val::Val;
+use anyhow::{Result, anyhow};
+
+/// Central module registry inspired by Lua's linit.c
+/// 
+/// This registry manages all standard library modules and provides
+/// a Lua-like module loading system with feature-based compilation.
+#[derive(Debug)]
+pub struct ModuleRegistry {
+    modules: HashMap<String, Box<dyn Module>>,
+    builtin_functions: HashMap<String, Val>,
+    cache: Mutex<HashMap<String, Val>>,
+}
+
+impl PartialEq for ModuleRegistry {
+    fn eq(&self, other: &Self) -> bool {
+        // Compare only the builtin functions, ignoring modules and cache
+        self.builtin_functions == other.builtin_functions
+    }
+}
+
+impl ModuleRegistry {
+    /// Create a new module registry with all core modules registered
+    pub fn new() -> Self {
+        let mut registry = Self {
+            modules: HashMap::new(),
+            builtin_functions: HashMap::new(),
+            cache: Mutex::new(HashMap::new()),
+        };
+        
+        registry.register_core_modules();
+        registry
+    }
+    
+    /// Register core modules based on enabled features
+    /// Similar to Lua's linit.c which opens standard libraries
+    fn register_core_modules(&mut self) {
+        // Register modules based on features, like Lua's conditional library loading
+        #[cfg(feature = "stdlib-math")]
+        self.register_module("math", Box::new(MathModule::new()));
+        
+        #[cfg(feature = "stdlib-string")]
+        self.register_module("string", Box::new(StringModule::new()));
+        
+        #[cfg(feature = "stdlib-datetime")]
+        self.register_module("datetime", Box::new(DateTimeModule::new()));
+        
+        #[cfg(feature = "stdlib-collections")]
+        self.register_module("collections", Box::new(CollectionsModule::new()));
+        
+        #[cfg(feature = "stdlib-os")]
+        self.register_module("os", Box::new(OsModule::new()));
+        
+        #[cfg(feature = "stdlib-debug")]
+        self.register_module("debug", Box::new(DebugModule::new()));
+    }
+    
+    /// Register a module with the registry
+    pub fn register_module(&mut self, name: &str, module: Box<dyn Module>) {
+        self.modules.insert(name.to_string(), module);
+    }
+    
+    /// Get a module by name
+    pub fn get_module(&self, name: &str) -> Result<&Box<dyn Module>> {
+        self.modules.get(name)
+            .ok_or_else(|| anyhow!("Module '{}' not found", name))
+    }
+    
+    /// Get all registered module names
+    pub fn get_module_names(&self) -> Vec<String> {
+        self.modules.keys().cloned().collect()
+    }
+    
+    /// Register a builtin function globally
+    pub fn register_builtin(&mut self, name: &str, func: Val) {
+        self.builtin_functions.insert(name.to_string(), func);
+    }
+    
+    /// Get a builtin function by name
+    pub fn get_builtin(&self, name: &str) -> Option<&Val> {
+        self.builtin_functions.get(name)
+    }
+    
+    /// Get all builtin functions
+    pub fn get_all_builtins(&self) -> &HashMap<String, Val> {
+        &self.builtin_functions
+    }
+    
+    /// Cache a module value for performance
+    pub fn cache_module(&self, name: &str, value: Val) {
+        if let Ok(mut cache) = self.cache.lock() {
+            cache.insert(name.to_string(), value);
+        }
+    }
+    
+    /// Get cached module value
+    pub fn get_cached_module(&self, name: &str) -> Option<Val> {
+        if let Ok(cache) = self.cache.lock() {
+            cache.get(name).cloned()
+        } else {
+            None
+        }
+    }
+}
+
+impl Default for ModuleRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Module trait inspired by Lua's library pattern
+/// 
+/// Each module implements this trait to provide its functionality
+/// in a standardized way, similar to how Lua's standard libraries work.
+pub trait Module: Send + Sync + std::fmt::Debug {
+    /// Get the module name
+    fn name(&self) -> &str;
+    
+    /// Get the module version
+    fn version(&self) -> &str {
+        "1.0.0"
+    }
+    
+    /// Get module description
+    fn description(&self) -> &str {
+        ""
+    }
+    
+    /// Check if the module is enabled
+    fn enabled(&self) -> bool {
+        true
+    }
+    
+    /// Register the module's exports with the registry
+    fn register(&self, registry: &mut ModuleRegistry) -> Result<()>;
+    
+    /// Get all exports from this module
+    fn exports(&self) -> HashMap<String, Val>;
+    
+    /// Initialize the module (called once when loaded)
+    fn init(&self) -> Result<()> {
+        Ok(())
+    }
+    
+    /// Cleanup the module (called when unloading)
+    fn cleanup(&self) -> Result<()> {
+        Ok(())
+    }
+    
+    /// Get module metadata
+    fn metadata(&self) -> HashMap<String, String> {
+        let mut meta = HashMap::new();
+        meta.insert("name".to_string(), self.name().to_string());
+        meta.insert("version".to_string(), self.version().to_string());
+        meta.insert("description".to_string(), self.description().to_string());
+        meta.insert("enabled".to_string(), self.enabled().to_string());
+        meta
+    }
+}
+
+/// Enhanced import context with Lua-like module loading
+/// 
+/// Provides a Lua-like `require` function for loading modules
+/// with caching and search path support.
+#[derive(Debug, Clone)]
+pub struct ImportContext {
+    registry: Arc<ModuleRegistry>,
+    loaded_modules: HashMap<String, Val>,
+    search_paths: Vec<String>,
+}
+
+impl ImportContext {
+    /// Create a new import context
+    pub fn new(registry: Arc<ModuleRegistry>) -> Self {
+        Self {
+            registry,
+            loaded_modules: HashMap::new(),
+            search_paths: vec![
+                "./modules".to_string(),
+                "./lib".to_string(),
+                ".".to_string(),
+            ],
+        }
+    }
+    
+    /// Lua-like require function for loading modules
+    pub fn require(&mut self, module_name: &str) -> Result<Val> {
+        // Check cache first
+        if let Some(module) = self.loaded_modules.get(module_name) {
+            return Ok(module.clone());
+        }
+        
+        // Check registry cache
+        if let Some(cached) = self.registry.get_cached_module(module_name) {
+            self.loaded_modules.insert(module_name.to_string(), cached.clone());
+            return Ok(cached);
+        }
+        
+        // Load the module
+        let module = self.load_module(module_name)?;
+        
+        // Cache the module
+        self.loaded_modules.insert(module_name.to_string(), module.clone());
+        self.registry.cache_module(module_name, module.clone());
+        
+        Ok(module)
+    }
+    
+    /// Load a module by name
+    fn load_module(&self, module_name: &str) -> Result<Val> {
+        let module_def = self.registry.get_module(module_name)?;
+        
+        // Initialize the module
+        module_def.init()?;
+        
+        // Get module exports as a map
+        let exports = module_def.exports();
+        let module_value = Val::Map(exports.into());
+        
+        Ok(module_value)
+    }
+    
+    /// Add a search path for module resolution
+    pub fn add_search_path(&mut self, path: String) {
+        self.search_paths.push(path);
+    }
+    
+    /// Get all loaded modules
+    pub fn get_loaded_modules(&self) -> &HashMap<String, Val> {
+        &self.loaded_modules
+    }
+    
+    /// Check if a module is loaded
+    pub fn is_module_loaded(&self, module_name: &str) -> bool {
+        self.loaded_modules.contains_key(module_name)
+    }
+    
+    /// Unload a module
+    pub fn unload_module(&mut self, module_name: &str) -> Result<()> {
+        if let Some(_) = self.loaded_modules.remove(module_name) {
+            // Note: In a real implementation, we might want to call cleanup
+            // on the module here, but for now we just remove it from cache
+        }
+        Ok(())
+    }
+    
+    /// Get module metadata
+    pub fn get_module_metadata(&self, module_name: &str) -> Result<HashMap<String, String>> {
+        let module = self.registry.get_module(module_name)?;
+        Ok(module.metadata())
+    }
+    
+    /// List all available modules
+    pub fn list_modules(&self) -> Vec<String> {
+        self.registry.get_module_names()
+    }
+}
+
+impl Default for ImportContext {
+    fn default() -> Self {
+        Self::new(Arc::new(ModuleRegistry::new()))
+    }
+}
+
+// Module implementations will be added in separate files
+// These are placeholder implementations for now
+
+#[cfg(feature = "stdlib-math")]
+#[derive(Debug)]
+struct MathModule {
+    functions: HashMap<String, Val>,
+}
+
+#[cfg(feature = "stdlib-math")]
+impl MathModule {
+    pub fn new() -> Self {
+        let mut functions = HashMap::new();
+        
+        // Register math functions
+        functions.insert("abs".to_string(), Val::BuiltinFn {
+            name: "math.abs".to_string(),
+        });
+        
+        functions.insert("sqrt".to_string(), Val::BuiltinFn {
+            name: "math.sqrt".to_string(),
+        });
+        
+        // Add more math functions as needed
+        
+        Self { functions }
+    }
+}
+
+#[cfg(feature = "stdlib-math")]
+impl Module for MathModule {
+    fn name(&self) -> &str {
+        "math"
+    }
+    
+    fn description(&self) -> &str {
+        "Mathematical functions and constants"
+    }
+    
+    fn register(&self, registry: &mut ModuleRegistry) -> Result<()> {
+        for (name, func) in &self.functions {
+            registry.register_builtin(name, func.clone());
+        }
+        Ok(())
+    }
+    
+    fn exports(&self) -> HashMap<String, Val> {
+        self.functions.clone()
+    }
+}
+
+#[cfg(feature = "stdlib-string")]
+#[derive(Debug)]
+struct StringModule {
+    functions: HashMap<String, Val>,
+}
+
+#[cfg(feature = "stdlib-string")]
+impl StringModule {
+    pub fn new() -> Self {
+        let mut functions = HashMap::new();
+        
+        // Register string functions
+        functions.insert("len".to_string(), Val::BuiltinFn {
+            name: "string.len".to_string(),
+        });
+        
+        // Add more string functions as needed
+        
+        Self { functions }
+    }
+}
+
+#[cfg(feature = "stdlib-string")]
+impl Module for StringModule {
+    fn name(&self) -> &str {
+        "string"
+    }
+    
+    fn description(&self) -> &str {
+        "String manipulation functions"
+    }
+    
+    fn register(&self, registry: &mut ModuleRegistry) -> Result<()> {
+        for (name, func) in &self.functions {
+            registry.register_builtin(name, func.clone());
+        }
+        Ok(())
+    }
+    
+    fn exports(&self) -> HashMap<String, Val> {
+        self.functions.clone()
+    }
+}
+
+// Placeholder implementations for other modules
+#[cfg(feature = "stdlib-datetime")]
+#[derive(Debug)]
+struct DateTimeModule {
+    functions: HashMap<String, Val>,
+}
+
+#[cfg(feature = "stdlib-datetime")]
+impl DateTimeModule {
+    pub fn new() -> Self {
+        Self {
+            functions: HashMap::new(),
+        }
+    }
+}
+
+#[cfg(feature = "stdlib-datetime")]
+impl Module for DateTimeModule {
+    fn name(&self) -> &str {
+        "datetime"
+    }
+    
+    fn description(&self) -> &str {
+        "Date and time functions"
+    }
+    
+    fn register(&self, _registry: &mut ModuleRegistry) -> Result<()> {
+        Ok(())
+    }
+    
+    fn exports(&self) -> HashMap<String, Val> {
+        self.functions.clone()
+    }
+}
+
+#[cfg(feature = "stdlib-collections")]
+#[derive(Debug)]
+struct CollectionsModule {
+    functions: HashMap<String, Val>,
+}
+
+#[cfg(feature = "stdlib-collections")]
+impl CollectionsModule {
+    pub fn new() -> Self {
+        Self {
+            functions: HashMap::new(),
+        }
+    }
+}
+
+#[cfg(feature = "stdlib-collections")]
+impl Module for CollectionsModule {
+    fn name(&self) -> &str {
+        "collections"
+    }
+    
+    fn description(&self) -> &str {
+        "Collection manipulation functions"
+    }
+    
+    fn register(&self, _registry: &mut ModuleRegistry) -> Result<()> {
+        Ok(())
+    }
+    
+    fn exports(&self) -> HashMap<String, Val> {
+        self.functions.clone()
+    }
+}
+
+#[cfg(feature = "stdlib-os")]
+#[derive(Debug)]
+struct OsModule {
+    functions: HashMap<String, Val>,
+}
+
+#[cfg(feature = "stdlib-os")]
+impl OsModule {
+    pub fn new() -> Self {
+        Self {
+            functions: HashMap::new(),
+        }
+    }
+}
+
+#[cfg(feature = "stdlib-os")]
+impl Module for OsModule {
+    fn name(&self) -> &str {
+        "os"
+    }
+    
+    fn description(&self) -> &str {
+        "Operating system interface"
+    }
+    
+    fn register(&self, _registry: &mut ModuleRegistry) -> Result<()> {
+        Ok(())
+    }
+    
+    fn exports(&self) -> HashMap<String, Val> {
+        self.functions.clone()
+    }
+}
+
+#[cfg(feature = "stdlib-debug")]
+#[derive(Debug)]
+struct DebugModule {
+    functions: HashMap<String, Val>,
+}
+
+#[cfg(feature = "stdlib-debug")]
+impl DebugModule {
+    pub fn new() -> Self {
+        Self {
+            functions: HashMap::new(),
+        }
+    }
+}
+
+#[cfg(feature = "stdlib-debug")]
+impl Module for DebugModule {
+    fn name(&self) -> &str {
+        "debug"
+    }
+    
+    fn description(&self) -> &str {
+        "Debugging utilities"
+    }
+    
+    fn register(&self, _registry: &mut ModuleRegistry) -> Result<()> {
+        Ok(())
+    }
+    
+    fn exports(&self) -> HashMap<String, Val> {
+        self.functions.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_module_registry_creation() {
+        let registry = ModuleRegistry::new();
+        assert!(registry.get_module_names().len() > 0);
+    }
+
+    #[test]
+    fn test_import_context() {
+        let registry = Arc::new(ModuleRegistry::new());
+        let mut ctx = ImportContext::new(registry);
+        
+        #[cfg(feature = "stdlib-math")]
+        {
+            let result = ctx.require("math");
+            assert!(result.is_ok());
+        }
+        
+        #[cfg(not(feature = "stdlib-math"))]
+        {
+            let result = ctx.require("math");
+            assert!(result.is_err());
+        }
+    }
+
+    #[test]
+    fn test_module_caching() {
+        let registry = Arc::new(ModuleRegistry::new());
+        let mut ctx = ImportContext::new(registry.clone());
+        
+        #[cfg(feature = "stdlib-math")]
+        {
+            let module1 = ctx.require("math").unwrap();
+            let module2 = ctx.require("math").unwrap();
+            
+            // Both should be the same due to caching
+            assert_eq!(module1, module2);
+            assert!(ctx.is_module_loaded("math"));
+        }
+    }
+}
