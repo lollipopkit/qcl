@@ -22,6 +22,11 @@ pub enum Val {
     Map(Arc<HashMap<String, Val>>),
     /// List type, wrapped in Arc<Vec> for efficient cloning
     List(Arc<Vec<Val>>),
+    /// Function value - contains parameters and body
+    Fn {
+        params: Arc<Vec<String>>,
+        body: Arc<crate::stmt::Stmt>,
+    },
     Nil,
 }
 
@@ -33,6 +38,7 @@ pub enum Type {
     Bool,
     List,
     Map,
+    Function,
     Nil,
 }
 
@@ -45,6 +51,7 @@ impl Type {
             "Bool" => Some(Type::Bool),
             "List" => Some(Type::List),
             "Map" => Some(Type::Map),
+            "Function" => Some(Type::Function),
             "Nil" => Some(Type::Nil),
             _ => None,
         }
@@ -58,6 +65,7 @@ impl Type {
             (Type::Bool, Val::Bool(_)) => true,
             (Type::List, Val::List(_)) => true,
             (Type::Map, Val::Map(_)) => true,
+            (Type::Function, Val::Fn { .. }) => true,
             (Type::Nil, Val::Nil) => true,
             _ => false,
         };
@@ -79,6 +87,7 @@ impl Val {
             Val::Bool(_) => "Bool",
             Val::Map(_) => "Map",
             Val::List(_) => "List",
+            Val::Fn { .. } => "Function",
             Val::Nil => "Nil",
         }
     }
@@ -490,6 +499,10 @@ impl Serialize for Val {
             Val::Bool(b) => serializer.serialize_bool(*b),
             Val::Map(m) => (**m).serialize(serializer),
             Val::List(l) => (**l).serialize(serializer),
+            Val::Fn { .. } => {
+                // Functions can't be serialized, use placeholder
+                serializer.serialize_str("<function>")
+            },
             Val::Nil => serializer.serialize_unit(),
         }
     }
@@ -520,6 +533,9 @@ impl core::fmt::Display for Val {
                 }
                 #[cfg(not(feature = "json"))]
                 write!(f, "{:?}", l)
+            },
+            Val::Fn { params, .. } => {
+                write!(f, "fn({})", params.join(", "))
             },
             Val::Nil => write!(f, "nil"),
         }

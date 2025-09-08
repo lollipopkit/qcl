@@ -9,10 +9,15 @@ It's designed to be used in ACL (Access Control List) systems, where you need to
 
 ### Example
 
-```js
-(@record.published || @record.owner == @req.user.id) // Normal case
-|| // Or operator
-(@req.user.role == 'admin' || @req.user.id in @record.granted) // Special case
+```rust
+fn user_can_access() {
+    return @record.owner == @req.user.id
+        || @record.published;
+}
+fn admin_can_access() {
+    return @req.user.role == 'admin' || @req.user.id in @record.granted;
+}
+return user_can_access() || admin_can_access();
 ```
 
 Let's break it down:

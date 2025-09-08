@@ -140,27 +140,60 @@ impl<'a> Parser<'a> {
     /// - `primary`
     /// - `primary.field`
     /// - `primary.field.field`
+    /// - `func_name(args)`
     fn parse_postfix(&mut self) -> Result<Expr> {
         let mut expr = self.parse_primary()?;
 
-        // 处理点访问
-        while !self.eof() && self.tokens[self.pos] == Token::Dot {
-            self.pos += 1;
-
-            if self.eof() {
-                return Err(anyhow!(self.err("Expecting field after '.'")));
-            }
-
-            let field = self.parse_field_accessor()?;
-
-            match expr {
-                Expr::At(mut paths) => {
-                    paths.push(Box::new(field));
-                    expr = Expr::At(paths);
+        // 处理函数调用和点访问
+        loop {
+            if !self.eof() && self.tokens[self.pos] == Token::LParen {
+                // 函数调用 - 只有在expr是变量时才允许
+                if let Expr::Var(func_name) = expr {
+                    self.pos += 1; // skip '('
+                    
+                    let mut args = Vec::new();
+                    
+                    // 解析参数列表
+                    while !self.eof() && self.tokens[self.pos] != Token::RParen {
+                        args.push(Box::new(self.parse_expr()?));
+                        
+                        if !self.eof() && self.tokens[self.pos] == Token::Comma {
+                            self.pos += 1;
+                        } else if self.tokens[self.pos] != Token::RParen {
+                            return Err(anyhow!(self.err("Expected ',' or ')' in function call")));
+                        }
+                    }
+                    
+                    if self.eof() || self.tokens[self.pos] != Token::RParen {
+                        return Err(anyhow!(self.err("Expected ')' to close function call")));
+                    }
+                    self.pos += 1; // skip ')'
+                    
+                    expr = Expr::Call(func_name, args);
+                } else {
+                    break; // 不是变量，不能作为函数调用
                 }
-                _ => {
-                    expr = Expr::Access(Box::new(expr), Box::new(field));
+            } else if !self.eof() && self.tokens[self.pos] == Token::Dot {
+                // 点访问
+                self.pos += 1;
+
+                if self.eof() {
+                    return Err(anyhow!(self.err("Expecting field after '.'")));
                 }
+
+                let field = self.parse_field_accessor()?;
+
+                match expr {
+                    Expr::At(mut paths) => {
+                        paths.push(Box::new(field));
+                        expr = Expr::At(paths);
+                    }
+                    _ => {
+                        expr = Expr::Access(Box::new(expr), Box::new(field));
+                    }
+                }
+            } else {
+                break; // 没有更多的postfix操作符
             }
         }
 

@@ -1,12 +1,12 @@
 use crate::{expr::Expr, val::{Val, Type}};
 use anyhow::{Result, anyhow};
-use std::{collections::HashMap, fmt::Display};
+use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 /// Statement AST 节点类型定义
 /// 
 /// 语法设计：
 /// program  ::= statement*
-/// statement ::= if_stmt | while_stmt | let_stmt | assign_stmt | goto_stmt | label_stmt | break_stmt | continue_stmt | return_stmt | expr_stmt | block_stmt
+/// statement ::= if_stmt | while_stmt | let_stmt | assign_stmt | goto_stmt | label_stmt | break_stmt | continue_stmt | return_stmt | fn_stmt | expr_stmt | block_stmt
 /// if_stmt  ::= 'if' '(' expr ')' statement ['else' statement]
 /// while_stmt ::= 'while' '(' expr ')' statement
 /// let_stmt ::= 'let' id [':' type] '=' expr ';'
@@ -16,6 +16,7 @@ use std::{collections::HashMap, fmt::Display};
 /// break_stmt ::= 'break' ';'
 /// continue_stmt ::= 'continue' ';'
 /// return_stmt ::= 'return' [expr] ';'
+/// fn_stmt ::= 'fn' id '(' [id {',' id}] ')' block_stmt
 /// expr_stmt ::= expr ';'
 /// block_stmt ::= '{' statement* '}'
 #[derive(Debug, Clone, PartialEq)]
@@ -57,6 +58,12 @@ pub enum Stmt {
     /// return [expression];
     Return {
         value: Option<Box<Expr>>,
+    },
+    /// fn name(param1, param2) { body }
+    Function {
+        name: String,
+        params: Vec<String>,
+        body: Box<Stmt>,
     },
     /// expression;
     Expr(Box<Expr>),
@@ -219,6 +226,14 @@ impl Stmt {
                 };
                 Ok(ControlFlow::Return(return_val))
             }
+            Stmt::Function { name, params, body } => {
+                let func_val = Val::Fn {
+                    params: Arc::new(params.clone()),
+                    body: Arc::new((**body).clone()),
+                };
+                env.define(name.clone(), func_val);
+                Ok(ControlFlow::None)
+            }
             Stmt::Expr(expr) => {
                 // 执行表达式，忽略返回值
                 expr.eval_with_env(ctx, Some(env))?;
@@ -347,6 +362,9 @@ impl Display for Stmt {
                 } else {
                     write!(f, "return;")
                 }
+            }
+            Stmt::Function { name, params, body } => {
+                write!(f, "fn {}({}) {}", name, params.join(", "), body)
             }
             Stmt::Expr(expr) => {
                 write!(f, "{};", expr)

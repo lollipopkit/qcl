@@ -10,6 +10,7 @@ pub mod de;
 mod ast_test;
 mod de_test;
 mod expr_test;
+mod function_test;
 mod op_test;
 mod stmt_test;
 mod token_test;

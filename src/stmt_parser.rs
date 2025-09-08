@@ -44,7 +44,7 @@ impl<'a> StmtParser<'a> {
     }
 
     /// 解析单个语句
-    fn parse_statement(&mut self) -> Result<Stmt> {
+    pub fn parse_statement(&mut self) -> Result<Stmt> {
         if self.eof() {
             return Ok(Stmt::Empty);
         }
@@ -57,6 +57,7 @@ impl<'a> StmtParser<'a> {
             Token::Continue => self.parse_continue_stmt(),
             Token::Return => self.parse_return_stmt(),
             Token::Goto => self.parse_goto_stmt(),
+            Token::Fn => self.parse_function_stmt(),
             Token::LBrace => self.parse_block_stmt(),
             Token::Id(id) => {
                 // 检查是否为标签 (id:) 或赋值语句 (id = expr;)
@@ -222,6 +223,47 @@ impl<'a> StmtParser<'a> {
         self.expect_token(Token::Semicolon)?;
         
         Ok(Stmt::Return { value })
+    }
+
+    /// 解析函数定义语句
+    fn parse_function_stmt(&mut self) -> Result<Stmt> {
+        self.expect_token(Token::Fn)?;
+        
+        // 解析函数名
+        let name = if let Token::Id(id) = &self.tokens[self.pos] {
+            let name = id.clone();
+            self.pos += 1;
+            name
+        } else {
+            return Err(anyhow!(self.err("Expected function name")));
+        };
+        
+        // 解析参数列表
+        self.expect_token(Token::LParen)?;
+        let mut params = Vec::new();
+        
+        while !self.eof() && self.tokens[self.pos] != Token::RParen {
+            if let Token::Id(param) = &self.tokens[self.pos] {
+                params.push(param.clone());
+                self.pos += 1;
+                
+                // 如果下一个token是逗号，则继续解析参数
+                if !self.eof() && self.tokens[self.pos] == Token::Comma {
+                    self.pos += 1;
+                } else if self.tokens[self.pos] != Token::RParen {
+                    return Err(anyhow!(self.err("Expected ',' or ')' in parameter list")));
+                }
+            } else {
+                return Err(anyhow!(self.err("Expected parameter name")));
+            }
+        }
+        
+        self.expect_token(Token::RParen)?;
+        
+        // 解析函数体 (必须是块语句)
+        let body = Box::new(self.parse_block_stmt()?);
+        
+        Ok(Stmt::Function { name, params, body })
     }
 
     /// 解析块语句

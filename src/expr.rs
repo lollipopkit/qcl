@@ -81,6 +81,8 @@ pub enum Expr {
     Map(Vec<(Box<Expr>, Box<Expr>)>),
     /// Variable identifier
     Var(String),
+    /// Function call: func_name(arg1, arg2, ...)
+    Call(String, Vec<Box<Expr>>),
     Val(Val),
 }
 
@@ -193,6 +195,50 @@ impl Expr {
                     Err(anyhow!("Variable {} used without environment", name))
                 }
             }
+            Expr::Call(func_name, args) => {
+                if let Some(env) = env {
+                    // Look up the function in the environment
+                    if let Some(func_val) = env.get(func_name) {
+                        match func_val {
+                            Val::Fn { params, body } => {
+                                // Evaluate arguments
+                                let mut arg_values = Vec::new();
+                                for arg in args {
+                                    arg_values.push(arg.eval_with_env(ctx, Some(env))?);
+                                }
+
+                                // Check parameter count
+                                if arg_values.len() != params.len() {
+                                    return Err(anyhow!(
+                                        "Function {} expects {} arguments, got {}",
+                                        func_name, params.len(), arg_values.len()
+                                    ));
+                                }
+
+                                // Create new scope for function execution
+                                let mut func_env = env.clone();
+                                func_env.push_scope();
+
+                                // Bind parameters to arguments
+                                for (param, arg_val) in params.iter().zip(arg_values.iter()) {
+                                    func_env.define(param.clone(), arg_val.clone());
+                                }
+
+                                // Execute function body
+                                match body.execute(&mut func_env, ctx)? {
+                                    crate::stmt::ControlFlow::Return(val) => Ok(val),
+                                    _ => Ok(Val::Nil), // Functions return nil by default
+                                }
+                            }
+                            _ => Err(anyhow!("{} is not a function", func_name))
+                        }
+                    } else {
+                        Err(anyhow!("Undefined function: {}", func_name))
+                    }
+                } else {
+                    Err(anyhow!("Function call {} requires environment", func_name))
+                }
+            }
             Expr::Val(Val::Str(s)) if env.is_some() => {
                 // 如果有变量环境，尝试查找变量
                 if let Some(env) = env {
@@ -273,6 +319,12 @@ impl Expr {
             }
             // Variables don't contribute context names
             Expr::Var(_) => {}
+            // Function calls - collect from arguments
+            Expr::Call(_, args) => {
+                for arg in args {
+                    arg.collect_ctx_names(names);
+                }
+            }
             // Only collect string values when they are actual context names, not field names
             Expr::Val(_) => {}
         }
@@ -434,6 +486,11 @@ impl Expr {
                 // Variables can't be folded without environment
                 Expr::Var(name)
             }
+            Expr::Call(name, args) => {
+                // Function calls can't be folded at compile time, but fold arguments
+                let folded_args = args.into_iter().map(|a| Box::new(a.fold_constants())).collect();
+                Expr::Call(name, folded_args)
+            }
         }
     }
 }
@@ -497,6 +554,10 @@ impl Display for Expr {
             }
             Expr::Paren(expr) => write!(f, "{expr}"),
             Expr::Var(name) => write!(f, "{}", name),
+            Expr::Call(name, args) => {
+                let args_str: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+                write!(f, "{}({})", name, args_str.join(", "))
+            }
             Expr::Val(val) => write!(f, "{}", val),
         }
     }

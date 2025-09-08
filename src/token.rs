@@ -41,6 +41,7 @@ pub enum Token {
     Continue,    // continue
     Goto,        // goto
     Return,      // return
+    Fn,          // fn (function definition)
     Str(String), // "abc"
     Int(i64),    // 1
     Float(f64),  // 1.1
@@ -240,6 +241,9 @@ impl Tokenizer {
             Ok(())
         } else if self.expect("goto") {
             self.tokens.push(Token::Goto);
+            Ok(())
+        } else if self.expect("fn") {
+            self.tokens.push(Token::Fn);
             Ok(())
         } else {
             self.parse_id()
@@ -482,7 +486,7 @@ impl Tokenizer {
                 '0'..='9' => {
                     self.parse_num()?;
                 }
-                // true false nil in if else while let break continue return goto
+                // true false nil in if else while let break continue return goto fn
                 't' | 'f' | 'n' | 'i' | 'e' | 'w' | 'l' | 'b' | 'c' | 'r' | 'g' => {
                     self.parse_keywords()?;
                 }
