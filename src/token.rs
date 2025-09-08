@@ -14,6 +14,7 @@ pub enum Token {
     Colon,       // :
     Comma,       // ,
     Semicolon,   // ;
+    Assign,      // =
     Nil,         // nil
     Eq,          // ==
     Ne,          // !=
@@ -31,6 +32,14 @@ pub enum Token {
     Div,         // /
     Mod,         // %
     At,          // @
+    // Statement keywords
+    If,          // if
+    Else,        // else
+    While,       // while
+    Let,         // let
+    Break,       // break
+    Continue,    // continue
+    Goto,        // goto
     Str(String), // "abc"
     Int(i64),    // 1
     Float(f64),  // 1.1
@@ -206,6 +215,27 @@ impl Tokenizer {
             Ok(())
         } else if self.expect("in") {
             self.tokens.push(Token::In);
+            Ok(())
+        } else if self.expect("if") {
+            self.tokens.push(Token::If);
+            Ok(())
+        } else if self.expect("else") {
+            self.tokens.push(Token::Else);
+            Ok(())
+        } else if self.expect("while") {
+            self.tokens.push(Token::While);
+            Ok(())
+        } else if self.expect("let") {
+            self.tokens.push(Token::Let);
+            Ok(())
+        } else if self.expect("break") {
+            self.tokens.push(Token::Break);
+            Ok(())
+        } else if self.expect("continue") {
+            self.tokens.push(Token::Continue);
+            Ok(())
+        } else if self.expect("goto") {
+            self.tokens.push(Token::Goto);
             Ok(())
         } else {
             self.parse_id()
@@ -395,7 +425,9 @@ impl Tokenizer {
                     self.tokens.push(Token::Eq);
                     Ok(())
                 } else {
-                    Err(anyhow!(self.err("Expect '=='")))
+                    self.idx += 1;
+                    self.tokens.push(Token::Assign);
+                    Ok(())
                 }
             }
             '!' => {
@@ -446,8 +478,8 @@ impl Tokenizer {
                 '0'..='9' => {
                     self.parse_num()?;
                 }
-                // true false nil in
-                't' | 'f' | 'n' | 'i' => {
+                // true false nil in if else while let break continue goto
+                't' | 'f' | 'n' | 'i' | 'e' | 'w' | 'l' | 'b' | 'c' | 'g' => {
                     self.parse_keywords()?;
                 }
                 _ => {

@@ -84,16 +84,28 @@ pub enum Expr {
 
 impl Expr {
     pub fn eval(&self, ctx: &Val) -> Result<Val> {
+        self.eval_with_env(ctx, None)
+    }
+
+    /// 支持变量环境的表达式求值
+    pub fn eval_with_env(&self, ctx: &Val, env: Option<&crate::stmt::Environment>) -> Result<Val> {
         match self {
-            Expr::Bin(l, op, r) => op.eval(l, r, ctx),
-            Expr::Unary(op, expr) => op.eval(expr, ctx),
+            Expr::Bin(l, op, r) => {
+                let left_val = l.eval_with_env(ctx, env)?;
+                let right_val = r.eval_with_env(ctx, env)?;
+                op.eval_vals(&left_val, &right_val)
+            }
+            Expr::Unary(op, expr) => {
+                let val = expr.eval_with_env(ctx, env)?;
+                op.eval_val(&val)
+            }
             Expr::And(e1, e2) => {
-                let l = e1.eval(ctx)?;
+                let l = e1.eval_with_env(ctx, env)?;
                 // Short-circuit evaluation to improve performance
                 if let Val::Bool(false) = l {
                     return Ok(Val::Bool(false));
                 }
-                let r = e2.eval(ctx)?;
+                let r = e2.eval_with_env(ctx, env)?;
                 match (&l, &r) {
                     (Val::Bool(true), Val::Bool(true)) => Ok(Val::Bool(true)),
                     (Val::Bool(_), Val::Bool(_)) => Ok(Val::Bool(false)),
@@ -101,12 +113,12 @@ impl Expr {
                 }
             }
             Expr::Or(e1, e2) => {
-                let l = e1.eval(ctx)?;
+                let l = e1.eval_with_env(ctx, env)?;
                 // Short-circuit evaluation to improve performance
                 if let Val::Bool(true) = l {
                     return Ok(Val::Bool(true));
                 }
-                let r = e2.eval(ctx)?;
+                let r = e2.eval_with_env(ctx, env)?;
                 match (&l, &r) {
                     (Val::Bool(_), Val::Bool(true)) => Ok(Val::Bool(true)),
                     (Val::Bool(_), Val::Bool(_)) => Ok(Val::Bool(false)),
@@ -120,7 +132,7 @@ impl Expr {
 
                 let mut val = ctx;
                 for path in paths {
-                    val = match val.access(&path.eval(ctx)?) {
+                    val = match val.access(&path.eval_with_env(ctx, env)?) {
                         Some(v) => v,
                         None => return Ok(Val::Nil),
                     }
@@ -129,8 +141,8 @@ impl Expr {
                 Ok(val.clone())
             }
             Expr::Access(expr, field) => {
-                let val = expr.eval(ctx)?;
-                let field_val = field.eval(ctx)?;
+                let val = expr.eval_with_env(ctx, env)?;
+                let field_val = field.eval_with_env(ctx, env)?;
                 match val.access(&field_val) {
                     Some(v) => Ok(v.clone()),
                     None => Ok(Val::Nil),
@@ -139,15 +151,15 @@ impl Expr {
             Expr::List(exprs) => {
                 let mut values = Vec::with_capacity(exprs.len());
                 for expr in exprs {
-                    values.push(expr.eval(ctx)?);
+                    values.push(expr.eval_with_env(ctx, env)?);
                 }
                 Ok(Val::List(Arc::new(values)))
             }
             Expr::Map(pairs) => {
                 let mut map = std::collections::HashMap::with_capacity(pairs.len());
                 for (key_expr, value_expr) in pairs {
-                    let key_val = key_expr.eval(ctx)?;
-                    let value_val = value_expr.eval(ctx)?;
+                    let key_val = key_expr.eval_with_env(ctx, env)?;
+                    let value_val = value_expr.eval_with_env(ctx, env)?;
 
                     // Convert key to string for map indexing
                     let key_str = match key_val {
@@ -167,7 +179,19 @@ impl Expr {
                 }
                 Ok(Val::Map(Arc::new(map)))
             }
-            Expr::Paren(expr) => expr.eval(ctx),
+            Expr::Paren(expr) => expr.eval_with_env(ctx, env),
+            Expr::Val(Val::Str(s)) if env.is_some() => {
+                // 如果有变量环境，尝试查找变量
+                if let Some(env) = env {
+                    if let Some(var_val) = env.get(s.as_ref()) {
+                        Ok(var_val.clone())
+                    } else {
+                        Ok(Val::Str(s.clone())) // 如果不是变量，就作为字符串字面量
+                    }
+                } else {
+                    Ok(Val::Str(s.clone()))
+                }
+            }
             Expr::Val(val) => Ok(val.clone()), // Clone necessary as eval returns owned Val
         }
     }

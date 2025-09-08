@@ -1,6 +1,6 @@
 use std::io::BufRead;
 
-use qcl::{expr::Expr, val::Val, de};
+use qcl::{expr::Expr, val::Val, de, stmt_parser::StmtParser, token::Tokenizer};
 
 fn main() -> anyhow::Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
@@ -16,8 +16,9 @@ fn main() -> anyhow::Result<()> {
         let format_str = formats.join("|");
         let flag_str = formats.iter().map(|f| format!("--{}", f)).collect::<Vec<_>>().join("|");
         
-        eprintln!("Usage: cat <{}> | {} [{}] <expr>", format_str, args[0], flag_str);
+        eprintln!("Usage: cat <{}> | {} [{}] [--stmt] <expr|program>", format_str, args[0], flag_str);
         eprintln!("  Format is auto-detected unless {} is specified", flag_str);
+        eprintln!("  Use --stmt to execute statement programs instead of expressions");
         std::process::exit(1);
     }
 
@@ -27,24 +28,56 @@ fn main() -> anyhow::Result<()> {
         .collect::<Result<Vec<_>, _>>()?
         .join("\n");
     
-    let (format_override, expr) = if args.len() > 2 {
-        match args[1].as_str() {
-            #[cfg(feature = "json")]
-            "--json" => (Some(de::Format::Json), args[2..].join(" ")),
-            #[cfg(feature = "yaml")]
-            "--yaml" => (Some(de::Format::Yaml), args[2..].join(" ")),
-            #[cfg(feature = "toml")]
-            "--toml" => (Some(de::Format::Toml), args[2..].join(" ")),
-            _ => (None, args[1..].join(" ")),
-        }
-    } else {
-        (None, args[1..].join(" "))
-    };
+    let mut arg_idx = 1;
+    let mut format_override = None;
+    let mut is_statement_mode = false;
 
+    // 解析格式标志
+    while arg_idx < args.len() {
+        match args[arg_idx].as_str() {
+            #[cfg(feature = "json")]
+            "--json" => {
+                format_override = Some(de::Format::Json);
+                arg_idx += 1;
+            }
+            #[cfg(feature = "yaml")]
+            "--yaml" => {
+                format_override = Some(de::Format::Yaml);
+                arg_idx += 1;
+            }
+            #[cfg(feature = "toml")]
+            "--toml" => {
+                format_override = Some(de::Format::Toml);
+                arg_idx += 1;
+            }
+            "--stmt" => {
+                is_statement_mode = true;
+                arg_idx += 1;
+            }
+            _ => break,
+        }
+    }
+
+    if arg_idx >= args.len() {
+        eprintln!("Error: No expression or program provided");
+        std::process::exit(1);
+    }
+
+    let input = args[arg_idx..].join(" ");
     let ctx: Val = de::parse_with_format(&raw, format_override)?;
     
-    let val = Expr::parse_cached(&expr)?;
-    let res = val.eval(&ctx)?;
-    println!("{}", res);
+    if is_statement_mode {
+        // 执行语句程序
+        let tokens = Tokenizer::new(&input)?;
+        let mut parser = StmtParser::new(&tokens);
+        let program = parser.parse_program()?;
+        let res = program.execute(&ctx)?;
+        println!("{}", res);
+    } else {
+        // 执行表达式
+        let val = Expr::parse_cached(&input)?;
+        let res = val.eval(&ctx)?;
+        println!("{}", res);
+    }
     Ok(())
 }

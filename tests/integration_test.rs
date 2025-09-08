@@ -298,3 +298,66 @@ fn test_cli_usage_message() {
     #[cfg(feature = "toml")]
     assert!(stderr.contains("toml"));
 }
+
+#[test]
+#[cfg(feature = "json")]
+fn test_cli_statement_mode_simple() {
+    let mut cmd = create_cargo_command(&["--stmt", "let x = 42; x = x + 8;"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn command");
+
+    let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
+    stdin.write_all(b"{}").expect("Failed to write to stdin");
+    stdin.flush().expect("Failed to flush stdin");
+    let _ = stdin;
+
+    let output = cmd.wait_with_output().expect("Failed to wait for command");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    
+    assert!(stdout.contains("nil"));
+}
+
+#[test]
+#[cfg(feature = "json")]
+fn test_cli_statement_mode_with_context() {
+    let mut cmd = create_cargo_command(&["--stmt", "let user_age = @user.age; if (user_age >= 18) { user_age; } else { 0; }"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn command");
+
+    let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
+    stdin.write_all(b"{\"user\": {\"age\": 25}}").expect("Failed to write to stdin");
+    stdin.flush().expect("Failed to flush stdin");
+    let _ = stdin;
+
+    let output = cmd.wait_with_output().expect("Failed to wait for command");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    
+    assert!(stdout.contains("nil"));
+}
+
+#[test]
+#[cfg(feature = "json")]
+fn test_cli_statement_mode_loops() {
+    let mut cmd = create_cargo_command(&["--stmt", "let sum = 0; let i = 1; while (i <= 3) { sum = sum + i; i = i + 1; }"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn command");
+
+    let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
+    stdin.write_all(b"{}").expect("Failed to write to stdin");
+    stdin.flush().expect("Failed to flush stdin");
+    let _ = stdin;
+
+    let output = cmd.wait_with_output().expect("Failed to wait for command");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    
+    assert!(stdout.contains("nil"));
+}

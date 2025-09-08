@@ -16,13 +16,12 @@ pub enum UnaryOp {
 }
 
 impl UnaryOp {
-    pub(crate) fn eval(&self, expr: &Expr, ctx: &Val) -> Result<Val> {
+    pub(crate) fn eval_val(&self, val: &Val) -> Result<Val> {
         match self {
             UnaryOp::Not => {
-                let res = expr.eval(ctx)?;
-                match res {
+                match val {
                     Val::Bool(b) => Ok(Val::Bool(!b)),
-                    _ => Err(anyhow!("Invalid operand: !{res}")),
+                    _ => Err(anyhow!("Invalid operand: !{val}")),
                 }
             }
         }
@@ -158,6 +157,7 @@ impl BinOp {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn eval(&self, l: &Expr, r: &Expr, ctx: &Val) -> Result<Val> {
         // For comparison operators, we can optimize by only evaluating the left side first
         if self.is_cmp() && matches!(self, BinOp::Eq | BinOp::Ne) {
@@ -188,6 +188,16 @@ impl BinOp {
             self.arith(&l_val, &r_val)
         } else if self.is_cmp() {
             Ok(Val::Bool(self.cmp(&l_val, &r_val)?))
+        } else {
+            Err(anyhow!("Invalid eval: {l_val} {self:?} {r_val}"))
+        }
+    }
+
+    pub(crate) fn eval_vals(&self, l_val: &Val, r_val: &Val) -> Result<Val> {
+        if self.is_arith() {
+            self.arith(l_val, r_val)
+        } else if self.is_cmp() {
+            Ok(Val::Bool(self.cmp(l_val, r_val)?))
         } else {
             Err(anyhow!("Invalid eval: {l_val} {self:?} {r_val}"))
         }
