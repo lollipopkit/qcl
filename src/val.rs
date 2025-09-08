@@ -11,7 +11,10 @@ use serde::{Serialize, Serializer};
 
 use crate::op::{err_op, BinOp};
 
-#[derive(Debug, Clone, PartialEq)]
+/// Type for Rust functions that can be called from QCL
+pub type RustFunction = fn(args: &[Val], env: &crate::stmt::Environment, ctx: &Val) -> Result<Val>;
+
+#[derive(Debug, Clone)]
 pub enum Val {
     /// String type, wrapped in Arc<str> for efficient cloning
     Str(Arc<str>),
@@ -22,26 +25,15 @@ pub enum Val {
     Map(Arc<HashMap<String, Val>>),
     /// List type, wrapped in Arc<Vec> for efficient cloning
     List(Arc<Vec<Val>>),
-    /// QCL source function - contains parameters and body with captured environment
-    Fn {
+    /// Closure - contains parameters and body with captured environment
+    Closure {
         params: Arc<Vec<String>>,
         body: Arc<crate::stmt::Stmt>,
         /// Captured environment for closure support
         env: Arc<crate::stmt::Environment>,
     },
-    /// Rust built-in function with native implementation
-    BuiltinFn {
-        name: String,
-    },
-    /// Dynamically loaded QCL source closure
-    Closure {
-        params: Arc<Vec<String>>,
-        body: Arc<crate::stmt::Stmt>,
-        /// Parent environment for upvalue capture
-        parent_env: Arc<crate::stmt::Environment>,
-        /// Captured variables (upvalues)
-        upvalues: Arc<HashMap<String, Val>>,
-    },
+    /// Rust function - contains a function pointer that can be called
+    RustFunction(RustFunction),
     Nil,
 }
 
@@ -80,9 +72,7 @@ impl Type {
             (Type::Bool, Val::Bool(_)) => true,
             (Type::List, Val::List(_)) => true,
             (Type::Map, Val::Map(_)) => true,
-            (Type::Function, Val::Fn { .. }) => true,
-            (Type::Function, Val::BuiltinFn { .. }) => true,
-            (Type::Function, Val::Closure { .. }) => true,
+            (Type::Function, Val::Closure { .. } | Val::RustFunction(_)) => true,
             (Type::Nil, Val::Nil) => true,
             _ => false,
         };
@@ -104,10 +94,44 @@ impl Val {
             Val::Bool(_) => "Bool",
             Val::Map(_) => "Map",
             Val::List(_) => "List",
-            Val::Fn { .. } => "Function",
-            Val::BuiltinFn { .. } => "BuiltinFunction",
-            Val::Closure { .. } => "Closure",
+            Val::Closure { .. } => "Function",
+            Val::RustFunction(_) => "Function",
             Val::Nil => "Nil",
+        }
+    }
+    
+    /// Call this value as a function with the given arguments
+    pub fn call(&self, args: &[Val], env: &crate::stmt::Environment, ctx: &Val) -> Result<Val> {
+        match self {
+            Val::Closure { params, body, env: _ } => {
+                // Check parameter count
+                if args.len() != params.len() {
+                    return Err(anyhow!(
+                        "Function expects {} arguments, got {}",
+                        params.len(), args.len()
+                    ));
+                }
+                
+                // Create new scope for function execution using the provided environment
+                let mut call_env = env.clone();
+                call_env.push_scope();
+                
+                // Bind parameters to arguments
+                for (param, arg_val) in params.iter().zip(args.iter()) {
+                    call_env.define(param.clone(), arg_val.clone());
+                }
+                
+                // Execute function body
+                match body.execute(&mut call_env, ctx)? {
+                    crate::stmt::ControlFlow::Return(val) => Ok(val),
+                    _ => Ok(Val::Nil), // Functions return nil by default
+                }
+            }
+            Val::RustFunction(func) => {
+                // Call the Rust function directly
+                func(args, env, ctx)
+            }
+            _ => Err(anyhow!("{} is not a function", self.type_name())),
         }
     }
     pub(crate) fn access(&self, field: &Val) -> Option<&Val> {
@@ -495,6 +519,29 @@ impl Default for Val {
     }
 }
 
+impl PartialEq for Val {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Val::Str(a), Val::Str(b)) => a == b,
+            (Val::Int(a), Val::Int(b)) => a == b,
+            (Val::Float(a), Val::Float(b)) => a == b,
+            (Val::Bool(a), Val::Bool(b)) => a == b,
+            (Val::Map(a), Val::Map(b)) => a == b,
+            (Val::List(a), Val::List(b)) => a == b,
+            (Val::Closure { params: params_a, body: body_a, env: env_a }, 
+             Val::Closure { params: params_b, body: body_b, env: env_b }) => {
+                params_a == params_b && Arc::ptr_eq(body_a, body_b) && Arc::ptr_eq(env_a, env_b)
+            },
+            (Val::RustFunction(a), Val::RustFunction(b)) => {
+                // Use fn_addr_eq for meaningful function pointer comparison
+                std::ptr::fn_addr_eq(*a, *b)
+            },
+            (Val::Nil, Val::Nil) => true,
+            _ => false,
+        }
+    }
+}
+
 impl PartialOrd for Val {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         match (self, other) {
@@ -520,17 +567,9 @@ impl Serialize for Val {
             Val::Bool(b) => serializer.serialize_bool(*b),
             Val::Map(m) => (**m).serialize(serializer),
             Val::List(l) => (**l).serialize(serializer),
-            Val::Fn { .. } => {
+            Val::Closure { .. } | Val::RustFunction(_) => {
                 // Functions can't be serialized, use placeholder
                 serializer.serialize_str("<function>")
-            },
-            Val::BuiltinFn { name, .. } => {
-                // Serialize builtin function name
-                serializer.serialize_str(&format!("<builtin:{}>", name))
-            },
-            Val::Closure { .. } => {
-                // Closures can't be serialized, use placeholder
-                serializer.serialize_str("<closure>")
             },
             Val::Nil => serializer.serialize_unit(),
         }
@@ -563,14 +602,11 @@ impl core::fmt::Display for Val {
                 #[cfg(not(feature = "json"))]
                 write!(f, "{:?}", l)
             },
-            Val::Fn { params, .. } => {
+            Val::Closure { params, .. } => {
                 write!(f, "fn({})", params.join(", "))
             },
-            Val::BuiltinFn { name } => {
-                write!(f, "<builtin:{}>", name)
-            },
-            Val::Closure { params, .. } => {
-                write!(f, "closure({})", params.join(", "))
+            Val::RustFunction(_) => {
+                write!(f, "<native function>")
             },
             Val::Nil => write!(f, "nil"),
         }

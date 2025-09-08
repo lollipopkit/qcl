@@ -255,7 +255,7 @@ impl Stmt {
                 Ok(ControlFlow::Return(return_val))
             }
             Stmt::Function { name, params, body } => {
-                let func_val = Val::Fn {
+                let func_val = Val::Closure {
                     params: Arc::new(params.clone()),
                     body: Arc::new((**body).clone()),
                     env: Arc::new(env.clone()),

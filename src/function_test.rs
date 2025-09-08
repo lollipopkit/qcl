@@ -51,11 +51,15 @@ mod tests {
         let mut parser = crate::ast::Parser::new(&tokens);
         let expr = parser.parse()?;
         
-        if let Expr::Call(name, args) = expr {
-            assert_eq!(name, "add");
-            assert_eq!(args.len(), 2);
-            assert_eq!(args[0].as_ref(), &Expr::Val(Val::Int(1)));
-            assert_eq!(args[1].as_ref(), &Expr::Val(Val::Int(2)));
+        if let Expr::CallExpr(expr, args) = expr {
+            if let Expr::Var(name) = *expr {
+                assert_eq!(name, "add");
+                assert_eq!(args.len(), 2);
+                assert_eq!(args[0].as_ref(), &Expr::Val(Val::Int(1)));
+                assert_eq!(args[1].as_ref(), &Expr::Val(Val::Int(2)));
+            } else {
+                panic!("Expected variable as function target, got: {:?}", expr);
+            }
         } else {
             panic!("Expected function call, got: {:?}", expr);
         }
@@ -69,9 +73,13 @@ mod tests {
         let mut parser = crate::ast::Parser::new(&tokens);
         let expr = parser.parse()?;
         
-        if let Expr::Call(name, args) = expr {
-            assert_eq!(name, "hello");
-            assert!(args.is_empty());
+        if let Expr::CallExpr(expr, args) = expr {
+            if let Expr::Var(name) = *expr {
+                assert_eq!(name, "hello");
+                assert!(args.is_empty());
+            } else {
+                panic!("Expected variable as function target, got: {:?}", expr);
+            }
         } else {
             panic!("Expected function call");
         }
@@ -236,7 +244,8 @@ mod tests {
         
         let result = program.execute(&ctx);
         assert!(result.is_err());
-        assert!(result.err().unwrap().to_string().contains("Undefined function"));
+        let error_msg = result.err().unwrap().to_string();
+        assert!(error_msg.contains("Undefined variable: nonexistent"));
         
         Ok(())
     }
@@ -258,7 +267,7 @@ mod tests {
 
     #[test]
     fn test_function_display_formatting() {
-        let func_val = Val::Fn {
+        let func_val = Val::Closure {
             params: Arc::new(vec!["x".to_string(), "y".to_string()]),
             body: Arc::new(Stmt::Empty),
             env: Arc::new(Environment::new()),

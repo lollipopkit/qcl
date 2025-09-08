@@ -147,32 +147,28 @@ impl<'a> Parser<'a> {
         // 处理函数调用和点访问
         loop {
             if !self.eof() && self.tokens[self.pos] == Token::LParen {
-                // 函数调用 - 只有在expr是变量时才允许
-                if let Expr::Var(func_name) = expr {
-                    self.pos += 1; // skip '('
+                // 函数调用 - 允许任何表达式作为函数调用目标
+                self.pos += 1; // skip '('
+                
+                let mut args = Vec::new();
+                
+                // 解析参数列表
+                while !self.eof() && self.tokens[self.pos] != Token::RParen {
+                    args.push(Box::new(self.parse_expr()?));
                     
-                    let mut args = Vec::new();
-                    
-                    // 解析参数列表
-                    while !self.eof() && self.tokens[self.pos] != Token::RParen {
-                        args.push(Box::new(self.parse_expr()?));
-                        
-                        if !self.eof() && self.tokens[self.pos] == Token::Comma {
-                            self.pos += 1;
-                        } else if self.tokens[self.pos] != Token::RParen {
-                            return Err(anyhow!(self.err("Expected ',' or ')' in function call")));
-                        }
+                    if !self.eof() && self.tokens[self.pos] == Token::Comma {
+                        self.pos += 1;
+                    } else if self.tokens[self.pos] != Token::RParen {
+                        return Err(anyhow!(self.err("Expected ',' or ')' in function call")));
                     }
-                    
-                    if self.eof() || self.tokens[self.pos] != Token::RParen {
-                        return Err(anyhow!(self.err("Expected ')' to close function call")));
-                    }
-                    self.pos += 1; // skip ')'
-                    
-                    expr = Expr::Call(func_name, args);
-                } else {
-                    break; // 不是变量，不能作为函数调用
                 }
+                
+                if self.eof() || self.tokens[self.pos] != Token::RParen {
+                    return Err(anyhow!(self.err("Expected ')' to close function call")));
+                }
+                self.pos += 1; // skip ')'
+                
+                expr = Expr::CallExpr(Box::new(expr), args);
             } else if !self.eof() && self.tokens[self.pos] == Token::Dot {
                 // 点访问
                 self.pos += 1;

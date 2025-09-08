@@ -202,21 +202,17 @@ impl ImportContext {
         match import {
             ImportStmt::Module { module } => {
                 let mod_def = resolver.resolve_module(module)?;
-                // Import all exports directly into scope
-                if let Val::Map(exports) = mod_def {
-                    for (name, value) in exports.iter() {
-                        self.symbols.insert(name.clone(), value.clone());
-                    }
-                }
+                // Import module as namespace - don't pollute global scope
+                self.symbols.insert(module.clone(), mod_def);
             }
             ImportStmt::File { path } => {
                 let mod_def = resolver.resolve_file(path)?;
-                // Import all exports directly into scope
-                if let Val::Map(exports) = mod_def {
-                    for (name, value) in exports.iter() {
-                        self.symbols.insert(name.clone(), value.clone());
-                    }
-                }
+                // Import file module as namespace using filename (without extension)
+                let module_name = Path::new(path)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("module");
+                self.symbols.insert(module_name.to_string(), mod_def);
             }
             ImportStmt::Items { items, source } => {
                 let mod_def = match source {

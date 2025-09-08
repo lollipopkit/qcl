@@ -83,6 +83,8 @@ pub enum Expr {
     Var(String),
     /// Function call: func_name(arg1, arg2, ...)
     Call(String, Vec<Box<Expr>>),
+    /// Function call on expression: expr(arg1, arg2, ...)
+    CallExpr(Box<Expr>, Vec<Box<Expr>>),
     Val(Val),
 }
 
@@ -200,7 +202,7 @@ impl Expr {
                     // Look up the function in the environment
                     if let Some(func_val) = env.get(func_name) {
                         match func_val {
-                            Val::Fn { params, body, env: _ } => {
+                            Val::Closure { params, body, env: _ } => {
                                 // Evaluate arguments
                                 let mut arg_values = Vec::new();
                                 for arg in args {
@@ -230,17 +232,6 @@ impl Expr {
                                     _ => Ok(Val::Nil), // Functions return nil by default
                                 }
                             }
-                            Val::BuiltinFn { name } => {
-                                // Evaluate arguments for builtin function
-                                let mut arg_values = Vec::new();
-                                for arg in args {
-                                    arg_values.push(arg.eval_with_env(ctx, Some(env))?);
-                                }
-                                
-                                // Call builtin function
-                                // TODO: Implement builtin function dispatch
-                                return Err(anyhow!("Builtin function '{}' not yet implemented", name));
-                            }
                             _ => Err(anyhow!("{} is not a function", func_name))
                         }
                     } else {
@@ -248,6 +239,23 @@ impl Expr {
                     }
                 } else {
                     Err(anyhow!("Function call {} requires environment", func_name))
+                }
+            }
+            Expr::CallExpr(expr, args) => {
+                // Evaluate the expression to get the function
+                let func_val = expr.eval_with_env(ctx, env)?;
+                
+                // Evaluate arguments
+                let mut arg_values = Vec::new();
+                for arg in args {
+                    arg_values.push(arg.eval_with_env(ctx, env)?);
+                }
+                
+                // Call the function using the unified call method
+                if let Some(env) = env {
+                    func_val.call(&arg_values, env, ctx)
+                } else {
+                    Err(anyhow!("Function call requires environment"))
                 }
             }
             Expr::Val(Val::Str(s)) if env.is_some() => {
@@ -332,6 +340,12 @@ impl Expr {
             Expr::Var(_) => {}
             // Function calls - collect from arguments
             Expr::Call(_, args) => {
+                for arg in args {
+                    arg.collect_ctx_names(names);
+                }
+            }
+            Expr::CallExpr(expr, args) => {
+                expr.collect_ctx_names(names);
                 for arg in args {
                     arg.collect_ctx_names(names);
                 }
@@ -502,6 +516,12 @@ impl Expr {
                 let folded_args = args.into_iter().map(|a| Box::new(a.fold_constants())).collect();
                 Expr::Call(name, folded_args)
             }
+            Expr::CallExpr(expr, args) => {
+                // Function calls can't be folded at compile time, but fold expression and arguments
+                let folded_expr = Box::new(expr.fold_constants());
+                let folded_args = args.into_iter().map(|a| Box::new(a.fold_constants())).collect();
+                Expr::CallExpr(folded_expr, folded_args)
+            }
         }
     }
 }
@@ -568,6 +588,10 @@ impl Display for Expr {
             Expr::Call(name, args) => {
                 let args_str: Vec<String> = args.iter().map(|a| a.to_string()).collect();
                 write!(f, "{}({})", name, args_str.join(", "))
+            }
+            Expr::CallExpr(expr, args) => {
+                let args_str: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+                write!(f, "{}({})", expr, args_str.join(", "))
             }
             Expr::Val(val) => write!(f, "{}", val),
         }
