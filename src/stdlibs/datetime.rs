@@ -208,3 +208,46 @@ impl Module for DateTimeModule {
         self.functions.clone()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        stmt_parser::StmtParser,
+        token::Tokenizer,
+        val::Val,
+    };
+    use anyhow::Result;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_datetime_now() -> Result<()> {
+        let source = "import datetime; return datetime.now();";
+        let tokens = Tokenizer::new(source)?;
+        let mut parser = StmtParser::new(&tokens);
+        let program = parser.parse_program()?;
+        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+
+        let result = program.execute(&ctx)?;
+        if let Val::Int(timestamp) = result {
+            assert!(timestamp > 0, "Timestamp should be positive");
+        } else {
+            panic!("Expected integer timestamp");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_datetime_format() -> Result<()> {
+        let source = "import datetime; return datetime.format(1672531200, \"%Y-%m-%d\");";
+        let tokens = Tokenizer::new(source)?;
+        let mut parser = StmtParser::new(&tokens);
+        let program = parser.parse_program()?;
+        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+
+        let result = program.execute(&ctx)?;
+        assert_eq!(result, Val::Str("2023-01-01".into()));
+
+        Ok(())
+    }
+}

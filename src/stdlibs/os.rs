@@ -98,8 +98,10 @@ impl EnvObject {
     }
 }
 
+#[cfg(feature = "stdlib-os")]
 struct DirObject;
 
+#[cfg(feature = "stdlib-os")]
 impl DirObject {
     fn new() -> Val {
         let mut methods = HashMap::new();

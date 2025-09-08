@@ -395,3 +395,74 @@ impl Module for MathModule {
         self.functions.clone()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        stmt_parser::StmtParser,
+        token::Tokenizer,
+        val::Val,
+    };
+    use anyhow::Result;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_math_abs_positive() -> Result<()> {
+        let source = "import math; return math.abs(42);";
+        let tokens = Tokenizer::new(source)?;
+        let mut parser = StmtParser::new(&tokens);
+        let program = parser.parse_program()?;
+        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+
+        let result = program.execute(&ctx)?;
+        assert_eq!(result, Val::Int(42));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_math_abs_negative() -> Result<()> {
+        let source = "import math; return math.abs(-42);";
+        let tokens = Tokenizer::new(source)?;
+        let mut parser = StmtParser::new(&tokens);
+        let program = parser.parse_program()?;
+        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+
+        let result = program.execute(&ctx)?;
+        assert_eq!(result, Val::Int(42));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_math_sqrt() -> Result<()> {
+        let source = "import math; return math.sqrt(16);";
+        let tokens = Tokenizer::new(source)?;
+        let mut parser = StmtParser::new(&tokens);
+        let program = parser.parse_program()?;
+        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+
+        let result = program.execute(&ctx)?;
+        assert_eq!(result, Val::Float(4.0));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_math_constants() -> Result<()> {
+        let source = "import math; return math.pi;";
+        let tokens = Tokenizer::new(source)?;
+        let mut parser = StmtParser::new(&tokens);
+        let program = parser.parse_program()?;
+        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+
+        let result = program.execute(&ctx)?;
+        if let Val::Float(value) = result {
+            assert!((value - std::f64::consts::PI).abs() < 1e-10);
+        } else {
+            panic!("Expected float result");
+        }
+
+        Ok(())
+    }
+}
