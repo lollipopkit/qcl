@@ -1,5 +1,5 @@
-use crate::module::Module;
-use crate::val::Val;
+use qcl_core::module::Module;
+use qcl_core::val::Val;
 use anyhow::Result;
 use std::collections::HashMap;
 
@@ -41,7 +41,7 @@ impl MathModule {
     }
 
     /// Absolute value
-    fn abs(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn abs(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("abs() takes exactly 1 argument"));
         }
@@ -54,7 +54,7 @@ impl MathModule {
     }
 
     /// Square root
-    fn sqrt(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn sqrt(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("sqrt() takes exactly 1 argument"));
         }
@@ -68,7 +68,7 @@ impl MathModule {
     }
 
     /// Sine function
-    fn sin(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn sin(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("sin() takes exactly 1 argument"));
         }
@@ -83,7 +83,7 @@ impl MathModule {
     }
 
     /// Cosine function
-    fn cos(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn cos(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("cos() takes exactly 1 argument"));
         }
@@ -98,7 +98,7 @@ impl MathModule {
     }
 
     /// Tangent function
-    fn tan(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn tan(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("tan() takes exactly 1 argument"));
         }
@@ -113,7 +113,7 @@ impl MathModule {
     }
 
     /// Arcsine function
-    fn asin(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn asin(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("asin() takes exactly 1 argument"));
         }
@@ -132,7 +132,7 @@ impl MathModule {
     }
 
     /// Arccosine function
-    fn acos(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn acos(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("acos() takes exactly 1 argument"));
         }
@@ -151,7 +151,7 @@ impl MathModule {
     }
 
     /// Arctangent function
-    fn atan(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn atan(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("atan() takes exactly 1 argument"));
         }
@@ -166,7 +166,7 @@ impl MathModule {
     }
 
     /// Arctangent2 function (atan2(y, x))
-    fn atan2(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn atan2(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!("atan2() takes exactly 2 arguments: y, x"));
         }
@@ -187,7 +187,7 @@ impl MathModule {
     }
 
     /// Natural logarithm
-    fn log(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn log(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("log() takes exactly 1 argument"));
         }
@@ -203,7 +203,7 @@ impl MathModule {
     }
 
     /// Base-10 logarithm
-    fn log10(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn log10(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("log10() takes exactly 1 argument"));
         }
@@ -219,7 +219,7 @@ impl MathModule {
     }
 
     /// Base-2 logarithm
-    fn log2(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn log2(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("log2() takes exactly 1 argument"));
         }
@@ -235,7 +235,7 @@ impl MathModule {
     }
 
     /// Exponential function (e^x)
-    fn exp(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn exp(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("exp() takes exactly 1 argument"));
         }
@@ -250,7 +250,7 @@ impl MathModule {
     }
 
     /// Power function (x^y)
-    fn pow(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn pow(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!("pow() takes exactly 2 arguments: base, exponent"));
         }
@@ -271,7 +271,7 @@ impl MathModule {
     }
 
     /// Floor function
-    fn floor(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn floor(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("floor() takes exactly 1 argument"));
         }
@@ -284,7 +284,7 @@ impl MathModule {
     }
 
     /// Ceiling function
-    fn ceil(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn ceil(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("ceil() takes exactly 1 argument"));
         }
@@ -297,7 +297,7 @@ impl MathModule {
     }
 
     /// Round function
-    fn round(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn round(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("round() takes exactly 1 argument"));
         }
@@ -310,7 +310,7 @@ impl MathModule {
     }
 
     /// Minimum function
-    fn min(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn min(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!("min() takes exactly 2 arguments"));
         }
@@ -343,7 +343,7 @@ impl MathModule {
     }
 
     /// Maximum function
-    fn max(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn max(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!("max() takes exactly 2 arguments"));
         }
@@ -386,7 +386,7 @@ impl Module for MathModule {
         "Mathematical functions and constants"
     }
 
-    fn register(&self, _registry: &mut crate::module::ModuleRegistry) -> Result<()> {
+    fn register(&self, _registry: &mut qcl_core::module::ModuleRegistry) -> Result<()> {
         // Don't register functions globally - they should be accessed via module.function()
         Ok(())
     }
@@ -398,7 +398,7 @@ impl Module for MathModule {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
+    use qcl_core::{
         stmt_parser::StmtParser,
         token::Tokenizer,
         val::Val,

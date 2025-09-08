@@ -1,5 +1,5 @@
-use crate::module::Module;
-use crate::val::Val;
+use qcl_core::module::Module;
+use qcl_core::val::Val;
 use anyhow::Result;
 use std::collections::HashMap;
 use chrono::Datelike;
@@ -29,7 +29,7 @@ impl DateTimeModule {
     }
 
     /// Get current timestamp as Unix epoch
-    fn now(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn now(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if !args.is_empty() {
             return Err(anyhow::anyhow!("now() takes no arguments"));
         }
@@ -41,7 +41,7 @@ impl DateTimeModule {
     }
 
     /// Format timestamp to string
-    fn format(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn format(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!("format() takes exactly 2 arguments: timestamp and format_string"));
         }
@@ -65,7 +65,7 @@ impl DateTimeModule {
     }
 
     /// Parse string to timestamp
-    fn parse(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn parse(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!("parse() takes exactly 2 arguments: datetime_string and format_string"));
         }
@@ -89,7 +89,7 @@ impl DateTimeModule {
     }
 
     /// Add seconds to timestamp
-    fn add_seconds(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn add_seconds(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!("add_seconds() takes exactly 2 arguments: timestamp and seconds"));
         }
@@ -108,7 +108,7 @@ impl DateTimeModule {
     }
 
     /// Subtract seconds from timestamp
-    fn sub_seconds(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn sub_seconds(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!("sub_seconds() takes exactly 2 arguments: timestamp and seconds"));
         }
@@ -124,7 +124,7 @@ impl DateTimeModule {
     }
 
     /// Get day of week (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
-    fn day_of_week(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn day_of_week(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("day_of_week() takes exactly 1 argument: timestamp"));
         }
@@ -152,7 +152,7 @@ impl DateTimeModule {
     }
 
     /// Get day of year (1-366)
-    fn day_of_year(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn day_of_year(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("day_of_year() takes exactly 1 argument: timestamp"));
         }
@@ -170,7 +170,7 @@ impl DateTimeModule {
     }
 
     /// Check if date is weekend (Saturday or Sunday)
-    fn is_weekend(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn is_weekend(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("is_weekend() takes exactly 1 argument: timestamp"));
         }
@@ -199,7 +199,7 @@ impl Module for DateTimeModule {
         "Date and time functions"
     }
 
-    fn register(&self, _registry: &mut crate::module::ModuleRegistry) -> Result<()> {
+    fn register(&self, _registry: &mut qcl_core::module::ModuleRegistry) -> Result<()> {
         // Don't register functions globally - they should be accessed via module.function()
         Ok(())
     }
@@ -211,7 +211,7 @@ impl Module for DateTimeModule {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
+    use qcl_core::{
         stmt_parser::StmtParser,
         token::Tokenizer,
         val::Val,

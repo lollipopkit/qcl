@@ -1,0 +1,43 @@
+[package]
+name = "qcl-cli"
+description = "CLI for QCL (Query Check Language)"
+version = "0.1.3"
+edition = "2024"
+authors = ["lollipopkit <a@lpkit.cn>"]
+license = "Apache-2.0"
+
+[[bin]]
+name = "qcl"
+path = "src/main.rs"
+
+[package.metadata.cargo-bin]
+default-run = "qcl"
+
+[dependencies]
+qcl-core = { path = "../core" }
+qcl-stdlib = { path = "../stdlib" }
+anyhow = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, optional = true }
+serde_yaml = { workspace = true, optional = true }
+toml = { workspace = true, optional = true }
+
+[features]
+default = ["sem_arith", "json", "stdlib-math", "stdlib-string", "stdlib-datetime"]
+# Semantic arith: 3 / 2 = 1.5, not 1
+sem_arith = []
+# Advanced arithmetic support: Map + Map, List + Val etc.
+adv_arith = []
+# Input format features
+json = ["serde_json", "qcl-core/json"]
+yaml = ["serde_yaml", "qcl-core/yaml"]
+toml = ["dep:toml", "qcl-core/toml"]
+# Standard library modules (Lua-inspired modular design)
+stdlib-math = ["qcl-stdlib/stdlib-math"]
+stdlib-string = ["qcl-stdlib/stdlib-string"]
+stdlib-datetime = ["qcl-stdlib/stdlib-datetime", "qcl-core/stdlib-datetime"]
+stdlib-os = ["qcl-stdlib/stdlib-os"]
+stdlib-core = ["stdlib-math", "stdlib-string"]
+stdlib-extended = ["stdlib-core", "stdlib-datetime"]
+stdlib-all = ["stdlib-extended", "stdlib-os"]
+all = ["sem_arith", "adv_arith", "json", "yaml", "toml", "stdlib-all"]

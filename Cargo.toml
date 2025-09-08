@@ -1,47 +1,20 @@
-[package]
-name = "qcl"
-description = "A Query Check Language written in Rust"
+[workspace]
+members = ["core", "cli", "stdlib"]
+resolver = "2"
+
+[workspace.package]
 version = "0.1.3"
 edition = "2024"
-authors = ["lollipopkit <a@lpkt.cn>"]
+authors = ["lollipopkit <a@lpkit.cn>"]
 license = "Apache-2.0"
 repository = "https://github.com/lollipopkit/qcl"
 
-[package.metadata.cargo-test]
-args = ["--", "--nocapture"]
-
-[dependencies]
+[workspace.dependencies]
 anyhow = "^1"
 serde = { version = "^1", features = ["derive"] }
-serde_json = { version = "^1", optional = true }
-serde_yaml = { version = "^0.9", optional = true }
-toml = { version = "^0.8", optional = true }
+serde_json = "^1"
+serde_yaml = "^0.9"
+toml = "^0.8"
 once_cell = "1"
-chrono = { version = "^0.4", optional = true }
-
-[features]
-default = ["sem_arith", "json", "stdlib-math", "stdlib-string", "stdlib-datetime"]
-# Semantic arith: 3 / 2 = 1.5, not 1
-sem_arith = []
-# Advanced arithmetic support: Map + Map, List + Val etc.
-adv_arith = []
-# Input format features
-json = ["serde_json"]
-yaml = ["serde_yaml"]
-toml = ["dep:toml"]
-# Standard library modules (Lua-inspired modular design)
-stdlib-math = []
-stdlib-string = []
-stdlib-datetime = ["chrono"]
-stdlib-os = []
-stdlib-core = ["stdlib-math", "stdlib-string"]
-stdlib-extended = ["stdlib-core", "stdlib-datetime"]
-stdlib-all = ["stdlib-extended", "stdlib-os"]
-all = ["sem_arith", "adv_arith", "json", "yaml", "toml", "stdlib-all"]
-
-[dev-dependencies]
+chrono = "^0.4"
 criterion = "0.3"
-
-[[bench]]
-name = "bench_main"
-harness = false

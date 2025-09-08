@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 use std::io::BufRead;
 
-use qcl::{de, expr::Expr, stmt_parser::StmtParser, token::Tokenizer, val::Val};
+use qcl_core::{de, expr::Expr, stmt_parser::StmtParser, token::Tokenizer, val::Val};
 
 fn main() -> anyhow::Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
