@@ -280,19 +280,17 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "stdlib-math")]
     #[test]
     fn test_module_caching() {
         let registry = Arc::new(ModuleRegistry::new());
         let mut ctx = ImportContext::new(registry.clone());
 
-        #[cfg(feature = "stdlib-math")]
-        {
-            let module1 = ctx.require("math").unwrap();
-            let module2 = ctx.require("math").unwrap();
+        let module1 = ctx.require("math").unwrap();
+        let module2 = ctx.require("math").unwrap();
 
-            // Both should be the same due to caching
-            assert_eq!(module1, module2);
-            assert!(ctx.is_module_loaded("math"));
-        }
+        // Both should be the same due to caching
+        assert_eq!(module1, module2);
+        assert!(ctx.is_module_loaded("math"));
     }
 }

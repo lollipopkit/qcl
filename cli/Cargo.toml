@@ -21,6 +21,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, optional = true }
 serde_yaml = { workspace = true, optional = true }
 toml = { workspace = true, optional = true }
+sanitize-filename = { workspace = true }
 
 [features]
 default = ["sem_arith", "json", "stdlib-math", "stdlib-string", "stdlib-datetime"]
