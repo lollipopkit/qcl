@@ -848,6 +848,7 @@ dependencies = [
 name = "qcl-lsp"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "qcl-core",
  "qcl-stdlib",
  "regex",
@@ -857,6 +858,7 @@ dependencies = [
  "tower-lsp",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]

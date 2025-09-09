@@ -138,8 +138,8 @@ impl QclLanguageServer {
 
 #[tower_lsp::async_trait]
 impl LanguageServer for QclLanguageServer {
-    async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
-        info!("QCL Language Server initializing");
+    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+        info!("QCL Language Server initializing with params: {:?}", params.root_uri);
         
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
@@ -174,7 +174,7 @@ impl LanguageServer for QclLanguageServer {
 
     async fn initialized(&self, _: InitializedParams) {
         info!("QCL Language Server initialized");
-        self.client
+        let _ = self.client
             .log_message(MessageType::INFO, "QCL Language Server started")
             .await;
     }
@@ -273,11 +273,16 @@ impl LanguageServer for QclLanguageServer {
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
+    // Initialize tracing to stderr to avoid interfering with LSP protocol on stdout
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .init();
     
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
     let (service, socket) = LspService::new(QclLanguageServer::new);
+    
+    // Start the server
     Server::new(stdin, stdout, socket).serve(service).await;
 }

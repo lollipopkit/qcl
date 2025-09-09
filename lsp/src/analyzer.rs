@@ -5,6 +5,7 @@ use qcl_core::{
 use std::collections::HashSet;
 use tower_lsp::lsp_types::*;
 
+
 /// Result of analyzing QCL code, containing diagnostics, symbols, and context references
 #[derive(Debug, Clone)]
 pub struct AnalysisResult {
@@ -222,7 +223,7 @@ impl QclAnalyzer {
     #[allow(dead_code)] // Reserved for future use
     pub fn validate_context_access(
         &self,
-        expr_result: &Result<Expr, String>,
+        expr_result: &Result<Expr, anyhow::Error>,
         context: Option<&Val>,
     ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
@@ -280,5 +281,142 @@ impl QclAnalyzer {
             }
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use qcl_core::val::Val;
+    use std::collections::HashMap;
+
+    fn create_analyzer() -> QclAnalyzer {
+        QclAnalyzer::new()
+    }
+
+    #[test]
+    fn test_analyze_simple_expression() {
+        let analyzer = create_analyzer();
+        let result = analyzer.analyze("@req.user.role == 'admin'");
+
+        // Should not have diagnostics for valid expression
+        assert!(result.diagnostics.is_empty());
+
+        // Should have context references
+        assert!(result.context_references.contains("req"));
+
+        // Should have expression symbol
+        assert_eq!(result.symbols.len(), 1);
+        assert_eq!(result.symbols[0].name, "expression");
+        assert_eq!(result.symbols[0].kind, SymbolKind::CONSTANT);
+    }
+
+    #[test]
+    fn test_analyze_invalid_expression() {
+        let analyzer = create_analyzer();
+        let result = analyzer.analyze("@req.user.role == 'unterminated string");
+
+        // Should have diagnostic for invalid expression (tokenization error due to unterminated string)
+        assert!(!result.diagnostics.is_empty());
+        assert_eq!(result.diagnostics[0].severity, Some(DiagnosticSeverity::ERROR));
+        assert!(result.diagnostics[0].message.contains("Tokenization error"));
+    }
+
+    #[test]
+    fn test_analyze_statement_program() {
+        let analyzer = create_analyzer();
+        let code = r#"
+            import math;
+            let user_level = @req.user.level;
+            fn calculate_score(base) {
+                return math.sqrt(base * user_level);
+            }
+            start:
+            let result = calculate_score(100);
+        "#;
+        let result = analyzer.analyze(code);
+
+        // Should not have diagnostics for valid program
+        assert!(result.diagnostics.is_empty());
+
+        // Should have symbols for import, variable, function, and label
+        assert!(result.symbols.len() >= 4);
+
+        let symbol_names: Vec<&String> = result.symbols.iter().map(|s| &s.name).collect();
+        assert!(symbol_names.contains(&&"import math".to_string()));
+        assert!(symbol_names.contains(&&"user_level".to_string()));
+        assert!(symbol_names.contains(&&"calculate_score".to_string()));
+        assert!(symbol_names.contains(&&"start:".to_string()));
+        assert!(symbol_names.contains(&&"result".to_string()));
+    }
+
+    #[test]
+    fn test_get_context_completions() {
+        let analyzer = create_analyzer();
+        let completions = analyzer.get_context_completions("@req");
+
+        // Should return completions that start with "@req"
+        assert!(!completions.is_empty());
+        
+        let labels: Vec<&String> = completions.iter().map(|c| &c.label).collect();
+        assert!(labels.contains(&&"@req".to_string()));
+        assert!(labels.contains(&&"@req.user".to_string()));
+        assert!(labels.contains(&&"@req.user.id".to_string()));
+        assert!(labels.contains(&&"@req.user.role".to_string()));
+        assert!(labels.contains(&&"@req.user.name".to_string()));
+        
+        // Should not include completions that don't match the prefix
+        assert!(!labels.contains(&&"@record".to_string()));
+    }
+
+    #[test]
+    fn test_validate_context_access_with_valid_context() {
+        let analyzer = create_analyzer();
+        
+        // Create a context with req.user.role
+        let mut user_map = HashMap::new();
+        user_map.insert("role".to_string(), Val::Str("admin".to_string().into()));
+        user_map.insert("id".to_string(), Val::Int(123));
+        
+        let mut req_map = HashMap::new();
+        req_map.insert("user".to_string(), Val::Map(user_map.into()));
+        
+        let mut context_map = HashMap::new();
+        context_map.insert("req".to_string(), Val::Map(req_map.into()));
+        let context = Val::Map(context_map.into());
+
+        // Parse expression that uses req.user.role  
+        let tokens = qcl_core::token::Tokenizer::tokenize("@req.user.role == 'admin'").unwrap();
+        let mut parser = qcl_core::ast::Parser::new(&tokens);
+        let expr_result = parser.parse();
+
+        let diagnostics = analyzer.validate_context_access(&expr_result, Some(&context));
+
+        // Should have no diagnostics since context is valid
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_context_has_key() {
+        let analyzer = create_analyzer();
+        
+        // Create nested context structure
+        let mut inner_map = HashMap::new();
+        inner_map.insert("name".to_string(), Val::Str("test".to_string().into()));
+        
+        let mut middle_map = HashMap::new();
+        middle_map.insert("user".to_string(), Val::Map(inner_map.into()));
+        
+        let mut context_map = HashMap::new();
+        context_map.insert("req".to_string(), Val::Map(middle_map.into()));
+        let context = Val::Map(context_map.into());
+
+        // Test existing nested key
+        assert!(analyzer.context_has_key(&context, "req.user.name"));
+        
+        // Test non-existing key
+        assert!(!analyzer.context_has_key(&context, "req.user.role"));
+        assert!(!analyzer.context_has_key(&context, "req.admin"));
+        assert!(!analyzer.context_has_key(&context, "nonexistent"));
     }
 }

@@ -67,21 +67,47 @@ export function activate(context: vscode.ExtensionContext) {
   console.log('Server path:', serverPath);
   console.log('Client options:', clientOptions);
   
-  client.start().then(() => {
-    console.log('QCL Language Server started successfully');
-    vscode.window.showInformationMessage('QCL Language Server started successfully');
-  }).catch((error) => {
-    console.error('Failed to start QCL Language Server:', error);
-    console.error('Error details:', JSON.stringify(error, null, 2));
-    vscode.window.showErrorMessage('Failed to start QCL Language Server: ' + error.message);
+  // Add error handling for the client itself
+  client.onDidChangeState((event) => {
+    console.log(`LSP client state change: ${event.oldState} -> ${event.newState}`);
   });
+  
+  // Start with a timeout and proper error handling
+  const startPromise = client.start();
+  
+  // Add a timeout to detect hanging
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error('LSP server start timeout after 10 seconds')), 10000);
+  });
+  
+  Promise.race([startPromise, timeoutPromise])
+    .then(() => {
+      console.log('QCL Language Server started successfully');
+      vscode.window.showInformationMessage('QCL Language Server started successfully');
+    })
+    .catch((error) => {
+      console.error('Failed to start QCL Language Server:', error);
+      console.error('Error details:', JSON.stringify(error, null, 2));
+      vscode.window.showErrorMessage('Failed to start QCL Language Server: ' + error.message);
+      
+      // Try to stop the client if it's in a bad state
+      if (client) {
+        client.stop().catch(stopError => {
+          console.error('Error stopping client after failure:', stopError);
+        });
+      }
+    });
 }
 
 function getServerPath(): string | undefined {
   // Try to find the qcl-lsp executable in different locations
   const possiblePaths = [
+    // Check common build output directories
+    path.join(__dirname, '..', '..', 'target', 'debug', 'qcl-lsp'),
+    path.join(__dirname, '..', 'target', 'debug', 'qcl-lsp'),
     // Check if it's in the PATH
     'qcl-lsp',
+    '~/.cargo/bin/qcl-lsp',
   ];
 
   console.log('Extension __dirname:', __dirname);
