@@ -6,6 +6,7 @@ pub mod module;
 mod op;
 pub mod stmt;
 pub mod stmt_parser;
+pub mod stdlib;
 pub mod token;
 pub mod val;
 

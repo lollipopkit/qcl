@@ -1,8 +1,172 @@
-use qcl_core::module::Module;
-use qcl_core::val::Val;
+use crate::module::Module;
+use crate::val::Val;
+use crate::stmt::Environment;
 use anyhow::Result;
 use std::collections::HashMap;
-use chrono::Datelike;
+
+#[cfg(feature = "stdlib-math")]
+#[derive(Debug)]
+pub struct MathModule {
+    functions: HashMap<String, Val>,
+}
+
+#[cfg(feature = "stdlib-math")]
+impl MathModule {
+    pub fn new() -> Self {
+        let mut functions = HashMap::new();
+
+        // Register basic math functions
+        functions.insert("abs".to_string(), Val::RustFunction(Self::abs));
+        functions.insert("sqrt".to_string(), Val::RustFunction(Self::sqrt));
+        functions.insert("sin".to_string(), Val::RustFunction(Self::sin));
+        functions.insert("cos".to_string(), Val::RustFunction(Self::cos));
+        
+        Self { functions }
+    }
+
+    fn abs(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
+        if args.len() != 1 {
+            return Err(anyhow::anyhow!("abs() expects exactly 1 argument, got {}", args.len()));
+        }
+        
+        match &args[0] {
+            Val::Int(n) => Ok(Val::Int(n.abs())),
+            Val::Float(f) => Ok(Val::Float(f.abs())),
+            _ => Err(anyhow::anyhow!("abs() expects numeric argument")),
+        }
+    }
+
+    fn sqrt(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
+        if args.len() != 1 {
+            return Err(anyhow::anyhow!("sqrt() expects exactly 1 argument, got {}", args.len()));
+        }
+        
+        let num = match &args[0] {
+            Val::Int(n) => *n as f64,
+            Val::Float(f) => *f,
+            _ => return Err(anyhow::anyhow!("sqrt() expects numeric argument")),
+        };
+        
+        if num < 0.0 {
+            return Err(anyhow::anyhow!("sqrt() of negative number"));
+        }
+        
+        Ok(Val::Float(num.sqrt()))
+    }
+
+    fn sin(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
+        if args.len() != 1 {
+            return Err(anyhow::anyhow!("sin() expects exactly 1 argument, got {}", args.len()));
+        }
+        
+        let num = match &args[0] {
+            Val::Int(n) => *n as f64,
+            Val::Float(f) => *f,
+            _ => return Err(anyhow::anyhow!("sin() expects numeric argument")),
+        };
+        
+        Ok(Val::Float(num.sin()))
+    }
+
+    fn cos(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
+        if args.len() != 1 {
+            return Err(anyhow::anyhow!("cos() expects exactly 1 argument, got {}", args.len()));
+        }
+        
+        let num = match &args[0] {
+            Val::Int(n) => *n as f64,
+            Val::Float(f) => *f,
+            _ => return Err(anyhow::anyhow!("cos() expects numeric argument")),
+        };
+        
+        Ok(Val::Float(num.cos()))
+    }
+}
+
+#[cfg(feature = "stdlib-math")]
+impl Module for MathModule {
+    fn name(&self) -> &str {
+        "math"
+    }
+
+    fn register(&self, registry: &mut crate::module::ModuleRegistry) -> Result<()> {
+        registry.register_module(self.name(), Box::new(MathModule::new()));
+        Ok(())
+    }
+
+    fn exports(&self) -> HashMap<String, Val> {
+        self.functions.clone()
+    }
+}
+
+#[cfg(feature = "stdlib-string")]
+#[derive(Debug)]
+pub struct StringModule {
+    functions: HashMap<String, Val>,
+}
+
+#[cfg(feature = "stdlib-string")]
+impl StringModule {
+    pub fn new() -> Self {
+        let mut functions = HashMap::new();
+        
+        functions.insert("len".to_string(), Val::RustFunction(Self::len));
+        functions.insert("upper".to_string(), Val::RustFunction(Self::upper));
+        functions.insert("lower".to_string(), Val::RustFunction(Self::lower));
+        
+        Self { functions }
+    }
+
+    fn len(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
+        if args.len() != 1 {
+            return Err(anyhow::anyhow!("len() expects exactly 1 argument, got {}", args.len()));
+        }
+        
+        match &args[0] {
+            Val::Str(s) => Ok(Val::Int(s.len() as i64)),
+            Val::List(l) => Ok(Val::Int(l.len() as i64)),
+            _ => Err(anyhow::anyhow!("len() expects string or list argument")),
+        }
+    }
+
+    fn upper(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
+        if args.len() != 1 {
+            return Err(anyhow::anyhow!("upper() expects exactly 1 argument, got {}", args.len()));
+        }
+        
+        match &args[0] {
+            Val::Str(s) => Ok(Val::Str(Arc::from(s.to_uppercase().as_str()))),
+            _ => Err(anyhow::anyhow!("upper() expects string argument")),
+        }
+    }
+
+    fn lower(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
+        if args.len() != 1 {
+            return Err(anyhow::anyhow!("lower() expects exactly 1 argument, got {}", args.len()));
+        }
+        
+        match &args[0] {
+            Val::Str(s) => Ok(Val::Str(Arc::from(s.to_lowercase().as_str()))),
+            _ => Err(anyhow::anyhow!("lower() expects string argument")),
+        }
+    }
+}
+
+#[cfg(feature = "stdlib-string")]
+impl Module for StringModule {
+    fn name(&self) -> &str {
+        "string"
+    }
+
+    fn register(&self, registry: &mut crate::module::ModuleRegistry) -> Result<()> {
+        registry.register_module(self.name(), Box::new(StringModule::new()));
+        Ok(())
+    }
+
+    fn exports(&self) -> HashMap<String, Val> {
+        self.functions.clone()
+    }
+}
 
 #[cfg(feature = "stdlib-datetime")]
 #[derive(Debug)]
@@ -29,7 +193,7 @@ impl DateTimeModule {
     }
 
     /// Get current timestamp as Unix epoch
-    fn now(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn now(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
         if !args.is_empty() {
             return Err(anyhow::anyhow!("now() takes no arguments"));
         }
@@ -41,7 +205,7 @@ impl DateTimeModule {
     }
 
     /// Format timestamp to string
-    fn format(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn format(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!("format() takes exactly 2 arguments: timestamp and format_string"));
         }
@@ -65,7 +229,7 @@ impl DateTimeModule {
     }
 
     /// Parse string to timestamp
-    fn parse(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn parse(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!("parse() takes exactly 2 arguments: datetime_string and format_string"));
         }
@@ -89,7 +253,7 @@ impl DateTimeModule {
     }
 
     /// Add seconds to timestamp
-    fn add_seconds(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn add_seconds(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!("add_seconds() takes exactly 2 arguments: timestamp and seconds"));
         }
@@ -108,7 +272,7 @@ impl DateTimeModule {
     }
 
     /// Subtract seconds from timestamp
-    fn sub_seconds(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn sub_seconds(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!("sub_seconds() takes exactly 2 arguments: timestamp and seconds"));
         }
@@ -124,7 +288,7 @@ impl DateTimeModule {
     }
 
     /// Get day of week (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
-    fn day_of_week(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn day_of_week(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("day_of_week() takes exactly 1 argument: timestamp"));
         }
@@ -134,7 +298,7 @@ impl DateTimeModule {
             _ => return Err(anyhow::anyhow!("argument must be an integer timestamp")),
         };
 
-        use chrono::{DateTime, Utc, Weekday};
+        use chrono::{DateTime, Utc, Weekday, Datelike};
         let dt = DateTime::<Utc>::from_timestamp(timestamp, 0)
             .ok_or_else(|| anyhow::anyhow!("invalid timestamp"))?;
         
@@ -152,7 +316,7 @@ impl DateTimeModule {
     }
 
     /// Get day of year (1-366)
-    fn day_of_year(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn day_of_year(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("day_of_year() takes exactly 1 argument: timestamp"));
         }
@@ -162,7 +326,7 @@ impl DateTimeModule {
             _ => return Err(anyhow::anyhow!("argument must be an integer timestamp")),
         };
 
-        use chrono::{DateTime, Utc};
+        use chrono::{DateTime, Utc, Datelike};
         let dt = DateTime::<Utc>::from_timestamp(timestamp, 0)
             .ok_or_else(|| anyhow::anyhow!("invalid timestamp"))?;
         
@@ -170,7 +334,7 @@ impl DateTimeModule {
     }
 
     /// Check if date is weekend (Saturday or Sunday)
-    fn is_weekend(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn is_weekend(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("is_weekend() takes exactly 1 argument: timestamp"));
         }
@@ -180,7 +344,7 @@ impl DateTimeModule {
             _ => return Err(anyhow::anyhow!("argument must be an integer timestamp")),
         };
 
-        use chrono::{DateTime, Utc, Weekday};
+        use chrono::{DateTime, Utc, Weekday, Datelike};
         let dt = DateTime::<Utc>::from_timestamp(timestamp, 0)
             .ok_or_else(|| anyhow::anyhow!("invalid timestamp"))?;
         
@@ -199,72 +363,12 @@ impl Module for DateTimeModule {
         "Date and time functions"
     }
 
-    fn register(&self, _registry: &mut qcl_core::module::ModuleRegistry) -> Result<()> {
-        // Don't register functions globally - they should be accessed via module.function()
+    fn register(&self, registry: &mut crate::module::ModuleRegistry) -> Result<()> {
+        registry.register_module(self.name(), Box::new(DateTimeModule::new()));
         Ok(())
     }
 
     fn exports(&self) -> HashMap<String, Val> {
         self.functions.clone()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use qcl_core::{
-        stmt_parser::StmtParser,
-        token::Tokenizer,
-        val::Val,
-    };
-    use anyhow::Result;
-    use std::sync::Arc;
-    use crate::register_stdlib_modules;
-
-    #[test]
-    fn test_datetime_now() -> Result<()> {
-        let source = "import datetime; return datetime.now();";
-        let tokens = Tokenizer::new(source)?;
-        let mut parser = StmtParser::new(&tokens);
-        let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
-
-        // Create registry and register stdlib modules
-        let mut registry = qcl_core::module::ModuleRegistry::new();
-        register_stdlib_modules(&mut registry);
-        
-        // Create environment with stdlib modules
-        let resolver = std::sync::Arc::new(qcl_core::import::ModuleResolver::with_registry(registry));
-        let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
-
-        let result = program.execute_with_env(&ctx, &mut env)?;
-        if let Val::Int(timestamp) = result {
-            assert!(timestamp > 0, "Timestamp should be positive");
-        } else {
-            panic!("Expected integer timestamp");
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_datetime_format() -> Result<()> {
-        let source = "import datetime; return datetime.format(1672531200, \"%Y-%m-%d\");";
-        let tokens = Tokenizer::new(source)?;
-        let mut parser = StmtParser::new(&tokens);
-        let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
-
-        // Create registry and register stdlib modules
-        let mut registry = qcl_core::module::ModuleRegistry::new();
-        register_stdlib_modules(&mut registry);
-        
-        // Create environment with stdlib modules
-        let resolver = std::sync::Arc::new(qcl_core::import::ModuleResolver::with_registry(registry));
-        let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
-
-        let result = program.execute_with_env(&ctx, &mut env)?;
-        assert_eq!(result, Val::Str("2023-01-01".into()));
-
-        Ok(())
     }
 }

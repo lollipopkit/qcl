@@ -271,6 +271,7 @@ mod tests {
     };
     use anyhow::Result;
     use std::sync::Arc;
+    use crate::register_stdlib_modules;
 
     #[test]
     fn test_string_len() -> Result<()> {
@@ -280,7 +281,15 @@ mod tests {
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
 
-        let result = program.execute(&ctx)?;
+        // Create registry and register stdlib modules
+        let mut registry = qcl_core::module::ModuleRegistry::new();
+        register_stdlib_modules(&mut registry);
+        
+        // Create environment with stdlib modules
+        let resolver = std::sync::Arc::new(qcl_core::import::ModuleResolver::with_registry(registry));
+        let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
+
+        let result = program.execute_with_env(&ctx, &mut env)?;
         assert_eq!(result, Val::Int(5));
 
         Ok(())
@@ -294,7 +303,15 @@ mod tests {
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
 
-        let result = program.execute(&ctx)?;
+        // Create registry and register stdlib modules
+        let mut registry = qcl_core::module::ModuleRegistry::new();
+        register_stdlib_modules(&mut registry);
+        
+        // Create environment with stdlib modules
+        let resolver = std::sync::Arc::new(qcl_core::import::ModuleResolver::with_registry(registry));
+        let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
+
+        let result = program.execute_with_env(&ctx, &mut env)?;
         assert_eq!(result, Val::Str("hello".into()));
 
         Ok(())

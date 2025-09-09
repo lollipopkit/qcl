@@ -1,0 +1,374 @@
+// QCL (Query Check Language) 完整功能测试文件
+// Comprehensive test file demonstrating all QCL language features
+
+// 导入标准库模块 / Import standard library modules
+import math;
+import string;
+
+// =============================================================================
+// 1. 变量声明和类型注解 / Variable declarations and type annotations
+// =============================================================================
+
+// 基本类型 / Basic types
+let name: String = "Alice";
+let age: Int = 25;
+let height: Float = 5.7;
+let isActive: Bool = true;
+let empty: Nil = nil;
+
+// 集合类型 / Collection types
+let numbers: List = [1, 2, 3, 4, 5];
+let person: Map = {
+    "name": "Bob",
+    "age": 30,
+    "skills": ["Rust", "JavaScript", "Python"],
+    "address": {
+        "street": "123 Main St",
+        "city": "San Francisco",
+        "zipcode": "94102"
+    }
+};
+
+// 无类型注解的变量 / Variables without type annotations
+let score = 95;
+let greeting = "Hello, QCL!";
+
+// =============================================================================
+// 2. 上下文访问 (@) / Context access (@)
+// =============================================================================
+
+// 简单上下文访问 / Simple context access
+let user_name = @user.name;
+let user_age = @user.age;
+let user_role = @request.user.role;
+
+// 嵌套上下文访问 / Nested context access
+let street_address = @user.profile.address.street;
+let first_skill = @user.skills.0;
+
+// =============================================================================
+// 3. 算术运算 / Arithmetic operations
+// =============================================================================
+
+let addition = 10 + 5;
+let subtraction = 20 - 8;
+let multiplication = 6 * 7;
+let division = 15 / 3;
+let modulo = 17 % 5;
+let power = math.pow(2, 8);
+
+// 语义算术 (3/2 = 1.5) / Semantic arithmetic
+let semantic_div = 3 / 2;
+
+// =============================================================================
+// 4. 比较运算 / Comparison operations
+// =============================================================================
+
+let is_equal = 5 == 5;
+let not_equal = 10 != 7;
+let less_than = 3 < 8;
+let greater_than = 15 > 12;
+let less_equal = 4 <= 4;
+let greater_equal = 9 >= 6;
+
+// 字符串比较 / String comparison
+let str_equal = "hello" == "hello";
+let str_not_equal = "world" != "earth";
+
+// =============================================================================
+// 5. 逻辑运算 / Logical operations
+// =============================================================================
+
+let logical_and = true && false;
+let logical_or = true || false;
+let logical_not = !false;
+
+// 复杂逻辑表达式 / Complex logical expressions
+let complex_logic = (age >= 18) && (age <= 65) && isActive;
+let access_check = (@user.role == "admin") || (@user.permissions["read"] == true);
+
+// =============================================================================
+// 6. 列表操作 / List operations
+// =============================================================================
+
+let first_number = numbers.0;
+let contains_three = 3 in numbers;
+let contains_ten = 10 in numbers;
+
+// =============================================================================
+// 7. Map 操作 / Map operations
+// =============================================================================
+
+let person_name = person.name;
+let person_age = person.age;
+let has_name_key = "name" in person;
+let has_phone_key = "phone" in person;
+
+// =============================================================================
+// 8. 控制流 - 条件语句 / Control flow - Conditional statements
+// =============================================================================
+
+let access_level = 0;
+
+if (@user.role == "admin") {
+    access_level = 100;
+} else if (@user.role == "manager") {
+    access_level = 50;
+} else if (@user.role == "user") {
+    access_level = 10;
+} else {
+    access_level = 0;
+}
+
+// =============================================================================
+// 9. 控制流 - 循环 / Control flow - Loops
+// =============================================================================
+
+let i = 0;
+let sum = 0;
+
+// While 循环 / While loop
+while (i < 10) {
+    if (i == 5) {
+        i = i + 1;
+        continue;  // 跳过5
+    }
+    
+    if (i == 8) {
+        break;     // 在8处停止
+    }
+    
+    sum = sum + i;
+    i = i + 1;
+}
+
+// =============================================================================
+// 10. 函数定义和调用 / Function definitions and calls
+// =============================================================================
+
+// 简单函数 / Simple function
+fn add(a, b) {
+    return a + b;
+}
+
+// 无参数函数 / Function without parameters
+fn getCurrentTime() {
+    return "2024-03-15 10:30:00";
+}
+
+// 递归函数 / Recursive function
+fn factorial(n) {
+    if (n <= 1) {
+        return 1;
+    } else {
+        return n * factorial(n - 1);
+    }
+}
+
+// 使用上下文的函数 / Function using context
+fn getUserFullName() {
+    return @user.firstName + " " + @user.lastName;
+}
+
+// 复杂业务逻辑函数 / Complex business logic function
+fn checkAccess(resource, action) {
+    let user_role = @user.role;
+    let user_permissions = @user.permissions;
+    
+    if (user_role == "admin") {
+        return true;
+    }
+    
+    if (resource == "documents") {
+        if (action == "read") {
+            return user_permissions["documents.read"] == true;
+        } else if (action == "write") {
+            return user_permissions["documents.write"] == true;
+        }
+    }
+    
+    return false;
+}
+
+// =============================================================================
+// 11. 标准库函数使用 / Standard library function usage
+// =============================================================================
+
+// 数学函数 / Math functions
+let abs_value = math.abs(-42);
+let square_root = math.sqrt(16);
+let sine_value = math.sin(math.pi / 2);
+let cosine_value = math.cos(0);
+let max_value = math.max(10, 20);
+let min_value = math.min(5, 15);
+let floor_value = math.floor(3.7);
+let ceil_value = math.ceil(3.2);
+let rounded = math.round(3.6);
+
+// 字符串函数 / String functions
+let str_length = string.len("Hello, World!");
+let lower_case = string.lower("HELLO");
+let upper_case = string.upper("world");
+let trimmed = string.trim("  spaces  ");
+let starts_with_hello = string.starts_with("Hello World", "Hello");
+let ends_with_world = string.ends_with("Hello World", "World");
+let contains_lo = string.contains("Hello", "lo");
+
+// =============================================================================
+// 12. 访问控制示例 / Access control examples
+// =============================================================================
+
+// 角色基础访问控制 / Role-based access control
+fn rbacCheck() {
+    let user_role = @request.user.role;
+    let required_roles = ["admin", "manager"];
+    return user_role in required_roles;
+}
+
+// 属性基础访问控制 / Attribute-based access control
+fn abacCheck() {
+    let user_dept = @request.user.department;
+    let resource_dept = @resource.department;
+    let action = @request.action;
+    let current_time = @context.timestamp;
+    let business_hours_start = 9;
+    let business_hours_end = 17;
+    let current_hour = 14; // 假设从时间戳解析得到
+    
+    let same_department = user_dept == resource_dept;
+    let in_business_hours = (current_hour >= business_hours_start) && (current_hour <= business_hours_end);
+    let is_read_action = action == "read";
+    
+    return same_department && in_business_hours && is_read_action;
+}
+
+// 复杂权限检查 / Complex permission checking
+fn complexPermissionCheck() {
+    let user = @request.user;
+    let resource = @resource;
+    let action = @request.action;
+    
+    // 超级管理员总是有权限 / Super admin always has access
+    if (user.role == "superadmin") {
+        return true;
+    }
+    
+    // 检查资源所有权 / Check resource ownership
+    if (resource.owner == user.id) {
+        return true;
+    }
+    
+    // 检查团队权限 / Check team permissions
+    if (user.team in resource.allowed_teams) {
+        let team_permissions = resource.team_permissions[user.team];
+        return action in team_permissions;
+    }
+    
+    // 检查个人权限 / Check individual permissions
+    if (user.id in resource.allowed_users) {
+        let user_permissions = resource.user_permissions[user.id];
+        return action in user_permissions;
+    }
+    
+    return false;
+}
+
+// =============================================================================
+// 13. 类型检查和错误处理示例 / Type checking and error handling examples
+// =============================================================================
+
+fn safeAccess() {
+    // 安全地访问可能不存在的字段 / Safely access potentially missing fields
+    let user_email = @user.email;
+    if (user_email == nil) {
+        return false;
+    }
+    
+    let email_verified = @user.email_verified;
+    if (email_verified == nil) {
+        return false;
+    }
+    
+    return email_verified == true;
+}
+
+// =============================================================================
+// 14. 实际业务场景示例 / Real-world business scenario examples
+// =============================================================================
+
+// 文档访问权限检查 / Document access permission check
+fn documentAccessCheck() {
+    let user = @request.user;
+    let document = @resource.document;
+    let action = @request.action;
+    
+    // 检查文档是否为公开文档 / Check if document is public
+    if (document.visibility == "public" && action == "read") {
+        return true;
+    }
+    
+    // 检查用户是否为文档作者 / Check if user is document author
+    if (document.author_id == user.id) {
+        return true;
+    }
+    
+    // 检查部门权限 / Check department permissions
+    if (user.department == document.department) {
+        let dept_permissions = document.department_permissions;
+        return action in dept_permissions;
+    }
+    
+    return false;
+}
+
+// API 限流检查 / API rate limiting check
+fn rateLimitCheck() {
+    let user = @request.user;
+    let endpoint = @request.endpoint;
+    // 简化访问，使用固定的用户请求计数
+    let current_requests = 45; // 从上下文获取：@context.user_requests.user123."/api/documents"
+    
+    // 不同用户等级有不同的限制 / Different limits for different user tiers
+    let limit = 0;
+    if (user.tier == "premium") {
+        limit = 1000;
+    } else if (user.tier == "standard") {
+        limit = 100;
+    } else {
+        limit = 10;
+    }
+    
+    return current_requests < limit;
+}
+
+// 地理位置访问控制 / Geolocation-based access control
+fn geoAccessCheck() {
+    let user_country = @request.user.location.country;
+    let resource_restrictions = @resource.geo_restrictions;
+    let allowed_countries = resource_restrictions.allowed_countries;
+    let blocked_countries = resource_restrictions.blocked_countries;
+    
+    // 检查是否在阻止列表中 / Check if in blocked list
+    if (user_country in blocked_countries) {
+        return false;
+    }
+    
+    // 如果有允许列表，检查是否在其中 / If allow list exists, check if in it
+    if (allowed_countries != nil) {
+        return user_country in allowed_countries;
+    }
+    
+    return true;
+}
+
+// =============================================================================
+// 15. 最终返回值 / Final return value
+// =============================================================================
+
+// 执行一个综合的访问检查 / Execute a comprehensive access check
+let final_access_decision = complexPermissionCheck() && 
+                           documentAccessCheck() && 
+                           rateLimitCheck() && 
+                           geoAccessCheck();
+
+return final_access_decision;

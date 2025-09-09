@@ -72,8 +72,13 @@ impl PartialEq for ModuleResolver {
 
 impl ModuleResolver {
     pub fn new() -> Self {
+        Self::with_registry(ModuleRegistry::new())
+    }
+
+    /// Create a new resolver with a specific module registry
+    pub fn with_registry(registry: ModuleRegistry) -> Self {
         let resolver = Self {
-            stdlib_registry: ModuleRegistry::new(),
+            stdlib_registry: registry,
             stdlib_modules: HashMap::new(),
             file_modules: Arc::new(RwLock::new(HashMap::new())),
             search_paths: vec![
@@ -293,14 +298,11 @@ mod tests {
     fn test_module_resolver() {
         let resolver = ModuleResolver::new();
 
-        // Test with default features
-        #[cfg(feature = "stdlib-math")]
-        assert!(resolver.resolve_module("math").is_ok());
-
-        #[cfg(not(feature = "stdlib-math"))]
-        assert!(resolver.resolve_module("math").is_err());
-
+        // Test that nonexistent modules fail
         assert!(resolver.resolve_module("nonexistent").is_err());
+        
+        // Note: stdlib modules are now registered externally
+        // The resolver starts with an empty registry
     }
 
     #[test]
@@ -309,16 +311,11 @@ mod tests {
         let resolver = ModuleResolver::new();
 
         let import = ImportStmt::Module {
-            module: "math".to_string(),
+            module: "nonexistent".to_string(),
         };
 
-        // Test will succeed if math module is enabled, fail otherwise
+        // Test that nonexistent modules fail
         let result = ctx.execute_import(&import, &resolver);
-
-        #[cfg(feature = "stdlib-math")]
-        assert!(result.is_ok());
-
-        #[cfg(not(feature = "stdlib-math"))]
         assert!(result.is_err());
     }
 }

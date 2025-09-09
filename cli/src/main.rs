@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc, path::Path};
 use std::io::BufRead;
 use sanitize_filename::{sanitize_with_options, Options};
 
-use qcl_core::{de, expr::Expr, stmt_parser::StmtParser, token::Tokenizer, val::Val};
+use qcl_core::{de, expr::Expr, stmt_parser::StmtParser, token::Tokenizer, val::Val, module::ModuleRegistry, import, stmt};
 
 fn is_safe_path(path: &str) -> bool {
     let path = Path::new(path);
@@ -163,7 +163,16 @@ fn main() -> anyhow::Result<()> {
         let tokens = Tokenizer::new(&input)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let res = program.execute(&ctx)?;
+        
+        // Create module registry and register stdlib modules
+        let mut registry = ModuleRegistry::new();
+        qcl_stdlib::register_stdlib_modules(&mut registry);
+        
+        // Create environment with stdlib modules
+        let resolver = Arc::new(import::ModuleResolver::with_registry(registry));
+        let mut env = stmt::Environment::with_resolver(resolver);
+        
+        let res = program.execute_with_env(&ctx, &mut env)?;
         println!("{}", res);
     } else {
         let val = Expr::parse_cached(&input)?;

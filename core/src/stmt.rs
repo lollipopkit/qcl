@@ -312,10 +312,15 @@ impl Program {
     /// 执行程序
     pub fn execute(&self, ctx: &Val) -> Result<Val> {
         let mut env = Environment::new();
+        self.execute_with_env(ctx, &mut env)
+    }
+
+    /// 执行程序，使用指定的环境
+    pub fn execute_with_env(&self, ctx: &Val, env: &mut Environment) -> Result<Val> {
         let mut pc = 0; // 程序计数器
 
         while pc < self.statements.len() {
-            match self.statements[pc].execute(&mut env, ctx)? {
+            match self.statements[pc].execute(env, ctx)? {
                 ControlFlow::None => {
                     pc += 1;
                 }
