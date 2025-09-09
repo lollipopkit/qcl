@@ -22,6 +22,36 @@
             },
             "args": [],
             "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Run VS Code Extension",
+            "type": "extensionHost",
+            "request": "launch",
+            "args": [
+                "--extensionDevelopmentPath=${workspaceFolder}/vscode-qcl"
+            ],
+            "outFiles": [
+                "${workspaceFolder}/vscode-qcl/out/**/*.js"
+            ],
+            "preLaunchTask": "Build All"
+        },
+        {
+            "name": "Debug QCL LSP Server",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--package=qcl-lsp"
+                ],
+                "filter": {
+                    "name": "qcl-lsp",
+                    "kind": "bin"
+                }
+            },
+            "program": "${workspaceFolder}/target/debug/qcl-lsp",
+            "args": [],
+            "cwd": "${workspaceFolder}"
         }
     ]
 }
