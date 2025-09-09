@@ -29,6 +29,49 @@ impl<'a> Parser<'a> {
         Ok(exp.fold_constants())
     }
 
+    /// Parse with enhanced error information that includes position
+    pub fn parse_with_enhanced_errors(&mut self, input: &str) -> std::result::Result<Expr, crate::error::ParseError> {
+        if self.eof() {
+            return Ok(Expr::Val(Val::Nil));
+        }
+
+        let exp = match self.parse_expr() {
+            Ok(expr) => expr,
+            Err(err) => {
+                // Convert position from token index to line/column
+                let position = crate::error::offset_to_position(input, 
+                    if self.pos < self.tokens.len() && self.pos > 0 { 
+                        // Estimate position based on tokens
+                        self.pos * input.len() / self.tokens.len().max(1)
+                    } else { 
+                        input.len() 
+                    }
+                );
+                return Err(crate::error::ParseError::with_position(
+                    err.to_string(), 
+                    position
+                ));
+            }
+        };
+
+        if !self.eof() {
+            let position = crate::error::offset_to_position(input, 
+                if self.pos < self.tokens.len() { 
+                    self.pos * input.len() / self.tokens.len().max(1)
+                } else { 
+                    input.len() 
+                }
+            );
+            return Err(crate::error::ParseError::with_position(
+                "Unexpected tokens at end".to_string(), 
+                position
+            ));
+        }
+
+        // All sub-expressions parsed, apply constant folding optimization
+        Ok(exp.fold_constants())
+    }
+
     fn parse_expr(&mut self) -> Result<Expr> {
         self.parse_or()
     }

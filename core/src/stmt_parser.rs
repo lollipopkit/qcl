@@ -37,11 +37,51 @@ impl<'a> StmtParser<'a> {
                 continue;
             }
 
-            let stmt = self.parse_statement()?;
-            statements.push(Box::new(stmt));
+            statements.push(Box::new(self.parse_statement()?));
         }
 
         Program::new(statements)
+    }
+
+    /// Parse program with enhanced error reporting
+    pub fn parse_program_with_enhanced_errors(&mut self, input: &str) -> std::result::Result<Program, crate::error::ParseError> {
+        let mut statements = Vec::new();
+
+        while !self.eof() {
+            // 跳过空语句
+            if self.tokens[self.pos] == Token::Semicolon {
+                statements.push(Box::new(Stmt::Empty));
+                self.pos += 1;
+                continue;
+            }
+
+            let stmt = match self.parse_statement() {
+                Ok(s) => s,
+                Err(err) => {
+                    // Convert position from token index to line/column
+                    let position = crate::error::offset_to_position(input, 
+                        if self.pos < self.tokens.len() && self.pos > 0 { 
+                            // Estimate position based on tokens
+                            self.pos * input.len() / self.tokens.len().max(1)
+                        } else { 
+                            input.len() 
+                        }
+                    );
+                    return Err(crate::error::ParseError::with_position(
+                        err.to_string(), 
+                        position
+                    ));
+                }
+            };
+            statements.push(Box::new(stmt));
+        }
+
+        Program::new(statements).map_err(|e| {
+            crate::error::ParseError::with_position(
+                e.to_string(),
+                crate::error::Position { line: 0, column: 0, offset: 0 }
+            )
+        })
     }
 
     /// 解析单个语句

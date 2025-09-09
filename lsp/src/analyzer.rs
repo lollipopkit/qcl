@@ -35,8 +35,21 @@ impl QclAnalyzer {
         let tokens = match Tokenizer::tokenize(content) {
             Ok(tokens) => tokens,
             Err(tokenize_err) => {
+                // Try to get position info if it's a ParseError
+                let range = if let Some(parse_err) = tokenize_err.downcast_ref::<qcl_core::error::ParseError>() {
+                    if let Some(span) = &parse_err.span {
+                        let start_pos = Position::new(span.start.line - 1, span.start.column - 1);
+                        let end_pos = Position::new(span.end.line - 1, span.end.column - 1);
+                        Range::new(start_pos, end_pos)
+                    } else {
+                        Range::new(Position::new(0, 0), Position::new(0, content.len() as u32))
+                    }
+                } else {
+                    Range::new(Position::new(0, 0), Position::new(0, content.len() as u32))
+                };
+                
                 result.diagnostics.push(Diagnostic::new(
-                    Range::new(Position::new(0, 0), Position::new(0, content.len() as u32)),
+                    range,
                     Some(DiagnosticSeverity::ERROR),
                     None,
                     Some("qcl".to_string()),
@@ -49,7 +62,7 @@ impl QclAnalyzer {
         };
 
         let mut expr_parser = ExprParser::new(&tokens);
-        match expr_parser.parse() {
+        match expr_parser.parse_with_enhanced_errors(content) {
             Ok(expr) => {
                 // Collect context references
                 result.context_references = expr.requested_ctx();
@@ -70,26 +83,42 @@ impl QclAnalyzer {
                     children: None,
                 };
                 result.symbols.push(symbol);
+
+                // Add context validation diagnostics if we can parse the expression again for validation
+                let expr_result = Ok(expr);
+                let context_diagnostics = self.validate_context_access(&expr_result, None);
+                result.diagnostics.extend(context_diagnostics);
             }
             Err(expr_err) => {
                 // Try parsing as statement program
                 let mut stmt_parser = StmtParser::new(&tokens);
-                match stmt_parser.parse_program() {
+                match stmt_parser.parse_program_with_enhanced_errors(content) {
                     Ok(program) => {
                         // Analyze statements for symbols and context references
                         self.analyze_statements(&program.statements, &mut result);
                     }
                     Err(stmt_err) => {
-                        // Both parsing attempts failed
+                        // Both parsing attempts failed - prefer statement error for code containing statement keywords
+                        let has_statement_keywords = content.contains("let ") || content.contains("if ") || 
+                                                   content.contains("while ") || content.contains("return ") ||
+                                                   content.contains("goto ") || content.contains("break") ||
+                                                   content.contains("continue");
+                        let parse_err = if has_statement_keywords { &stmt_err } else { &expr_err };
+                        
+                        let range = if let Some(span) = &parse_err.span {
+                            let start_pos = Position::new(span.start.line - 1, span.start.column - 1);
+                            let end_pos = Position::new(span.end.line - 1, span.end.column - 1);
+                            Range::new(start_pos, end_pos)
+                        } else {
+                            Range::new(Position::new(0, 0), Position::new(0, content.len() as u32))
+                        };
+                        
                         result.diagnostics.push(Diagnostic::new(
-                            Range::new(Position::new(0, 0), Position::new(0, content.len() as u32)),
+                            range,
                             Some(DiagnosticSeverity::ERROR),
                             None,
                             Some("qcl".to_string()),
-                            format!(
-                                "Parse error - Expression: {}, Statement: {}",
-                                expr_err, stmt_err
-                            ),
+                            parse_err.message.clone(),
                             None,
                             None,
                         ));
@@ -220,7 +249,6 @@ impl QclAnalyzer {
     }
 
     /// Validate context access in an expression against provided context
-    #[allow(dead_code)] // Reserved for future use
     pub fn validate_context_access(
         &self,
         expr_result: &Result<Expr, anyhow::Error>,
@@ -262,7 +290,6 @@ impl QclAnalyzer {
         diagnostics
     }
 
-    #[allow(dead_code)] // Helper for validate_context_access
     fn context_has_key(&self, context: &Val, key: &str) -> bool {
         // Simple key existence check - traverse dot notation
         let parts: Vec<&str> = key.split('.').collect();
@@ -299,9 +326,6 @@ mod tests {
         let analyzer = create_analyzer();
         let result = analyzer.analyze("@req.user.role == 'admin'");
 
-        // Should not have diagnostics for valid expression
-        assert!(result.diagnostics.is_empty());
-
         // Should have context references
         assert!(result.context_references.contains("req"));
 
@@ -309,6 +333,12 @@ mod tests {
         assert_eq!(result.symbols.len(), 1);
         assert_eq!(result.symbols[0].name, "expression");
         assert_eq!(result.symbols[0].kind, SymbolKind::CONSTANT);
+
+        // Check that diagnostics include context requirement info (this is now expected behavior)
+        let has_context_info = result.diagnostics.iter().any(|d| 
+            d.severity == Some(DiagnosticSeverity::INFORMATION) && 
+            d.message.contains("requires context"));
+        assert!(has_context_info, "Expected context requirement diagnostic");
     }
 
     #[test]

@@ -1,6 +1,7 @@
 pub mod ast;
 pub mod concurrency;
 pub mod de;
+pub mod error;
 pub mod expr;
 pub mod import;
 pub mod module;

@@ -69,6 +69,9 @@ pub struct Tokenizer {
     idx: usize,
     len: usize,
     pub tokens: Vec<Token>,
+    line: u32,
+    column: u32,
+    input: String,
 }
 
 impl Tokenizer {
@@ -78,9 +81,36 @@ impl Tokenizer {
             idx: 0,
             len: s.chars().count(), // More accurate than s.len() for Unicode
             tokens: Vec::with_capacity(s.len() / 4), // Preallocate a reasonable size
+            line: 1,
+            column: 1,
+            input: s.to_string(),
         };
         t.parse()?;
         Ok(t.tokens)
+    }
+
+    /// Get enhanced error message with position information for LSP
+    pub fn enhanced_error(&self, msg: &str) -> crate::error::ParseError {
+        let position = crate::error::Position::new(self.line, self.column, self.idx);
+        crate::error::ParseError::with_position(msg.to_string(), position)
+    }
+
+    /// Create a tokenizer with enhanced error reporting
+    pub fn new_enhanced(input: &str) -> Self {
+        Self {
+            chars: input.chars().collect(),
+            idx: 0,
+            len: input.chars().count(),
+            tokens: Vec::with_capacity(input.len() / 4),
+            line: 1,
+            column: 1,
+            input: input.to_string(),
+        }
+    }
+
+    /// Get current position
+    pub fn current_position(&self) -> crate::error::Position {
+        crate::error::Position::new(self.line, self.column, self.idx)
     }
 
     fn eof(&self) -> bool {
@@ -88,18 +118,20 @@ impl Tokenizer {
     }
 
     fn expect(&mut self, s: &str) -> bool {
-        let mut idx = 0;
+        let start_idx = self.idx;
+        let start_line = self.line;
+        let start_column = self.column;
+        
         for c in s.chars() {
-            let self_idx = self.idx + idx;
-            if self_idx >= self.len {
+            if self.idx >= self.len || self.chars[self.idx] != c {
+                // Reset position if match failed
+                self.idx = start_idx;
+                self.line = start_line;
+                self.column = start_column;
                 return false;
             }
-            if self.chars[self_idx] != c {
-                return false;
-            }
-            idx += 1;
+            self.advance_char();
         }
-        self.idx += idx;
         true
     }
 
@@ -120,12 +152,35 @@ impl Tokenizer {
         } else {
             format!("at end, near '{}'", chars)
         };
-        format!("Syntax error:\n{} ({})", msg.as_ref(), ctx)
+        
+        // Use the stored input for better context if needed
+        let line_context = self.get_line_context();
+        format!("Syntax error:\n{} ({})\nLine {}: {}", msg.as_ref(), ctx, self.line, line_context)
+    }
+
+    /// Get the current line from input for error context
+    fn get_line_context(&self) -> String {
+        let lines: Vec<&str> = self.input.lines().collect();
+        if self.line > 0 && (self.line as usize) <= lines.len() {
+            lines[self.line as usize - 1].to_string()
+        } else {
+            "".to_string()
+        }
+    }
+
+    fn advance_char(&mut self) {
+        if !self.eof() && self.chars[self.idx] == '\n' {
+            self.line += 1;
+            self.column = 1;
+        } else {
+            self.column += 1;
+        }
+        self.idx += 1;
     }
 
     fn skip_whitespace(&mut self) {
         while self.idx < self.len && self.chars[self.idx].is_whitespace() {
-            self.idx += 1;
+            self.advance_char();
         }
     }
 
@@ -134,25 +189,27 @@ impl Tokenizer {
         while !self.eof() {
             let c = self.chars[self.idx];
             if c == '\n' {
-                self.idx += 1;
+                self.advance_char();
                 break;
             }
-            self.idx += 1;
+            self.advance_char();
         }
         Ok(())
     }
 
     fn skip_block_comment(&mut self) -> Result<()> {
         // Skip past /*
-        self.idx += 2;
+        self.advance_char();
+        self.advance_char();
         
         while !self.eof() {
             let c = self.chars[self.idx];
             if c == '*' && self.idx + 1 < self.len && self.chars[self.idx + 1] == '/' {
-                self.idx += 2;
+                self.advance_char();
+                self.advance_char();
                 return Ok(());
             }
-            self.idx += 1;
+            self.advance_char();
         }
         
         Err(anyhow!(self.err("Block comment not closed")))
@@ -161,30 +218,20 @@ impl Tokenizer {
     fn parse_str(&mut self) -> Result<()> {
         let mut s = String::new();
         let quote = self.chars[self.idx];
-        self.idx += 1;
+        self.advance_char(); // skip opening quote
 
-        // Find the end quote position first to optimize allocation
-        let mut end_idx = self.idx;
-        let mut found = false;
-
-        while end_idx < self.len {
-            if self.chars[end_idx] == quote {
-                found = true;
-                break;
+        while !self.eof() {
+            let c = self.chars[self.idx];
+            if c == quote {
+                self.advance_char(); // skip closing quote
+                self.tokens.push(Token::Str(s));
+                return Ok(());
             }
-            end_idx += 1;
+            s.push(c);
+            self.advance_char();
         }
 
-        if !found {
-            return Err(anyhow!(self.err("String not closed")));
-        }
-
-        // Now extract the string content all at once
-        s.extend(self.chars[self.idx..end_idx].iter());
-        self.idx = end_idx + 1; // Skip past the closing quote
-
-        self.tokens.push(Token::Str(s));
-        Ok(())
+        Err(anyhow!(self.err("String not closed")))
     }
 
     /// eg.:
@@ -198,17 +245,17 @@ impl Tokenizer {
             let c = self.chars[self.idx];
             if c.is_ascii_digit() {
                 num.push(c);
-                self.idx += 1;
+                self.advance_char();
             } else if c == '.' {
                 if dot_count > 0 {
                     return Err(anyhow!(self.err("Invalid float, multiple '.'")));
                 }
                 num.push(c);
-                self.idx += 1;
+                self.advance_char();
                 dot_count += 1;
             } else if (c == '-' || c == '+') && num.is_empty() {
                 num.push(c);
-                self.idx += 1;
+                self.advance_char();
             } else {
                 break;
             }
@@ -239,7 +286,7 @@ impl Tokenizer {
             let c = self.chars[self.idx];
             if c.is_alphanumeric() || c == '_' || c == '-' {
                 id.push(c);
-                self.idx += 1;
+                self.advance_char();
             } else {
                 break;
             }
@@ -357,7 +404,7 @@ impl Tokenizer {
             let c = self.chars[self.idx];
             if c.is_ascii_digit() {
                 num.push(c);
-                self.idx += 1;
+                self.advance_char();
             } else {
                 break;
             }
@@ -374,47 +421,47 @@ impl Tokenizer {
         let c = self.chars[self.idx];
         match c {
             '(' => {
-                self.idx += 1;
+                self.advance_char();
                 self.tokens.push(Token::LParen);
                 Ok(())
             }
             ')' => {
-                self.idx += 1;
+                self.advance_char();
                 self.tokens.push(Token::RParen);
                 Ok(())
             }
             '{' => {
-                self.idx += 1;
+                self.advance_char();
                 self.tokens.push(Token::LBrace);
                 Ok(())
             }
             '}' => {
-                self.idx += 1;
+                self.advance_char();
                 self.tokens.push(Token::RBrace);
                 Ok(())
             }
             '[' => {
-                self.idx += 1;
+                self.advance_char();
                 self.tokens.push(Token::LBracket);
                 Ok(())
             }
             ']' => {
-                self.idx += 1;
+                self.advance_char();
                 self.tokens.push(Token::RBracket);
                 Ok(())
             }
             ':' => {
-                self.idx += 1;
+                self.advance_char();
                 self.tokens.push(Token::Colon);
                 Ok(())
             }
             ',' => {
-                self.idx += 1;
+                self.advance_char();
                 self.tokens.push(Token::Comma);
                 Ok(())
             }
             ';' => {
-                self.idx += 1;
+                self.advance_char();
                 self.tokens.push(Token::Semicolon);
                 Ok(())
             }
@@ -422,12 +469,12 @@ impl Tokenizer {
                 let next = self.chars.get(self.idx + 1);
                 if let Some(&c) = next
                     && c.is_ascii_digit() {
-                        self.idx += 1;
+                        self.advance_char();
                         self.tokens.push(Token::Dot);
                         // To avoid confusion with Dot in float, only parse int here
                         return self.parse_int();
                     }
-                self.idx += 1;
+                self.advance_char();
                 self.tokens.push(Token::Dot);
                 Ok(())
             }
@@ -453,7 +500,7 @@ impl Tokenizer {
                     && c.is_ascii_digit() {
                         return self.parse_num();
                     }
-                self.idx += 1;
+                self.advance_char();
                 self.tokens.push(Token::Add);
                 Ok(())
             }
@@ -463,12 +510,12 @@ impl Tokenizer {
                     && c.is_ascii_digit() {
                         return self.parse_num();
                     }
-                self.idx += 1;
+                self.advance_char();
                 self.tokens.push(Token::Sub);
                 Ok(())
             }
             '*' => {
-                self.idx += 1;
+                self.advance_char();
                 self.tokens.push(Token::Mul);
                 Ok(())
             }
@@ -480,13 +527,13 @@ impl Tokenizer {
                     // Skip block comment
                     self.skip_block_comment()?;
                 } else {
-                    self.idx += 1;
+                    self.advance_char();
                     self.tokens.push(Token::Div);
                 }
                 Ok(())
             }
             '%' => {
-                self.idx += 1;
+                self.advance_char();
                 self.tokens.push(Token::Mod);
                 Ok(())
             }
@@ -496,7 +543,7 @@ impl Tokenizer {
                     self.tokens.push(Token::Eq);
                     Ok(())
                 } else {
-                    self.idx += 1;
+                    self.advance_char();
                     self.tokens.push(Token::Assign);
                     Ok(())
                 }
@@ -506,7 +553,7 @@ impl Tokenizer {
                     self.tokens.push(Token::Ne);
                     Ok(())
                 } else {
-                    self.idx += 1;
+                    self.advance_char();
                     self.tokens.push(Token::Not);
                     Ok(())
                 }
@@ -516,7 +563,7 @@ impl Tokenizer {
                     self.tokens.push(Token::Ge);
                     Ok(())
                 } else {
-                    self.idx += 1;
+                    self.advance_char();
                     self.tokens.push(Token::Gt);
                     Ok(())
                 }
@@ -529,7 +576,7 @@ impl Tokenizer {
                     self.tokens.push(Token::Recv);
                     Ok(())
                 } else {
-                    self.idx += 1;
+                    self.advance_char();
                     self.tokens.push(Token::Lt);
                     Ok(())
                 }
