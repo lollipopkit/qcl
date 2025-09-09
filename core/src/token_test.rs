@@ -4,7 +4,7 @@ mod tests {
 
     #[test]
     fn basic() {
-        let t1 = Tokenizer::new(r#"1.3+*/@ %==  "str1" 'str2' true false nil "#);
+        let t1 = Tokenizer::tokenize(r#"1.3+*/@ %==  "str1" 'str2' true false nil "#);
         let e1 = vec![
             Token::Float(1.3),
             Token::Add,
@@ -24,7 +24,7 @@ mod tests {
 
     #[test]
     fn punctuations() {
-        let t2 = Tokenizer::new(">=<= && || == != ! > <");
+        let t2 = Tokenizer::tokenize(">=<= && || == != ! > <");
         let e2 = vec![
             Token::Ge,
             Token::Le,
@@ -41,7 +41,7 @@ mod tests {
 
     #[test]
     fn list_map_punctuations() {
-        let t = Tokenizer::new("[]{}:,");
+        let t = Tokenizer::tokenize("[]{}:,");
         let e = vec![
             Token::LBracket,
             Token::RBracket,
@@ -55,7 +55,7 @@ mod tests {
 
     #[test]
     fn ids() {
-        let t3 = Tokenizer::new("id1 id_2 id-3");
+        let t3 = Tokenizer::tokenize("id1 id_2 id-3");
         let e3 = vec![
             Token::Id("id1".to_string()),
             Token::Id("id_2".to_string()),
@@ -66,28 +66,28 @@ mod tests {
 
     #[test]
     fn unclosed_str() {
-        let t = Tokenizer::new(r#""str"#);
+        let t = Tokenizer::tokenize(r#""str"#);
         assert!(t.is_err());
     }
 
     #[test]
     fn num() {
-        let t = Tokenizer::new("1.2.3");
+        let t = Tokenizer::tokenize("1.2.3");
         assert!(t.is_err());
 
         // Consider `.` as Dot if starts with `@`, otherwise Float
         // It's invalid in AST(The first path of At Expr must be Str), but valid in Tokenizer
-        let t = Tokenizer::new("@1.2");
+        let t = Tokenizer::tokenize("@1.2");
         assert!(t.is_ok());
 
-        let t = Tokenizer::new("-1.0 +1.2");
+        let t = Tokenizer::tokenize("-1.0 +1.2");
         let e = vec![Token::Float(-1.0), Token::Float(1.2)];
         assert_eq!(t.unwrap(), e);
     }
 
     #[test]
     fn keywords() {
-        let t6 = Tokenizer::new(">true false nil in");
+        let t6 = Tokenizer::tokenize(">true false nil in");
         let e6 = vec![
             Token::Gt,
             Token::Bool(true),
@@ -100,11 +100,11 @@ mod tests {
 
     #[test]
     fn test_return_keyword() {
-        let tokens = Tokenizer::new("return").expect("Invalid tokens");
+        let tokens = Tokenizer::tokenize("return").expect("Invalid tokens");
         assert_eq!(tokens.len(), 1);
         assert_eq!(tokens[0], Token::Return);
 
-        let tokens = Tokenizer::new("return 42;").expect("Invalid tokens");
+        let tokens = Tokenizer::tokenize("return 42;").expect("Invalid tokens");
         assert_eq!(tokens.len(), 3);
         assert_eq!(tokens[0], Token::Return);
         assert_eq!(tokens[1], Token::Int(42));
@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn at_query() {
-        let t = Tokenizer::new("@req.user.age >= 18");
+        let t = Tokenizer::tokenize("@req.user.age >= 18");
         let e = vec![
             Token::At,
             Token::Id("req".to_string()),
@@ -150,7 +150,7 @@ mod tests {
         ||
         @req.user.role == 'admin'
         "#;
-        let t = Tokenizer::new(query);
+        let t = Tokenizer::tokenize(query);
         let e = vec![
             Token::LParen,
             Token::At,
@@ -189,7 +189,7 @@ mod tests {
 
     #[test]
     fn list_access() {
-        let t = Tokenizer::new("@list.0");
+        let t = Tokenizer::tokenize("@list.0");
         let e = vec![
             Token::At,
             Token::Id("list".to_string()),
@@ -198,7 +198,7 @@ mod tests {
         ];
         assert_eq!(t.unwrap(), e);
 
-        let t = Tokenizer::new("@list.1.2");
+        let t = Tokenizer::tokenize("@list.1.2");
         let e = vec![
             Token::At,
             Token::Id("list".to_string()),
@@ -213,7 +213,7 @@ mod tests {
     // Issue #1
     #[test]
     fn t1() {
-        let t = Tokenizer::new("(@settings.active)");
+        let t = Tokenizer::tokenize("(@settings.active)");
         let e = vec![
             Token::LParen,
             Token::At,
@@ -227,13 +227,13 @@ mod tests {
 
     #[test]
     fn empty_strings() {
-        let t = Tokenizer::new(r#""""''"#);
+        let t = Tokenizer::tokenize(r#""""''"#);
         assert!(t.is_err());
     }
 
     #[test]
     fn complex_numbers() {
-        let t = Tokenizer::new("-123 +456 -1.23 +4.56");
+        let t = Tokenizer::tokenize("-123 +456 -1.23 +4.56");
         let e = vec![
             Token::Int(-123),
             Token::Int(456),
@@ -246,17 +246,17 @@ mod tests {
     #[test]
     fn invalid_numbers() {
         // Multiple dots in number
-        assert!(Tokenizer::new("1.2.3").is_err());
+        assert!(Tokenizer::tokenize("1.2.3").is_err());
         // Invalid float
-        assert!(Tokenizer::new("1.a").is_err());
+        assert!(Tokenizer::tokenize("1.a").is_err());
         // Just a dot
-        let t = Tokenizer::new(".");
+        let t = Tokenizer::tokenize(".");
         assert_eq!(t.unwrap(), vec![Token::Dot]);
     }
 
     #[test]
     fn whitespace_handling() {
-        let t = Tokenizer::new("  @req.user  .  id  ==  'test'  ");
+        let t = Tokenizer::tokenize("  @req.user  .  id  ==  'test'  ");
         let e = vec![
             Token::At,
             Token::Id("req".to_string()),
@@ -272,7 +272,7 @@ mod tests {
 
     #[test]
     fn nested_expressions() {
-        let t = Tokenizer::new("((@req.id == 123) && (@req.role == 'admin'))");
+        let t = Tokenizer::tokenize("((@req.id == 123) && (@req.role == 'admin'))");
         let e = vec![
             Token::LParen,
             Token::LParen,
@@ -299,7 +299,7 @@ mod tests {
 
     #[test]
     fn mixed_operators() {
-        let t = Tokenizer::new("1 + 2 * 3 / 4 % 5");
+        let t = Tokenizer::tokenize("1 + 2 * 3 / 4 % 5");
         let e = vec![
             Token::Int(1),
             Token::Add,
@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn complex_path_access() {
-        let t = Tokenizer::new("@users.0.name @items.1.tags.2");
+        let t = Tokenizer::tokenize("@users.0.name @items.1.tags.2");
         let e = vec![
             Token::At,
             Token::Id("users".to_string()),
@@ -338,7 +338,7 @@ mod tests {
 
     #[test]
     fn logic_operations() {
-        let t = Tokenizer::new("!(@a in @b) && (@c || !@d)");
+        let t = Tokenizer::tokenize("!(@a in @b) && (@c || !@d)");
         let e = vec![
             Token::Not,
             Token::LParen,
@@ -363,7 +363,7 @@ mod tests {
 
     #[test]
     fn nested_at() {
-        let t = Tokenizer::new("@a.(@b.(@c))");
+        let t = Tokenizer::tokenize("@a.(@b.(@c))");
         let e = vec![
             Token::At,
             Token::Id("a".to_string()),
@@ -380,7 +380,7 @@ mod tests {
         ];
         assert_eq!(t.unwrap(), e);
 
-        let t = Tokenizer::new("@a.(@b.(@c.(@d)))");
+        let t = Tokenizer::tokenize("@a.(@b.(@c.(@d)))");
         let e = vec![
             Token::At,
             Token::Id("a".to_string()),
@@ -402,7 +402,7 @@ mod tests {
         ];
         assert_eq!(t.unwrap(), e);
 
-        let t = Tokenizer::new("@a.(@b - 1))");
+        let t = Tokenizer::tokenize("@a.(@b - 1))");
         let e = vec![
             Token::At,
             Token::Id("a".to_string()),
@@ -420,7 +420,7 @@ mod tests {
 
     #[test]
     fn list_literals() {
-        let t = Tokenizer::new("[1, 2, 3]");
+        let t = Tokenizer::tokenize("[1, 2, 3]");
         let e = vec![
             Token::LBracket,
             Token::Int(1),
@@ -432,7 +432,7 @@ mod tests {
         ];
         assert_eq!(t.unwrap(), e);
 
-        let t = Tokenizer::new(r#"["hello", "world"]"#);
+        let t = Tokenizer::tokenize(r#"["hello", "world"]"#);
         let e = vec![
             Token::LBracket,
             Token::Str("hello".to_string()),
@@ -442,14 +442,14 @@ mod tests {
         ];
         assert_eq!(t.unwrap(), e);
 
-        let t = Tokenizer::new("[]");
+        let t = Tokenizer::tokenize("[]");
         let e = vec![Token::LBracket, Token::RBracket];
         assert_eq!(t.unwrap(), e);
     }
 
     #[test]
     fn map_literals() {
-        let t = Tokenizer::new(r#"{"key": "value"}"#);
+        let t = Tokenizer::tokenize(r#"{"key": "value"}"#);
         let e = vec![
             Token::LBrace,
             Token::Str("key".to_string()),
@@ -459,7 +459,7 @@ mod tests {
         ];
         assert_eq!(t.unwrap(), e);
 
-        let t = Tokenizer::new(r#"{"a": 1, "b": 2}"#);
+        let t = Tokenizer::tokenize(r#"{"a": 1, "b": 2}"#);
         let e = vec![
             Token::LBrace,
             Token::Str("a".to_string()),
@@ -473,14 +473,14 @@ mod tests {
         ];
         assert_eq!(t.unwrap(), e);
 
-        let t = Tokenizer::new("{}");
+        let t = Tokenizer::tokenize("{}");
         let e = vec![Token::LBrace, Token::RBrace];
         assert_eq!(t.unwrap(), e);
     }
 
     #[test]
     fn complex_list_map() {
-        let t = Tokenizer::new(r#"[{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]"#);
+        let t = Tokenizer::tokenize(r#"[{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]"#);
         let e = vec![
             Token::LBracket,
             Token::LBrace,
@@ -506,7 +506,7 @@ mod tests {
         ];
         assert_eq!(t.unwrap(), e);
 
-        let t = Tokenizer::new(r#"{"users": [1, 2, 3], "active": true}"#);
+        let t = Tokenizer::tokenize(r#"{"users": [1, 2, 3], "active": true}"#);
         let e = vec![
             Token::LBrace,
             Token::Str("users".to_string()),
@@ -529,7 +529,7 @@ mod tests {
 
     #[test]
     fn trailing_commas() {
-        let t = Tokenizer::new("[1, 2, 3,]");
+        let t = Tokenizer::tokenize("[1, 2, 3,]");
         let e = vec![
             Token::LBracket,
             Token::Int(1),
@@ -542,7 +542,7 @@ mod tests {
         ];
         assert_eq!(t.unwrap(), e);
 
-        let t = Tokenizer::new(r#"{"a": 1, "b": 2,}"#);
+        let t = Tokenizer::tokenize(r#"{"a": 1, "b": 2,}"#);
         let e = vec![
             Token::LBrace,
             Token::Str("a".to_string()),
@@ -560,7 +560,7 @@ mod tests {
 
     #[test]
     fn test_comment() {
-        let t = Tokenizer::new("123 // 这是一个注释\n456");
+        let t = Tokenizer::tokenize("123 // 这是一个注释\n456");
         let e = vec![Token::Int(123), Token::Int(456)];
         assert_eq!(t.unwrap(), e);
     }

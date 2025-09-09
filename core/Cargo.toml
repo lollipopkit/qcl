@@ -16,7 +16,7 @@ once_cell = { workspace = true }
 chrono = { workspace = true, optional = true }
 
 [features]
-default = ["sem_arith", "json"]
+default = ["all"]
 # Semantic arith: 3 / 2 = 1.5, not 1
 sem_arith = []
 # Advanced arithmetic support: Map + Map, List + Val etc.
@@ -25,7 +25,6 @@ adv_arith = []
 json = ["serde_json"]
 yaml = ["serde_yaml"]
 toml = ["dep:toml"]
-# All features
 all = ["sem_arith", "adv_arith", "json", "yaml", "toml"]
 
 [dev-dependencies]

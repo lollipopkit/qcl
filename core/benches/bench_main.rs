@@ -44,7 +44,7 @@ fn bench_parsing(c: &mut Criterion) {
     // Parsing without cache
     c.bench_function("parse_without_cache", |b| {
         b.iter(|| {
-            let tokens = qcl_core::token::Tokenizer::new(expr_str).unwrap();
+            let tokens = qcl_core::token::Tokenizer::tokenize(expr_str).unwrap();
             let expr = qcl_core::ast::Parser::new(&tokens).parse().unwrap();
             black_box(&expr);
         })

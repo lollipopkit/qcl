@@ -372,7 +372,7 @@ impl Expr {
             return Ok((*cached.clone()).clone());
         }
         // Cache miss, perform normal parsing
-        let tokens = Tokenizer::new(expression)?;
+        let tokens = Tokenizer::tokenize(expression)?;
         let expr = Parser::new(&tokens).parse()?; // Internal constant folding happens in parser
         cache.insert(expression.to_string(), Arc::new(expr.clone()));
         Ok(expr)
@@ -569,7 +569,7 @@ impl TryInto<Val> for &Expr {
 }
 
 fn into_expr<S: AsRef<str>>(s: S) -> Result<Expr> {
-    let tokens = Tokenizer::new(s.as_ref())?;
+    let tokens = Tokenizer::tokenize(s.as_ref())?;
     let expr = Parser::new(&tokens).parse()?;
     Ok(expr)
 }

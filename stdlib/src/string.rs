@@ -11,6 +11,13 @@ pub struct StringModule {
 }
 
 #[cfg(feature = "stdlib-string")]
+impl Default for StringModule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "stdlib-string")]
 impl StringModule {
     pub fn new() -> Self {
         let mut functions = HashMap::new();
@@ -276,7 +283,7 @@ mod tests {
     #[test]
     fn test_string_len() -> Result<()> {
         let source = "import string; return string.len(\"hello\");";
-        let tokens = Tokenizer::new(source)?;
+        let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
@@ -298,7 +305,7 @@ mod tests {
     #[test]
     fn test_string_lower() -> Result<()> {
         let source = "import string; return string.lower(\"HELLO\");";
-        let tokens = Tokenizer::new(source)?;
+        let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));

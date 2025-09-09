@@ -10,6 +10,13 @@ pub struct MathModule {
 }
 
 #[cfg(feature = "stdlib-math")]
+impl Default for MathModule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "stdlib-math")]
 impl MathModule {
     pub fn new() -> Self {
         let mut functions = HashMap::new();
@@ -124,7 +131,7 @@ impl MathModule {
             _ => return Err(anyhow::anyhow!("asin() argument must be a number")),
         };
 
-        if x < -1.0 || x > 1.0 {
+        if !(-1.0..=1.0).contains(&x) {
             return Err(anyhow::anyhow!("asin() argument must be between -1 and 1"));
         }
 
@@ -143,7 +150,7 @@ impl MathModule {
             _ => return Err(anyhow::anyhow!("acos() argument must be a number")),
         };
 
-        if x < -1.0 || x > 1.0 {
+        if !(-1.0..=1.0).contains(&x) {
             return Err(anyhow::anyhow!("acos() argument must be between -1 and 1"));
         }
 
@@ -410,7 +417,7 @@ mod tests {
     #[test]
     fn test_math_abs_positive() -> Result<()> {
         let source = "import math; return math.abs(42);";
-        let tokens = Tokenizer::new(source)?;
+        let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
@@ -432,7 +439,7 @@ mod tests {
     #[test]
     fn test_math_abs_negative() -> Result<()> {
         let source = "import math; return math.abs(-42);";
-        let tokens = Tokenizer::new(source)?;
+        let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
@@ -454,7 +461,7 @@ mod tests {
     #[test]
     fn test_math_sqrt() -> Result<()> {
         let source = "import math; return math.sqrt(16);";
-        let tokens = Tokenizer::new(source)?;
+        let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
@@ -476,7 +483,7 @@ mod tests {
     #[test]
     fn test_math_constants() -> Result<()> {
         let source = "import math; return math.pi;";
-        let tokens = Tokenizer::new(source)?;
+        let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));

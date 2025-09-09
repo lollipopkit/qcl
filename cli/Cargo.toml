@@ -18,26 +18,11 @@ qcl-core = { path = "../core" }
 qcl-stdlib = { path = "../stdlib" }
 anyhow = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true, optional = true }
-serde_yaml = { workspace = true, optional = true }
-toml = { workspace = true, optional = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+toml = { workspace = true }
 sanitize-filename = { workspace = true }
 
 [features]
-default = ["sem_arith", "json", "stdlib-math", "stdlib-string", "stdlib-datetime"]
-# Semantic arith: 3 / 2 = 1.5, not 1
-sem_arith = []
-# Advanced arithmetic support: Map + Map, List + Val etc.
-adv_arith = []
-# Input format features
-json = ["serde_json", "qcl-core/json"]
-yaml = ["serde_yaml", "qcl-core/yaml"]
-toml = ["dep:toml", "qcl-core/toml"]
-# Standard library modules (Lua-inspired modular design)
-stdlib-math = ["qcl-stdlib/stdlib-math"]
-stdlib-string = ["qcl-stdlib/stdlib-string"]
-stdlib-datetime = ["qcl-stdlib/stdlib-datetime"]
-stdlib-os = ["qcl-stdlib/stdlib-os"]
-stdlib-tcp = ["qcl-stdlib/stdlib-tcp"]
-stdlib-all = ["stdlib-math", "stdlib-string", "stdlib-datetime", "stdlib-os", "stdlib-tcp"]
-all = ["sem_arith", "adv_arith", "json", "yaml", "toml", "stdlib-all"]
+default = ["all"]
+all = ["qcl-stdlib/all"]

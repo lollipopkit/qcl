@@ -13,7 +13,7 @@ mod tests {
     #[test]
     fn test_function_definition_parsing() -> Result<()> {
         let source = "fn add(a, b) { return a + b; }";
-        let tokens = Tokenizer::new(source)?;
+        let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let stmt = parser.parse_statement()?;
 
@@ -31,7 +31,7 @@ mod tests {
     #[test]
     fn test_function_no_params_parsing() -> Result<()> {
         let source = "fn hello() { return \"Hello, World!\"; }";
-        let tokens = Tokenizer::new(source)?;
+        let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let stmt = parser.parse_statement()?;
 
@@ -52,7 +52,7 @@ mod tests {
 
     #[test]
     fn test_function_call_parsing() -> Result<()> {
-        let tokens = Tokenizer::new("add(1, 2)")?;
+        let tokens = Tokenizer::tokenize("add(1, 2)")?;
         let mut parser = crate::ast::Parser::new(&tokens);
         let expr = parser.parse()?;
 
@@ -74,7 +74,7 @@ mod tests {
 
     #[test]
     fn test_function_call_no_args_parsing() -> Result<()> {
-        let tokens = Tokenizer::new("hello()")?;
+        let tokens = Tokenizer::tokenize("hello()")?;
         let mut parser = crate::ast::Parser::new(&tokens);
         let expr = parser.parse()?;
 
@@ -95,7 +95,7 @@ mod tests {
     #[test]
     fn test_function_execution_simple() -> Result<()> {
         let source = "fn add(a, b) { return a + b; } return add(3, 4);";
-        let tokens = Tokenizer::new(source)?;
+        let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
@@ -109,7 +109,7 @@ mod tests {
     #[test]
     fn test_function_execution_no_params() -> Result<()> {
         let source = "fn greeting() { return \"Hello!\"; } return greeting();";
-        let tokens = Tokenizer::new(source)?;
+        let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
@@ -131,7 +131,7 @@ mod tests {
             let b = 6;
             return multiply(a, b);
         "#;
-        let tokens = Tokenizer::new(source)?;
+        let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
@@ -151,7 +151,7 @@ mod tests {
             }
             return test(5);
         "#;
-        let tokens = Tokenizer::new(source)?;
+        let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
@@ -166,7 +166,7 @@ mod tests {
     #[test]
     fn test_function_returns_nil_by_default() -> Result<()> {
         let source = "fn test() { let x = 5; } return test();";
-        let tokens = Tokenizer::new(source)?;
+        let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
@@ -189,7 +189,7 @@ mod tests {
             }
             return factorial(5);
         "#;
-        let tokens = Tokenizer::new(source)?;
+        let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
@@ -208,7 +208,7 @@ mod tests {
             }
             return getUserAge();
         "#;
-        let tokens = Tokenizer::new(source)?;
+        let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
 
@@ -227,7 +227,7 @@ mod tests {
     #[test]
     fn test_function_call_with_wrong_arg_count() -> Result<()> {
         let source = "fn add(a, b) { return a + b; } add(1);";
-        let tokens = Tokenizer::new(source)?;
+        let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
@@ -248,7 +248,7 @@ mod tests {
     #[test]
     fn test_undefined_function_call() -> Result<()> {
         let source = "nonexistent();";
-        let tokens = Tokenizer::new(source)?;
+        let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
@@ -264,7 +264,7 @@ mod tests {
     #[test]
     fn test_calling_non_function() -> Result<()> {
         let source = "let x = 5; x();";
-        let tokens = Tokenizer::new(source)?;
+        let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
@@ -301,7 +301,7 @@ mod tests {
             fn compute() { return add(multiply(2, 3), 4); }
             return compute();
         "#;
-        let tokens = Tokenizer::new(source)?;
+        let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));

@@ -12,7 +12,8 @@ anyhow = { workspace = true }
 chrono = { workspace = true, optional = true }
 
 [features]
-default = ["stdlib-string", "stdlib-math", "stdlib-datetime", "stdlib-os", "stdlib-tcp"]
+default = ["all"]
+all = ["stdlib-string", "stdlib-math", "stdlib-datetime", "stdlib-os", "stdlib-tcp"]
 # Standard library modules
 stdlib-math = []
 stdlib-string = []

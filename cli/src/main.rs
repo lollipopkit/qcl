@@ -58,11 +58,8 @@ fn main() -> anyhow::Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
     if args.len() < 2 {
         let mut formats = Vec::new();
-        #[cfg(feature = "json")]
         formats.push("json");
-        #[cfg(feature = "yaml")]
         formats.push("yaml");
-        #[cfg(feature = "toml")]
         formats.push("toml");
 
         let format_str = formats.join("|");
@@ -98,17 +95,14 @@ fn main() -> anyhow::Result<()> {
 
     while arg_idx < args.len() {
         match args[arg_idx].as_str() {
-            #[cfg(feature = "json")]
             "--json" => {
                 format_override = Some(de::Format::Json);
                 arg_idx += 1;
             }
-            #[cfg(feature = "yaml")]
             "--yaml" => {
                 format_override = Some(de::Format::Yaml);
                 arg_idx += 1;
             }
-            #[cfg(feature = "toml")]
             "--toml" => {
                 format_override = Some(de::Format::Toml);
                 arg_idx += 1;
@@ -160,7 +154,7 @@ fn main() -> anyhow::Result<()> {
     };
 
     if is_statement_mode {
-        let tokens = Tokenizer::new(&input)?;
+        let tokens = Tokenizer::tokenize(&input)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         

@@ -49,9 +49,10 @@ impl ModuleRegistry {
     }
 
     /// Get a module by name
-    pub fn get_module(&self, name: &str) -> Result<&Box<dyn Module>> {
+    pub fn get_module(&self, name: &str) -> Result<&dyn Module> {
         self.modules
             .get(name)
+            .map(|boxed| boxed.as_ref())
             .ok_or_else(|| anyhow!("Module '{}' not found", name))
     }
 
@@ -229,7 +230,7 @@ impl ImportContext {
 
     /// Unload a module
     pub fn unload_module(&mut self, module_name: &str) -> Result<()> {
-        if let Some(_) = self.loaded_modules.remove(module_name) {
+        if self.loaded_modules.remove(module_name).is_some() {
             // Note: In a real implementation, we might want to call cleanup
             // on the module here, but for now we just remove it from cache
         }

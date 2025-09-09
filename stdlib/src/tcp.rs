@@ -52,6 +52,13 @@ pub struct TcpModule {
 }
 
 #[cfg(feature = "stdlib-tcp")]
+impl Default for TcpModule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "stdlib-tcp")]
 impl TcpModule {
     pub fn new() -> Self {
         let mut functions = HashMap::new();
@@ -86,7 +93,7 @@ impl TcpModule {
     /// Usage: tcp.connect("127.0.0.1:8080") or tcp.connect("127.0.0.1", 8080)
     /// Returns: connection_id string for use with other functions
     fn connect(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
-        if args.len() < 1 || args.len() > 2 {
+        if args.is_empty() || args.len() > 2 {
             return Err(anyhow::anyhow!(
                 "connect() takes 1 or 2 arguments: address [, port]"
             ));
@@ -170,7 +177,7 @@ impl TcpModule {
     /// Usage: tcp.recv(connection_id [, buffer_size])
     /// Returns: received data as string
     fn recv(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
-        if args.len() < 1 || args.len() > 2 {
+        if args.is_empty() || args.len() > 2 {
             return Err(anyhow::anyhow!("recv() takes 1 or 2 arguments: connection_id [, buffer_size]"));
         }
 
@@ -290,7 +297,7 @@ impl TcpModule {
     /// Usage: tcp.bind("127.0.0.1:8080") or tcp.bind("127.0.0.1", 8080)
     /// Returns: listener_id string for use with accept/close_listener
     fn bind(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
-        if args.len() < 1 || args.len() > 2 {
+        if args.is_empty() || args.len() > 2 {
             return Err(anyhow::anyhow!("bind() takes 1 or 2 arguments: address [, port]"));
         }
 
@@ -427,7 +434,7 @@ impl TcpModule {
     /// Usage: tcp.connect_async("127.0.0.1:8080") or tcp.connect_async("127.0.0.1", 8080)
     /// Returns: channel that will receive connection_id when ready
     fn connect_async(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
-        if args.len() < 1 || args.len() > 2 {
+        if args.is_empty() || args.len() > 2 {
             return Err(anyhow::anyhow!(
                 "connect_async() takes 1 or 2 arguments: address [, port]"
             ));
@@ -538,7 +545,7 @@ impl TcpModule {
     /// Usage: tcp.recv_async(connection_id [, buffer_size])
     /// Returns: channel that will receive data when available
     fn recv_async(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
-        if args.len() < 1 || args.len() > 2 {
+        if args.is_empty() || args.len() > 2 {
             return Err(anyhow::anyhow!("recv_async() takes 1 or 2 arguments: connection_id [, buffer_size]"));
         }
 
@@ -652,7 +659,7 @@ impl TcpModule {
     /// Usage: tcp.read_stream(connection_id [, buffer_size])
     /// Returns: channel that continuously receives data
     fn read_stream(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
-        if args.len() < 1 || args.len() > 2 {
+        if args.is_empty() || args.len() > 2 {
             return Err(anyhow::anyhow!("read_stream() takes 1 or 2 arguments: connection_id [, buffer_size]"));
         }
 

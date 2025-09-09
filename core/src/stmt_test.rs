@@ -9,7 +9,7 @@ mod tests {
     use std::collections::HashMap;
 
     fn parse_program(source: &str) -> Program {
-        let tokens = Tokenizer::new(source).expect("Failed to tokenize");
+        let tokens = Tokenizer::tokenize(source).expect("Failed to tokenize");
         let mut parser = StmtParser::new(&tokens);
         parser.parse_program().expect("Failed to parse program")
     }
@@ -489,7 +489,7 @@ mod tests {
 
     #[test]
     fn test_unknown_type_error() {
-        let tokens = Tokenizer::new("let x: UnknownType = 42;").expect("Failed to tokenize");
+        let tokens = Tokenizer::tokenize("let x: UnknownType = 42;").expect("Failed to tokenize");
         let mut parser = StmtParser::new(&tokens);
         let result = parser.parse_program();
         assert!(result.is_err());

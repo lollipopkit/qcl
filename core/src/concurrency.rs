@@ -15,6 +15,12 @@ pub struct Channel {
     pub capacity: usize, // Make capacity public for testing
 }
 
+impl Default for Channel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Channel {
     /// Create a new unbuffered channel (capacity 0)
     pub fn new() -> Self {
@@ -41,10 +47,8 @@ impl Channel {
             let mut _buffer: VecDeque<Val> = VecDeque::with_capacity(capacity);
             
             // This is a simplified bridge - in practice you'd want more sophisticated buffering
-            loop {
-                // This is a placeholder - proper implementation would require more complex logic
-                break;
-            }
+            // TODO: Implement proper buffering logic
+            // For now, just return to avoid never loop
         });
         
         Self {
@@ -142,7 +146,7 @@ impl GoroutineHandle {
 
     /// Check if the goroutine is finished
     pub fn is_finished(&self) -> bool {
-        self.handle.as_ref().map_or(true, |h| h.is_finished())
+        self.handle.as_ref().is_none_or(|h| h.is_finished())
     }
 }
 

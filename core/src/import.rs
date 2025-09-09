@@ -14,7 +14,7 @@ use std::sync::{Arc, RwLock};
 /// 4. `import { func as alias } from "file.qcl";` - imports with alias
 /// 5. `import * as math from math;` - imports all as namespace
 /// 6. `import math as m;` - imports entire module with alias
-
+///
 /// Import statement variants
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImportStmt {
@@ -77,7 +77,7 @@ impl ModuleResolver {
 
     /// Create a new resolver with a specific module registry
     pub fn with_registry(registry: ModuleRegistry) -> Self {
-        let resolver = Self {
+        Self {
             stdlib_registry: registry,
             stdlib_modules: HashMap::new(),
             file_modules: Arc::new(RwLock::new(HashMap::new())),
@@ -86,9 +86,7 @@ impl ModuleResolver {
                 PathBuf::from("./lib"),     // Local lib directory
                 PathBuf::from("./modules"), // Local modules directory
             ],
-        };
-
-        resolver
+        }
     }
 
     /// Add a search path for file resolution
@@ -116,11 +114,10 @@ impl ModuleResolver {
         let resolved_path = self.resolve_file_path(path)?;
 
         // Check cache first
-        if let Ok(cache) = self.file_modules.read() {
-            if let Some(module) = cache.get(&resolved_path) {
+        if let Ok(cache) = self.file_modules.read()
+            && let Some(module) = cache.get(&resolved_path) {
                 return Ok(module.clone());
             }
-        }
 
         // Load and parse the file
         let module = self.load_file_module(&resolved_path)?;

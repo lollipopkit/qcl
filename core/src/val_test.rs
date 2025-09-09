@@ -320,9 +320,9 @@ mod tests {
         let val: Val = yaml_int.into();
         assert_eq!(val, Val::Int(42));
 
-        let yaml_float = serde_yaml::Value::Number(serde_yaml::Number::from(3.14));
+        let yaml_float = serde_yaml::Value::Number(serde_yaml::Number::from(std::f64::consts::PI));
         let val: Val = yaml_float.into();
-        assert_eq!(val, Val::Float(3.14));
+        assert_eq!(val, Val::Float(std::f64::consts::PI));
 
         let yaml_bool = serde_yaml::Value::Bool(true);
         let val: Val = yaml_bool.into();

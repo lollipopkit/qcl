@@ -13,7 +13,7 @@ struct EnvObject;
 
 #[cfg(feature = "stdlib-os")]
 impl EnvObject {
-    fn new() -> Val {
+    fn create() -> Val {
         let mut methods = HashMap::new();
         methods.insert("get".to_string(), Val::RustFunction(Self::get));
         methods.insert("set".to_string(), Val::RustFunction(Self::set));
@@ -103,7 +103,7 @@ struct DirObject;
 
 #[cfg(feature = "stdlib-os")]
 impl DirObject {
-    fn new() -> Val {
+    fn create() -> Val {
         let mut methods = HashMap::new();
         methods.insert("list".to_string(), Val::RustFunction(Self::list));
         methods.insert("temp".to_string(), Val::RustFunction(Self::temp_dir));
@@ -165,6 +165,13 @@ pub struct OsModule {
 }
 
 #[cfg(feature = "stdlib-os")]
+impl Default for OsModule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "stdlib-os")]
 impl OsModule {
     pub fn new() -> Self {
         let mut functions = HashMap::new();
@@ -176,10 +183,10 @@ impl OsModule {
         functions.insert("exit".to_string(), Val::RustFunction(Self::exit));
 
         // Add env object
-        functions.insert("env".to_string(), EnvObject::new());
+        functions.insert("env".to_string(), EnvObject::create());
 
         // Add dir object
-        functions.insert("dir".to_string(), DirObject::new());
+        functions.insert("dir".to_string(), DirObject::create());
 
         Self { functions }
     }

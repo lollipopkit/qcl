@@ -136,7 +136,7 @@ impl<'a> StmtParser<'a> {
             self.pos += 1; // consume ':'
 
             if let Token::Id(type_name) = &self.tokens[self.pos] {
-                let typ = Type::from_str(type_name)
+                let typ = Type::parse(type_name)
                     .ok_or_else(|| anyhow!(self.err(&format!("Unknown type: {}", type_name))))?;
                 self.pos += 1;
                 Some(typ)
@@ -496,7 +496,7 @@ impl<'a> StmtParser<'a> {
         } else {
             self.len
         };
-        let l_idx = if self.pos > 5 { self.pos - 5 } else { 0 };
+        let l_idx = self.pos.saturating_sub(5);
         let r_idx = if r_idx > self.len { self.len } else { r_idx };
         let chars = &self.tokens[l_idx..r_idx];
         let chars: Vec<_> = chars.iter().collect();

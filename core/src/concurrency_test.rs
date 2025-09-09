@@ -33,7 +33,7 @@ mod tests {
 
     #[test]
     fn test_go_statement_parsing() -> Result<()> {
-        let tokens = Tokenizer::new("go { let x = 42; }")?;
+        let tokens = Tokenizer::tokenize("go { let x = 42; }")?;
         let mut parser = StmtParser::new(&tokens);
         let stmt = parser.parse_statement()?;
 
@@ -55,7 +55,7 @@ mod tests {
     #[test]
     fn test_channel_send_recv_parsing() -> Result<()> {
         // Test channel receive parsing
-        let tokens = Tokenizer::new("<-ch;")?;
+        let tokens = Tokenizer::tokenize("<-ch;")?;
         let mut parser = StmtParser::new(&tokens);
         let stmt = parser.parse_statement()?;
 
@@ -72,7 +72,7 @@ mod tests {
     #[test]
     fn test_go_keyword_tokenization() -> Result<()> {
         // Test that go keyword is properly tokenized
-        let tokens = Tokenizer::new("go")?;
+        let tokens = Tokenizer::tokenize("go")?;
         assert_eq!(tokens.len(), 1);
         if let Some(token) = tokens.first() {
             match token {
@@ -109,7 +109,7 @@ mod tests {
             };
         "#;
 
-        let tokens = Tokenizer::new(program_text)?;
+        let tokens = Tokenizer::tokenize(program_text)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
 

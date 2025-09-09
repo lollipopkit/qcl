@@ -16,7 +16,7 @@ use crate::op::{BinOp, err_op};
 /// Type for Rust functions that can be called from QCL
 pub type RustFunction = fn(args: &[Val], env: &crate::stmt::Environment, ctx: &Val) -> Result<Val>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum Val {
     /// String type, wrapped in Arc<str> for efficient cloning
     Str(Arc<str>),
@@ -40,6 +40,7 @@ pub enum Val {
     Channel(Channel),
     /// Goroutine handle for managing spawned tasks
     Goroutine(GoroutineHandle),
+    #[default]
     Nil,
 }
 
@@ -58,7 +59,7 @@ pub enum Type {
 }
 
 impl Type {
-    pub fn from_str(s: &str) -> Option<Type> {
+    pub fn parse(s: &str) -> Option<Type> {
         match s {
             "Int" => Some(Type::Int),
             "Float" => Some(Type::Float),
@@ -75,19 +76,7 @@ impl Type {
     }
 
     pub fn validate(&self, val: &Val) -> Result<()> {
-        let matches = match (self, val) {
-            (Type::Int, Val::Int(_)) => true,
-            (Type::Float, Val::Float(_)) => true,
-            (Type::String, Val::Str(_)) => true,
-            (Type::Bool, Val::Bool(_)) => true,
-            (Type::List, Val::List(_)) => true,
-            (Type::Map, Val::Map(_)) => true,
-            (Type::Function, Val::Closure { .. } | Val::RustFunction(_)) => true,
-            (Type::Channel, Val::Channel(_)) => true,
-            (Type::Goroutine, Val::Goroutine(_)) => true,
-            (Type::Nil, Val::Nil) => true,
-            _ => false,
-        };
+        let matches = matches!((self, val), (Type::Int, Val::Int(_)) | (Type::Float, Val::Float(_)) | (Type::String, Val::Str(_)) | (Type::Bool, Val::Bool(_)) | (Type::List, Val::List(_)) | (Type::Map, Val::Map(_)) | (Type::Function, Val::Closure { .. } | Val::RustFunction(_)) | (Type::Channel, Val::Channel(_)) | (Type::Goroutine, Val::Goroutine(_)) | (Type::Nil, Val::Nil));
 
         if matches {
             Ok(())
@@ -479,7 +468,7 @@ impl From<serde_json::Value> for Val {
             serde_json::Value::Object(o) => {
                 let m = o
                     .into_iter()
-                    .map(|(k, v)| (k.into(), Val::from(v)))
+                    .map(|(k, v)| (k, Val::from(v)))
                     .collect();
                 Val::Map(Arc::new(m))
             }
@@ -536,11 +525,6 @@ impl Val {
     }
 }
 
-impl Default for Val {
-    fn default() -> Self {
-        Val::Nil
-    }
-}
 
 impl PartialEq for Val {
     fn eq(&self, other: &Self) -> bool {

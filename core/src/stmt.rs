@@ -131,6 +131,12 @@ pub struct Environment {
     resolver: Arc<ModuleResolver>,
 }
 
+impl Default for Environment {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Environment {
     pub fn new() -> Self {
         Self {
@@ -370,23 +376,21 @@ impl Stmt {
                     match case {
                         SelectCase::Recv { variable, channel, body } => {
                             let ch_val = channel.eval_with_env(ctx, Some(env))?;
-                            if let Val::Channel(ch) = ch_val {
-                                if let Ok(Some(received_val)) = ch.try_recv() {
+                            if let Val::Channel(ch) = ch_val
+                                && let Ok(Some(received_val)) = ch.try_recv() {
                                     if let Some(var_name) = variable {
                                         env.define(var_name.clone(), received_val);
                                     }
                                     return body.execute(env, ctx);
                                 }
-                            }
                         }
                         SelectCase::Send { channel, value, body } => {
                             let ch_val = channel.eval_with_env(ctx, Some(env))?;
                             let send_val = value.eval_with_env(ctx, Some(env))?;
-                            if let Val::Channel(ch) = ch_val {
-                                if let Ok(true) = ch.try_send(send_val) {
+                            if let Val::Channel(ch) = ch_val
+                                && let Ok(true) = ch.try_send(send_val) {
                                     return body.execute(env, ctx);
                                 }
-                            }
                         }
                         SelectCase::Default { body } => {
                             return body.execute(env, ctx);

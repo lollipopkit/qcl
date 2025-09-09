@@ -72,7 +72,7 @@ pub struct Tokenizer {
 }
 
 impl Tokenizer {
-    pub fn new(s: &str) -> Result<Vec<Token>> {
+    pub fn tokenize(s: &str) -> Result<Vec<Token>> {
         let mut t = Tokenizer {
             chars: s.chars().collect(),
             idx: 0,
@@ -110,7 +110,7 @@ impl Tokenizer {
         } else {
             self.len
         };
-        let l_idx = if self.idx > 5 { self.idx - 5 } else { 0 };
+        let l_idx = self.idx.saturating_sub(5);
         let r_idx = if r_idx > self.len { self.len } else { r_idx };
         let chars = &self.chars[l_idx..r_idx];
         let chars: String = chars.iter().collect();
@@ -167,7 +167,7 @@ impl Tokenizer {
         let mut dot_count = 0;
         while !self.eof() {
             let c = self.chars[self.idx];
-            if c.is_digit(10) {
+            if c.is_ascii_digit() {
                 num.push(c);
                 self.idx += 1;
             } else if c == '.' {
@@ -303,7 +303,7 @@ impl Tokenizer {
         while !self.eof() {
             let c = self.chars[self.idx];
             let is_field = c.is_alphanumeric() || c == '_' || c == '-';
-            let is_num = c.is_digit(10);
+            let is_num = c.is_ascii_digit();
             if is_field && !is_num {
                 self.parse_id()?;
                 continue;
@@ -326,7 +326,7 @@ impl Tokenizer {
         let mut num = String::new();
         while !self.eof() {
             let c = self.chars[self.idx];
-            if c.is_digit(10) {
+            if c.is_ascii_digit() {
                 num.push(c);
                 self.idx += 1;
             } else {
@@ -391,14 +391,13 @@ impl Tokenizer {
             }
             '.' => {
                 let next = self.chars.get(self.idx + 1);
-                if let Some(&c) = next {
-                    if c.is_digit(10) {
+                if let Some(&c) = next
+                    && c.is_ascii_digit() {
                         self.idx += 1;
                         self.tokens.push(Token::Dot);
                         // To avoid confusion with Dot in float, only parse int here
                         return self.parse_int();
                     }
-                }
                 self.idx += 1;
                 self.tokens.push(Token::Dot);
                 Ok(())
@@ -421,22 +420,20 @@ impl Tokenizer {
             }
             '+' => {
                 let next = self.chars.get(self.idx + 1);
-                if let Some(&c) = next {
-                    if c.is_digit(10) {
+                if let Some(&c) = next
+                    && c.is_ascii_digit() {
                         return self.parse_num();
                     }
-                }
                 self.idx += 1;
                 self.tokens.push(Token::Add);
                 Ok(())
             }
             '-' => {
                 let next = self.chars.get(self.idx + 1);
-                if let Some(&c) = next {
-                    if c.is_digit(10) {
+                if let Some(&c) = next
+                    && c.is_ascii_digit() {
                         return self.parse_num();
                     }
-                }
                 self.idx += 1;
                 self.tokens.push(Token::Sub);
                 Ok(())
@@ -547,10 +544,7 @@ impl Tokenizer {
     }
 
     fn is_punctuation(&self, c: char) -> bool {
-        match c {
-            '(' | ')' | '{' | '}' | '[' | ']' | '.' | ':' | ',' | ';' | '&' | '|' | '+' | '-'
-            | '*' | '/' | '%' | '@' | '=' | '!' | '>' | '<' => true,
-            _ => false,
-        }
+        matches!(c, '(' | ')' | '{' | '}' | '[' | ']' | '.' | ':' | ',' | ';' | '&' | '|' | '+' | '-'
+            | '*' | '/' | '%' | '@' | '=' | '!' | '>' | '<')
     }
 }

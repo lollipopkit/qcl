@@ -146,7 +146,7 @@ mod tests {
             match result {
                 Ok(Val::Channel(_)) => {
                     // Success - we got a channel back
-                    assert!(true);
+                    // Test passed
                 }
                 _ => panic!("connect_async should return a channel"),
             }
@@ -172,7 +172,7 @@ mod tests {
             match result {
                 Ok(Val::Channel(_)) => {
                     // Success - we got a channel back
-                    assert!(true);
+                    // Test passed
                 }
                 _ => panic!("send_async should return a channel"),
             }
@@ -198,7 +198,7 @@ mod tests {
             match result {
                 Ok(Val::Channel(_)) => {
                     // Success - we got a channel back
-                    assert!(true);
+                    // Test passed
                 }
                 _ => panic!("recv_async should return a channel"),
             }
@@ -224,7 +224,7 @@ mod tests {
             match result {
                 Ok(Val::Channel(_)) => {
                     // Success - we got a channel back
-                    assert!(true);
+                    // Test passed
                 }
                 _ => panic!("accept_async should return a channel"),
             }
@@ -250,7 +250,7 @@ mod tests {
             match result {
                 Ok(Val::Channel(_)) => {
                     // Success - we got a channel back
-                    assert!(true);
+                    // Test passed
                 }
                 _ => panic!("read_stream should return a channel"),
             }
@@ -276,7 +276,7 @@ mod tests {
             match result {
                 Ok(Val::Channel(_)) => {
                     // Success - we got a channel back
-                    assert!(true);
+                    // Test passed
                 }
                 _ => panic!("write_stream should return a channel"),
             }

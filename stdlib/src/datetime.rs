@@ -16,6 +16,13 @@ pub struct DateTimeModule {
 }
 
 #[cfg(feature = "stdlib-datetime")]
+impl Default for DateTimeModule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "stdlib-datetime")]
 impl DateTimeModule {
     pub fn new() -> Self {
         let mut functions = HashMap::new();
@@ -228,7 +235,7 @@ mod tests {
     #[test]
     fn test_datetime_now() -> Result<()> {
         let source = "import datetime; return datetime.now();";
-        let tokens = Tokenizer::new(source)?;
+        let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
@@ -254,7 +261,7 @@ mod tests {
     #[test]
     fn test_datetime_format() -> Result<()> {
         let source = "import datetime; return datetime.format(1672531200, \"%Y-%m-%d\");";
-        let tokens = Tokenizer::new(source)?;
+        let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));

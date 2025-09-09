@@ -52,19 +52,11 @@ pub enum BinOp {
 
 impl BinOp {
     pub(crate) fn is_arith(&self) -> bool {
-        match self {
-            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => true,
-            _ => false,
-        }
+        matches!(self, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod)
     }
 
     pub(crate) fn is_cmp(&self) -> bool {
-        match self {
-            BinOp::Eq | BinOp::Ne | BinOp::Gt | BinOp::Lt | BinOp::Ge | BinOp::Le | BinOp::In => {
-                true
-            }
-            _ => false,
-        }
+        matches!(self, BinOp::Eq | BinOp::Ne | BinOp::Gt | BinOp::Lt | BinOp::Ge | BinOp::Le | BinOp::In)
     }
 
     fn arith(&self, l: &Val, r: &Val) -> Result<Val> {
