@@ -559,9 +559,59 @@ mod tests {
     }
 
     #[test]
-    fn test_comment() {
+    fn test_line_comment() {
         let t = Tokenizer::tokenize("123 // 这是一个注释\n456");
         let e = vec![Token::Int(123), Token::Int(456)];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
+    fn test_block_comment() {
+        let t = Tokenizer::tokenize("123 /* 这是一个块注释 */ 456");
+        let e = vec![Token::Int(123), Token::Int(456)];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
+    fn test_multiline_block_comment() {
+        let t = Tokenizer::tokenize("123 /* 这是一个\n多行块注释 */ 456");
+        let e = vec![Token::Int(123), Token::Int(456)];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
+    fn test_nested_block_comments() {
+        // In most languages, nested block comments don't work as expected
+        // The first */ closes the comment, leaving the rest as tokens
+        let t = Tokenizer::tokenize("123 /* 外层注释 /* 内层注释 */ 外层继续 */ 456");
+        let e = vec![Token::Int(123), Token::Id("外层继续".to_string()), Token::Mul, Token::Div, Token::Int(456)];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
+    fn test_unclosed_block_comment() {
+        let t = Tokenizer::tokenize("123 /* 未闭合的注释 456");
+        assert!(t.is_err());
+    }
+
+    #[test]
+    fn test_comment_before_operator() {
+        let t = Tokenizer::tokenize("123 /* 注释 */ + 456");
+        let e = vec![Token::Int(123), Token::Add, Token::Int(456)];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
+    fn test_comment_after_operator() {
+        let t = Tokenizer::tokenize("123 + /* 注释 */ 456");
+        let e = vec![Token::Int(123), Token::Add, Token::Int(456)];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
+    fn test_multiple_comments() {
+        let t = Tokenizer::tokenize("123 // 注释1\n/* 注释2 */ 456 // 注释3\n789");
+        let e = vec![Token::Int(123), Token::Int(456), Token::Int(789)];
         assert_eq!(t.unwrap(), e);
     }
 }

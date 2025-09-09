@@ -129,6 +129,35 @@ impl Tokenizer {
         }
     }
 
+    fn skip_line_comment(&mut self) -> Result<()> {
+        // Skip to end of line
+        while !self.eof() {
+            let c = self.chars[self.idx];
+            if c == '\n' {
+                self.idx += 1;
+                break;
+            }
+            self.idx += 1;
+        }
+        Ok(())
+    }
+
+    fn skip_block_comment(&mut self) -> Result<()> {
+        // Skip past /*
+        self.idx += 2;
+        
+        while !self.eof() {
+            let c = self.chars[self.idx];
+            if c == '*' && self.idx + 1 < self.len && self.chars[self.idx + 1] == '/' {
+                self.idx += 2;
+                return Ok(());
+            }
+            self.idx += 1;
+        }
+        
+        Err(anyhow!(self.err("Block comment not closed")))
+    }
+
     fn parse_str(&mut self) -> Result<()> {
         let mut s = String::new();
         let quote = self.chars[self.idx];
@@ -446,14 +475,10 @@ impl Tokenizer {
             '/' => {
                 if self.expect("//") {
                     // Skip single-line comment
-                    while !self.eof() {
-                        let c = self.chars[self.idx];
-                        if c == '\n' {
-                            self.idx += 1;
-                            break;
-                        }
-                        self.idx += 1;
-                    }
+                    self.skip_line_comment()?;
+                } else if self.expect("/*") {
+                    // Skip block comment
+                    self.skip_block_comment()?;
                 } else {
                     self.idx += 1;
                     self.tokens.push(Token::Div);
