@@ -24,10 +24,24 @@
     "semanticTokensProvider": {
       "legend": {
         "tokenTypes": [
-          "comment", "keyword", "variable", "function", "string", 
-          "number", "operator", "parameter", "property", "namespace", "type"
+          "comment",
+          "keyword",
+          "variable",
+          "function",
+          "string",
+          "number",
+          "operator",
+          "parameter",
+          "property",
+          "namespace",
+          "type"
         ],
-        "tokenModifiers": ["declaration", "definition", "readonly", "static"]
+        "tokenModifiers": [
+          "declaration",
+          "definition",
+          "readonly",
+          "static"
+        ]
       },
       "full": true,
       "range": true
@@ -147,19 +161,44 @@
             "comment",
             "comment.line",
             "comment.block",
-            "comment.line.double-slash.qcl",
-            "comment.block.qcl"
+            "punctuation.definition.comment.qcl",
+            "punctuation.definition.comment.begin.qcl",
+            "punctuation.definition.comment.end.qcl"
           ],
-          "keyword": ["keyword.control.qcl", "keyword.other.qcl"],
-          "variable": ["variable.other.qcl"],
-          "function": ["entity.name.function.qcl", "support.function.qcl"],
-          "string": ["string.quoted.qcl"],
-          "number": ["constant.numeric.qcl"],
-          "operator": ["keyword.operator.qcl"],
-          "parameter": ["variable.parameter.qcl"],
-          "property": ["variable.other.property.qcl", "support.variable.property.qcl"],
-          "namespace": ["entity.name.namespace.qcl"],
-          "type": ["support.type.qcl", "entity.name.type.qcl"]
+          "keyword": [
+            "keyword.control.qcl",
+            "keyword.other.qcl"
+          ],
+          "variable": [
+            "variable.other.qcl"
+          ],
+          "function": [
+            "entity.name.function.qcl",
+            "support.function.qcl"
+          ],
+          "string": [
+            "string.quoted.qcl"
+          ],
+          "number": [
+            "constant.numeric.qcl"
+          ],
+          "operator": [
+            "keyword.operator.qcl"
+          ],
+          "parameter": [
+            "variable.parameter.qcl"
+          ],
+          "property": [
+            "variable.other.property.qcl",
+            "support.variable.property.qcl"
+          ],
+          "namespace": [
+            "entity.name.namespace.qcl"
+          ],
+          "type": [
+            "support.type.qcl",
+            "entity.name.type.qcl"
+          ]
         }
       }
     ]
