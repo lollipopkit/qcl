@@ -143,7 +143,13 @@
       {
         "language": "qcl",
         "scopes": {
-          "comment": ["comment.qcl"],
+          "comment": [
+            "comment",
+            "comment.line",
+            "comment.block",
+            "comment.line.double-slash.qcl",
+            "comment.block.qcl"
+          ],
           "keyword": ["keyword.control.qcl", "keyword.other.qcl"],
           "variable": ["variable.other.qcl"],
           "function": ["entity.name.function.qcl", "support.function.qcl"],

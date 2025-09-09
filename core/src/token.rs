@@ -69,6 +69,7 @@ pub struct Tokenizer {
     idx: usize,
     len: usize,
     pub tokens: Vec<Token>,
+    pub token_spans: Vec<crate::error::Span>,
     line: u32,
     column: u32,
     input: String,
@@ -81,12 +82,34 @@ impl Tokenizer {
             idx: 0,
             len: s.chars().count(), // More accurate than s.len() for Unicode
             tokens: Vec::with_capacity(s.len() / 4), // Preallocate a reasonable size
+            token_spans: Vec::with_capacity(s.len() / 4),
             line: 1,
             column: 1,
             input: s.to_string(),
         };
         t.parse()?;
         Ok(t.tokens)
+    }
+
+    /// Tokenize with enhanced error information (line/column span) for LSP
+    pub fn tokenize_enhanced(s: &str) -> std::result::Result<Vec<Token>, crate::error::ParseError> {
+        let mut t = Tokenizer::new_enhanced(s);
+        match t.parse() {
+            Ok(()) => Ok(t.tokens),
+            Err(err) => {
+                // Attach precise position to the error using the tokenizer's current cursor
+                Err(t.enhanced_error(&format!("{}", err)))
+            }
+        }
+    }
+
+    /// Tokenize and return tokens with precise spans aligned by index
+    pub fn tokenize_enhanced_with_spans(s: &str) -> std::result::Result<(Vec<Token>, Vec<crate::error::Span>), crate::error::ParseError> {
+        let mut t = Tokenizer::new_enhanced(s);
+        match t.parse() {
+            Ok(()) => Ok((t.tokens, t.token_spans)),
+            Err(err) => Err(t.enhanced_error(&format!("{}", err))),
+        }
     }
 
     /// Get enhanced error message with position information for LSP
@@ -102,6 +125,7 @@ impl Tokenizer {
             idx: 0,
             len: input.chars().count(),
             tokens: Vec::with_capacity(input.len() / 4),
+            token_spans: Vec::with_capacity(input.len() / 4),
             line: 1,
             column: 1,
             input: input.to_string(),
@@ -217,6 +241,7 @@ impl Tokenizer {
 
     fn parse_str(&mut self) -> Result<()> {
         let mut s = String::new();
+        let start_pos = self.current_position();
         let quote = self.chars[self.idx];
         self.advance_char(); // skip opening quote
 
@@ -224,7 +249,8 @@ impl Tokenizer {
             let c = self.chars[self.idx];
             if c == quote {
                 self.advance_char(); // skip closing quote
-                self.tokens.push(Token::Str(s));
+                let end_pos = self.current_position();
+                self.push_with_span(Token::Str(s), start_pos, end_pos);
                 return Ok(());
             }
             s.push(c);
@@ -240,6 +266,7 @@ impl Tokenizer {
     /// - @a.0.1 -> [At, Id("a"), Dot, Int(0), Dot, Int(1)]
     fn parse_num(&mut self) -> Result<()> {
         let mut num = String::new();
+        let start_pos = self.current_position();
         let mut dot_count = 0;
         while !self.eof() {
             let c = self.chars[self.idx];
@@ -276,12 +303,14 @@ impl Tokenizer {
                 Err(_) => return Err(anyhow!("{}: {}", self.err("Invalid int"), num)),
             }
         };
-        self.tokens.push(num);
+        let end_pos = self.current_position();
+        self.push_with_span(num, start_pos, end_pos);
         Ok(())
     }
 
     fn parse_id(&mut self) -> Result<()> {
         let mut id = String::new();
+        let start_pos = self.current_position();
         while !self.eof() {
             let c = self.chars[self.idx];
             if c.is_alphanumeric() || c == '_' || c == '-' {
@@ -291,87 +320,121 @@ impl Tokenizer {
                 break;
             }
         }
-        self.tokens.push(Token::Id(id));
+        let end_pos = self.current_position();
+        self.push_with_span(Token::Id(id), start_pos, end_pos);
         Ok(())
     }
 
     fn parse_keywords(&mut self) -> Result<()> {
-        if self.expect("true") {
-            self.tokens.push(Token::Bool(true));
-            Ok(())
-        } else if self.expect("false") {
-            self.tokens.push(Token::Bool(false));
-            Ok(())
-        } else if self.expect("nil") {
-            self.tokens.push(Token::Nil);
-            Ok(())
-        } else if self.expect("in") {
-            self.tokens.push(Token::In);
-            Ok(())
-        } else if self.expect("if") {
-            self.tokens.push(Token::If);
-            Ok(())
-        } else if self.expect("else") {
-            self.tokens.push(Token::Else);
-            Ok(())
-        } else if self.expect("while") {
-            self.tokens.push(Token::While);
-            Ok(())
-        } else if self.expect("let") {
-            self.tokens.push(Token::Let);
-            Ok(())
-        } else if self.expect("break") {
-            self.tokens.push(Token::Break);
-            Ok(())
-        } else if self.expect("continue") {
-            self.tokens.push(Token::Continue);
-            Ok(())
-        } else if self.expect("return") {
-            self.tokens.push(Token::Return);
-            Ok(())
-        } else if self.expect("goto") {
-            self.tokens.push(Token::Goto);
-            Ok(())
-        } else if self.expect("fn") {
-            self.tokens.push(Token::Fn);
-            Ok(())
-        } else if self.expect("import") {
-            self.tokens.push(Token::Import);
-            Ok(())
-        } else if self.expect("from") {
-            self.tokens.push(Token::From);
-            Ok(())
-        } else if self.expect("as") {
-            self.tokens.push(Token::As);
-            Ok(())
-        } else if self.expect("make_chan") {
-            self.tokens.push(Token::MakeChan);
-            Ok(())
-        } else if self.expect("go") {
-            self.tokens.push(Token::Go);
-            Ok(())
-        } else if self.expect("chan") {
-            self.tokens.push(Token::Chan);
-            Ok(())
-        } else if self.expect("select") {
-            self.tokens.push(Token::Select);
-            Ok(())
-        } else if self.expect("case") {
-            self.tokens.push(Token::Case);
-            Ok(())
-        } else if self.expect("default") {
-            self.tokens.push(Token::Default);
-            Ok(())
-        } else {
-            self.parse_id()
+        fn match_kw(t: &mut Tokenizer, kw: &str) -> Option<crate::error::Span> {
+            let start = t.current_position();
+            if t.expect(kw) {
+                let end = t.current_position();
+                Some(crate::error::Span::new(start, end))
+            } else {
+                None
+            }
         }
+
+        if let Some(sp) = match_kw(self, "true") {
+            self.push_span_only(Token::Bool(true), sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "false") {
+            self.push_span_only(Token::Bool(false), sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "nil") {
+            self.push_span_only(Token::Nil, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "in") {
+            self.push_span_only(Token::In, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "if") {
+            self.push_span_only(Token::If, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "else") {
+            self.push_span_only(Token::Else, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "while") {
+            self.push_span_only(Token::While, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "let") {
+            self.push_span_only(Token::Let, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "break") {
+            self.push_span_only(Token::Break, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "continue") {
+            self.push_span_only(Token::Continue, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "return") {
+            self.push_span_only(Token::Return, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "goto") {
+            self.push_span_only(Token::Goto, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "fn") {
+            self.push_span_only(Token::Fn, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "import") {
+            self.push_span_only(Token::Import, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "from") {
+            self.push_span_only(Token::From, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "as") {
+            self.push_span_only(Token::As, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "make_chan") {
+            self.push_span_only(Token::MakeChan, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "go") {
+            self.push_span_only(Token::Go, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "chan") {
+            self.push_span_only(Token::Chan, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "select") {
+            self.push_span_only(Token::Select, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "case") {
+            self.push_span_only(Token::Case, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "default") {
+            self.push_span_only(Token::Default, sp);
+            return Ok(());
+        }
+
+        self.parse_id()
     }
 
     /// - `@a.(@b - 1)` -> [At, Id("a"), Dot, LParen, At, Id("b"), Sub, Int(1), RParen]
     /// - `@a` -> [At, Id("a")]
     fn parse_at_list(&mut self) -> Result<()> {
+        let at_start = self.current_position();
         if self.expect("@") {
-            self.tokens.push(Token::At);
+            let end = self.current_position();
+            self.push_with_span(Token::At, at_start, end);
         } else {
             return Err(anyhow!(self.err("Expect '@'")));
         }
@@ -389,8 +452,10 @@ impl Tokenizer {
                 continue;
             }
 
+            let dot_start = self.current_position();
             if self.expect(".") {
-                self.tokens.push(Token::Dot);
+                let end = self.current_position();
+                self.push_with_span(Token::Dot, dot_start, end);
                 continue;
             }
             break;
@@ -399,6 +464,8 @@ impl Tokenizer {
     }
 
     fn parse_int(&mut self) -> Result<()> {
+        // Record span for integers parsed in contexts like @a.0 or .123
+        let start_pos = self.current_position();
         let mut num = String::new();
         while !self.eof() {
             let c = self.chars[self.idx];
@@ -409,11 +476,12 @@ impl Tokenizer {
                 break;
             }
         }
-        let num = match num.parse() {
-            Ok(i) => i,
+        let parsed = match num.parse() {
+            Ok(i) => Token::Int(i),
             Err(_) => return Err(anyhow!("{}: {}", self.err("Invalid int"), num)),
         };
-        self.tokens.push(Token::Int(num));
+        let end_pos = self.current_position();
+        self.push_with_span(parsed, start_pos, end_pos);
         Ok(())
     }
 
@@ -421,74 +489,100 @@ impl Tokenizer {
         let c = self.chars[self.idx];
         match c {
             '(' => {
+                let start = self.current_position();
                 self.advance_char();
-                self.tokens.push(Token::LParen);
+                let end = self.current_position();
+                self.push_with_span(Token::LParen, start, end);
                 Ok(())
             }
             ')' => {
+                let start = self.current_position();
                 self.advance_char();
-                self.tokens.push(Token::RParen);
+                let end = self.current_position();
+                self.push_with_span(Token::RParen, start, end);
                 Ok(())
             }
             '{' => {
+                let start = self.current_position();
                 self.advance_char();
-                self.tokens.push(Token::LBrace);
+                let end = self.current_position();
+                self.push_with_span(Token::LBrace, start, end);
                 Ok(())
             }
             '}' => {
+                let start = self.current_position();
                 self.advance_char();
-                self.tokens.push(Token::RBrace);
+                let end = self.current_position();
+                self.push_with_span(Token::RBrace, start, end);
                 Ok(())
             }
             '[' => {
+                let start = self.current_position();
                 self.advance_char();
-                self.tokens.push(Token::LBracket);
+                let end = self.current_position();
+                self.push_with_span(Token::LBracket, start, end);
                 Ok(())
             }
             ']' => {
+                let start = self.current_position();
                 self.advance_char();
-                self.tokens.push(Token::RBracket);
+                let end = self.current_position();
+                self.push_with_span(Token::RBracket, start, end);
                 Ok(())
             }
             ':' => {
+                let start = self.current_position();
                 self.advance_char();
-                self.tokens.push(Token::Colon);
+                let end = self.current_position();
+                self.push_with_span(Token::Colon, start, end);
                 Ok(())
             }
             ',' => {
+                let start = self.current_position();
                 self.advance_char();
-                self.tokens.push(Token::Comma);
+                let end = self.current_position();
+                self.push_with_span(Token::Comma, start, end);
                 Ok(())
             }
             ';' => {
+                let start = self.current_position();
                 self.advance_char();
-                self.tokens.push(Token::Semicolon);
+                let end = self.current_position();
+                self.push_with_span(Token::Semicolon, start, end);
                 Ok(())
             }
             '.' => {
                 let next = self.chars.get(self.idx + 1);
                 if let Some(&c) = next
                     && c.is_ascii_digit() {
+                        let start = self.current_position();
                         self.advance_char();
-                        self.tokens.push(Token::Dot);
+                        let end = self.current_position();
+                        self.push_with_span(Token::Dot, start, end);
                         // To avoid confusion with Dot in float, only parse int here
                         return self.parse_int();
                     }
+                let start = self.current_position();
                 self.advance_char();
-                self.tokens.push(Token::Dot);
+                let end = self.current_position();
+                self.push_with_span(Token::Dot, start, end);
                 Ok(())
             }
             '&' => {
+                let start = self.current_position();
                 if self.expect("&&") {
-                    self.tokens.push(Token::And);
+                    let end = self.current_position();
+                    self.push_with_span(Token::And, start, end);
                     Ok(())
                 } else {
                     Err(anyhow!(self.err("Expect '&&'")))
                 }
             }
             '|' => {
+                let start = self.current_position();
                 if self.expect("||") {
-                    self.tokens.push(Token::Or);
+                    let end = self.current_position();
+                    self.push_with_span(Token::Or, start, end);
                     Ok(())
                 } else {
                     Err(anyhow!(self.err("Expect '||'")))
@@ -500,8 +594,10 @@ impl Tokenizer {
                     && c.is_ascii_digit() {
                         return self.parse_num();
                     }
+                let start = self.current_position();
                 self.advance_char();
-                self.tokens.push(Token::Add);
+                let end = self.current_position();
+                self.push_with_span(Token::Add, start, end);
                 Ok(())
             }
             '-' => {
@@ -510,13 +606,17 @@ impl Tokenizer {
                     && c.is_ascii_digit() {
                         return self.parse_num();
                     }
+                let start = self.current_position();
                 self.advance_char();
-                self.tokens.push(Token::Sub);
+                let end = self.current_position();
+                self.push_with_span(Token::Sub, start, end);
                 Ok(())
             }
             '*' => {
+                let start = self.current_position();
                 self.advance_char();
-                self.tokens.push(Token::Mul);
+                let end = self.current_position();
+                self.push_with_span(Token::Mul, start, end);
                 Ok(())
             }
             '/' => {
@@ -527,57 +627,74 @@ impl Tokenizer {
                     // Skip block comment
                     self.skip_block_comment()?;
                 } else {
+                    let start = self.current_position();
                     self.advance_char();
-                    self.tokens.push(Token::Div);
+                    let end = self.current_position();
+                    self.push_with_span(Token::Div, start, end);
                 }
                 Ok(())
             }
             '%' => {
+                let start = self.current_position();
                 self.advance_char();
-                self.tokens.push(Token::Mod);
+                let end = self.current_position();
+                self.push_with_span(Token::Mod, start, end);
                 Ok(())
             }
             '@' => self.parse_at_list(),
             '=' => {
+                let start = self.current_position();
                 if self.expect("==") {
-                    self.tokens.push(Token::Eq);
+                    let end = self.current_position();
+                    self.push_with_span(Token::Eq, start, end);
                     Ok(())
                 } else {
                     self.advance_char();
-                    self.tokens.push(Token::Assign);
+                    let end = self.current_position();
+                    self.push_with_span(Token::Assign, start, end);
                     Ok(())
                 }
             }
             '!' => {
+                let start = self.current_position();
                 if self.expect("!=") {
-                    self.tokens.push(Token::Ne);
+                    let end = self.current_position();
+                    self.push_with_span(Token::Ne, start, end);
                     Ok(())
                 } else {
                     self.advance_char();
-                    self.tokens.push(Token::Not);
+                    let end = self.current_position();
+                    self.push_with_span(Token::Not, start, end);
                     Ok(())
                 }
             }
             '>' => {
+                let start = self.current_position();
                 if self.expect(">=") {
-                    self.tokens.push(Token::Ge);
+                    let end = self.current_position();
+                    self.push_with_span(Token::Ge, start, end);
                     Ok(())
                 } else {
                     self.advance_char();
-                    self.tokens.push(Token::Gt);
+                    let end = self.current_position();
+                    self.push_with_span(Token::Gt, start, end);
                     Ok(())
                 }
             }
             '<' => {
+                let start = self.current_position();
                 if self.expect("<=") {
-                    self.tokens.push(Token::Le);
+                    let end = self.current_position();
+                    self.push_with_span(Token::Le, start, end);
                     Ok(())
                 } else if self.expect("<-") {
-                    self.tokens.push(Token::Recv);
+                    let end = self.current_position();
+                    self.push_with_span(Token::Recv, start, end);
                     Ok(())
                 } else {
                     self.advance_char();
-                    self.tokens.push(Token::Lt);
+                    let end = self.current_position();
+                    self.push_with_span(Token::Lt, start, end);
                     Ok(())
                 }
             }
@@ -618,5 +735,17 @@ impl Tokenizer {
     fn is_punctuation(&self, c: char) -> bool {
         matches!(c, '(' | ')' | '{' | '}' | '[' | ']' | '.' | ':' | ',' | ';' | '&' | '|' | '+' | '-'
             | '*' | '/' | '%' | '@' | '=' | '!' | '>' | '<')
+    }
+}
+
+impl Tokenizer {
+    fn push_with_span(&mut self, token: Token, start: crate::error::Position, end: crate::error::Position) {
+        self.tokens.push(token);
+        self.token_spans.push(crate::error::Span::new(start, end));
+    }
+
+    fn push_span_only(&mut self, token: Token, span: crate::error::Span) {
+        self.tokens.push(token);
+        self.token_spans.push(span);
     }
 }

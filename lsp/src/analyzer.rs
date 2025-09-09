@@ -32,28 +32,33 @@ impl QclAnalyzer {
         };
 
         // Try parsing as expression first
-        let tokens = match Tokenizer::tokenize(content) {
-            Ok(tokens) => tokens,
-            Err(tokenize_err) => {
-                // Try to get position info if it's a ParseError
-                let range = if let Some(parse_err) = tokenize_err.downcast_ref::<qcl_core::error::ParseError>() {
-                    if let Some(span) = &parse_err.span {
-                        let start_pos = Position::new(span.start.line - 1, span.start.column - 1);
-                        let end_pos = Position::new(span.end.line - 1, span.end.column - 1);
-                        Range::new(start_pos, end_pos)
-                    } else {
-                        Range::new(Position::new(0, 0), Position::new(0, content.len() as u32))
+        let (tokens, spans) = match Tokenizer::tokenize_enhanced_with_spans(content) {
+            Ok(pair) => pair,
+            Err(parse_err) => {
+                // If multi-line, try line-wise scanning to surface multiple errors
+                if content.lines().count() > 1 {
+                    let diags = self.scan_lines_for_diagnostics(content);
+                    if !diags.is_empty() {
+                        result.diagnostics = diags;
+                        return result;
                     }
+                }
+
+                // Fallback: report the single tokenization error for the whole document
+                let range = if let Some(span) = &parse_err.span {
+                    let start_pos = Position::new(span.start.line - 1, span.start.column - 1);
+                    let end_pos = Position::new(span.end.line - 1, span.end.column - 1);
+                    Range::new(start_pos, end_pos)
                 } else {
                     Range::new(Position::new(0, 0), Position::new(0, content.len() as u32))
                 };
-                
+
                 result.diagnostics.push(Diagnostic::new(
                     range,
                     Some(DiagnosticSeverity::ERROR),
                     None,
                     Some("qcl".to_string()),
-                    format!("Tokenization error: {}", tokenize_err),
+                    format!("Tokenization error: {}", parse_err.message),
                     None,
                     None,
                 ));
@@ -61,7 +66,7 @@ impl QclAnalyzer {
             }
         };
 
-        let mut expr_parser = ExprParser::new(&tokens);
+        let mut expr_parser = ExprParser::new_with_spans(&tokens, &spans);
         match expr_parser.parse_with_enhanced_errors(content) {
             Ok(expr) => {
                 // Collect context references
@@ -90,44 +95,495 @@ impl QclAnalyzer {
                 result.diagnostics.extend(context_diagnostics);
             }
             Err(expr_err) => {
+                // Attempt expression-level recovery to surface multiple errors for pure expressions
+                let expr_recover_errors = ExprParser::recover_expression_errors(&tokens, &spans, content);
                 // Try parsing as statement program
-                let mut stmt_parser = StmtParser::new(&tokens);
+                let mut stmt_parser = StmtParser::new_with_spans(&tokens, &spans);
                 match stmt_parser.parse_program_with_enhanced_errors(content) {
                     Ok(program) => {
                         // Analyze statements for symbols and context references
                         self.analyze_statements(&program.statements, &mut result);
                     }
                     Err(stmt_err) => {
-                        // Both parsing attempts failed - prefer statement error for code containing statement keywords
-                        let has_statement_keywords = content.contains("let ") || content.contains("if ") || 
-                                                   content.contains("while ") || content.contains("return ") ||
-                                                   content.contains("goto ") || content.contains("break") ||
-                                                   content.contains("continue");
-                        let parse_err = if has_statement_keywords { &stmt_err } else { &expr_err };
-                        
-                        let range = if let Some(span) = &parse_err.span {
-                            let start_pos = Position::new(span.start.line - 1, span.start.column - 1);
-                            let end_pos = Position::new(span.end.line - 1, span.end.column - 1);
-                            Range::new(start_pos, end_pos)
-                        } else {
-                            Range::new(Position::new(0, 0), Position::new(0, content.len() as u32))
-                        };
-                        
-                        result.diagnostics.push(Diagnostic::new(
-                            range,
-                            Some(DiagnosticSeverity::ERROR),
-                            None,
-                            Some("qcl".to_string()),
-                            parse_err.message.clone(),
-                            None,
-                            None,
-                        ));
+                        // If we found expression-level errors and the content doesn't look like statements,
+                        // prefer reporting these expression diagnostics.
+                        let mut collected: Vec<Diagnostic> = Vec::new();
+                        let has_statement_keywords = content.contains("let ")
+                            || content.contains("if ")
+                            || content.contains("while ")
+                            || content.contains("return ")
+                            || content.contains("goto ")
+                            || content.contains("break")
+                            || content.contains("continue");
+                        if !expr_recover_errors.is_empty() && !has_statement_keywords {
+                            for e in expr_recover_errors {
+                                let range = if let Some(span) = &e.span {
+                                    let start_pos = Position::new(span.start.line - 1, span.start.column - 1);
+                                    let end_pos = Position::new(span.end.line - 1, span.end.column - 1);
+                                    Range::new(start_pos, end_pos)
+                                } else {
+                                    Range::new(Position::new(0, 0), Position::new(0, content.len() as u32))
+                                };
+                                collected.push(Diagnostic::new(
+                                    range,
+                                    Some(DiagnosticSeverity::ERROR),
+                                    None,
+                                    Some("qcl".to_string()),
+                                    e.message,
+                                    None,
+                                    None,
+                                ));
+                            }
+                        }
+
+                        // First, attempt recovering parse to collect multiple errors with precise spans
+                        let mut recover_parser = StmtParser::new_with_spans(&tokens, &spans);
+                        let (stmts, errs) = recover_parser.parse_program_recovering_with_enhanced_errors(content);
+                        if !errs.is_empty() {
+                            for e in errs {
+                                let range = if let Some(span) = &e.span {
+                                    let start_pos = Position::new(span.start.line - 1, span.start.column - 1);
+                                    let end_pos = Position::new(span.end.line - 1, span.end.column - 1);
+                                    Range::new(start_pos, end_pos)
+                                } else {
+                                    Range::new(Position::new(0, 0), Position::new(0, content.len() as u32))
+                                };
+                                collected.push(Diagnostic::new(
+                                    range,
+                                    Some(DiagnosticSeverity::ERROR),
+                                    None,
+                                    Some("qcl".to_string()),
+                                    e.message,
+                                    None,
+                                    None,
+                                ));
+                            }
+                            // Even with errors, analyze statements to surface symbols and context refs
+                            self.analyze_statements(&stmts, &mut result);
+                        }
+
+                        // If recovery yielded nothing (e.g., single token), try chunk-based scan then line-wise
+                        if collected.is_empty() {
+                            collected = self.scan_chunks_for_diagnostics(content);
+                            if collected.is_empty() {
+                                collected = self.scan_lines_for_diagnostics(content);
+                            }
+                        }
+
+                        // If line scanning found nothing (e.g., single-line expression-like input),
+                        // fall back to reporting the most relevant single error.
+                        if collected.is_empty() {
+                            // Both parsing attempts failed - prefer statement error for code containing statement keywords
+                            let has_statement_keywords = content.contains("let ")
+                                || content.contains("if ")
+                                || content.contains("while ")
+                                || content.contains("return ")
+                                || content.contains("goto ")
+                                || content.contains("break")
+                                || content.contains("continue");
+                            let parse_err = if has_statement_keywords { &stmt_err } else { &expr_err };
+
+                            let range = if let Some(span) = &parse_err.span {
+                                let start_pos = Position::new(span.start.line - 1, span.start.column - 1);
+                                let end_pos = Position::new(span.end.line - 1, span.end.column - 1);
+                                Range::new(start_pos, end_pos)
+                            } else {
+                                Range::new(Position::new(0, 0), Position::new(0, content.len() as u32))
+                            };
+
+                            collected.push(Diagnostic::new(
+                                range,
+                                Some(DiagnosticSeverity::ERROR),
+                                None,
+                                Some("qcl".to_string()),
+                                parse_err.message.clone(),
+                                None,
+                                None,
+                            ));
+                        }
+
+                        result.diagnostics.extend(collected.into_iter());
                     }
                 }
             }
         }
 
+        // Deduplicate diagnostics by range and message to reduce noise
+        self.dedup_diagnostics(&mut result.diagnostics);
+
         result
+    }
+
+    /// Segment the document into logical chunks using a lightweight state machine:
+    /// - Split at semicolons when not inside strings/comments and with paren/bracket depth 0
+    /// - Split at closing '}' to capture full blocks (e.g., if/while/fn bodies)
+    /// - Preserve multi-line strings and block comments
+    fn segment_document(&self, content: &str) -> Vec<(usize, usize, usize)> {
+        // Returns a list of (start_byte, end_byte, start_line_idx0)
+        let mut chunks = Vec::new();
+        if content.trim().is_empty() {
+            return chunks;
+        }
+
+        let mut start_byte = 0usize;
+        let mut start_line = 0usize; // 0-based
+
+        let mut line = 0usize;
+        let mut paren = 0i32;
+        let mut bracket = 0i32;
+        let mut brace = 0i32;
+        let mut in_block_comment = false;
+        let mut in_line_comment = false;
+        let mut in_string: Option<char> = None;
+        let mut prev_was_backslash = false;
+
+        let bytes = content.as_bytes();
+        let mut i = 0usize;
+        while i < bytes.len() {
+            let b = bytes[i];
+            let ch = b as char;
+
+            // Track line numbers
+            if ch == '\n' {
+                line += 1;
+                in_line_comment = false; // end of line comment
+                prev_was_backslash = false;
+                i += 1;
+                continue;
+            }
+
+            if in_line_comment {
+                i += 1;
+                continue;
+            }
+
+            if in_block_comment {
+                // Look for end of block comment '*/'
+                if ch == '*' && i + 1 < bytes.len() && bytes[i + 1] as char == '/' {
+                    in_block_comment = false;
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+                continue;
+            }
+
+            if let Some(q) = in_string {
+                // Inside string; handle escapes
+                if ch == q && !prev_was_backslash {
+                    in_string = None;
+                    prev_was_backslash = false;
+                    i += 1;
+                } else {
+                    prev_was_backslash = ch == '\\' && !prev_was_backslash;
+                    if !prev_was_backslash { prev_was_backslash = false; }
+                    i += 1;
+                }
+                continue;
+            }
+
+            // Not inside string/comment
+            // Handle comment starts
+            if ch == '/' && i + 1 < bytes.len() {
+                let n = bytes[i + 1] as char;
+                if n == '/' {
+                    in_line_comment = true;
+                    i += 2;
+                    continue;
+                }
+                if n == '*' {
+                    in_block_comment = true;
+                    i += 2;
+                    continue;
+                }
+            }
+
+            // Handle string start
+            if ch == '"' || ch == '\'' {
+                in_string = Some(ch);
+                prev_was_backslash = false;
+                i += 1;
+                continue;
+            }
+
+            // Track nesting
+            match ch {
+                '(' => paren += 1,
+                ')' => paren -= 1,
+                '[' => bracket += 1,
+                ']' => bracket -= 1,
+                '{' => brace += 1,
+                '}' => {
+                    brace -= 1;
+                    // A closing brace at depth 0 is a good chunk boundary
+                    if paren == 0 && bracket == 0 && brace == 0 {
+                        let end_byte = i + 1; // include '}'
+                        // Avoid empty whitespace-only chunks
+                        if content[start_byte..end_byte].trim().len() > 0 {
+                            chunks.push((start_byte, end_byte, start_line));
+                        }
+                        start_byte = end_byte;
+                        start_line = line;
+                    }
+                }
+                ';' => {
+                    // Statement terminator outside paren/bracket nesting
+                    if paren == 0 && bracket == 0 {
+                        let end_byte = i + 1; // include ';'
+                        if content[start_byte..end_byte].trim().len() > 0 {
+                            chunks.push((start_byte, end_byte, start_line));
+                        }
+                        start_byte = end_byte;
+                        start_line = line;
+                    }
+                }
+                _ => {}
+            }
+
+            i += 1;
+        }
+
+        // Trailing chunk
+        if start_byte < bytes.len() {
+            let tail = &content[start_byte..];
+            if tail.trim().len() > 0 {
+                chunks.push((start_byte, bytes.len(), start_line));
+            }
+        }
+
+        chunks
+    }
+
+    /// Chunk-based diagnostics scan. Attempts to parse multi-line logical chunks
+    /// to surface multiple independent errors with better positions.
+    fn scan_chunks_for_diagnostics(&self, content: &str) -> Vec<Diagnostic> {
+        let mut diags = Vec::new();
+        let chunks = self.segment_document(content);
+        if chunks.is_empty() {
+            return diags;
+        }
+
+        for (start_b, end_b, start_line) in chunks {
+            let chunk = &content[start_b..end_b];
+            if chunk.trim().is_empty() {
+                continue;
+            }
+
+            // Prefer tokenization errors which carry precise spans
+            match Tokenizer::tokenize_enhanced_with_spans(chunk) {
+                Err(parse_err) => {
+                    let range = if let Some(span) = &parse_err.span {
+                        let start_pos = Position::new(
+                            (start_line as u32) + (span.start.line - 1),
+                            span.start.column.saturating_sub(1),
+                        );
+                        let end_pos = Position::new(
+                            (start_line as u32) + (span.end.line - 1),
+                            span.end.column.saturating_sub(1),
+                        );
+                        Range::new(start_pos, end_pos)
+                    } else {
+                        Range::new(
+                            Position::new(start_line as u32, 0),
+                            Position::new(start_line as u32, chunk.chars().count() as u32),
+                        )
+                    };
+
+                    diags.push(Diagnostic::new(
+                        range,
+                        Some(DiagnosticSeverity::ERROR),
+                        None,
+                        Some("qcl".to_string()),
+                        format!("Tokenization error: {}", parse_err.message),
+                        None,
+                        None,
+                    ));
+                    continue;
+                }
+                Ok((chunk_tokens, chunk_spans)) => {
+                    // Try parsing as statement program first to catch control structures
+                    let mut sp = StmtParser::new_with_spans(&chunk_tokens, &chunk_spans);
+                    match sp.parse_program_with_enhanced_errors(chunk) {
+                        Ok(_) => {
+                            // No statement-level error in this chunk; continue
+                        }
+                        Err(stmt_err) => {
+                            let range = if let Some(span) = &stmt_err.span {
+                                let start_pos = Position::new(
+                                    (start_line as u32) + (span.start.line - 1),
+                                    span.start.column.saturating_sub(1),
+                                );
+                                let end_pos = Position::new(
+                                    (start_line as u32) + (span.end.line - 1),
+                                    span.end.column.saturating_sub(1),
+                                );
+                                Range::new(start_pos, end_pos)
+                            } else {
+                                Range::new(
+                                    Position::new(start_line as u32, 0),
+                                    Position::new(start_line as u32, chunk.chars().count() as u32),
+                                )
+                            };
+
+                            diags.push(Diagnostic::new(
+                                range.clone(),
+                                Some(DiagnosticSeverity::ERROR),
+                                None,
+                                Some("qcl".to_string()),
+                                stmt_err.message.clone(),
+                                None,
+                                None,
+                            ));
+
+                            // Also try expression recovery for potentially multiple, more specific spans
+                            let expr_errs = ExprParser::recover_expression_errors(&chunk_tokens, &chunk_spans, chunk);
+                            for ee in expr_errs {
+                                let range2 = if let Some(span) = &ee.span {
+                                    let start_pos = Position::new(
+                                        (start_line as u32) + (span.start.line - 1),
+                                        span.start.column.saturating_sub(1),
+                                    );
+                                    let end_pos = Position::new(
+                                        (start_line as u32) + (span.end.line - 1),
+                                        span.end.column.saturating_sub(1),
+                                    );
+                                    Range::new(start_pos, end_pos)
+                                } else { range };
+                                diags.push(Diagnostic::new(
+                                    range2,
+                                    Some(DiagnosticSeverity::ERROR),
+                                    None,
+                                    Some("qcl".to_string()),
+                                    ee.message.clone(),
+                                    None,
+                                    None,
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        diags
+    }
+
+    /// Best-effort line-wise scan to accumulate multiple diagnostics.
+    /// This helps surface multiple independent errors in a single document
+    /// instead of stopping at the first parse failure.
+    fn scan_lines_for_diagnostics(&self, content: &str) -> Vec<Diagnostic> {
+        let mut diags = Vec::new();
+
+        for (line_idx, line) in content.lines().enumerate() {
+            // Skip empty or whitespace-only lines to reduce noise
+            if line.trim().is_empty() {
+                continue;
+            }
+
+            // Try tokenizing the single line first to get precise position if it fails
+            match Tokenizer::tokenize_enhanced_with_spans(line) {
+                Err(parse_err) => {
+                    let range = if let Some(span) = &parse_err.span {
+                        let start_pos = Position::new(
+                            line_idx as u32,
+                            span.start.column.saturating_sub(1),
+                        );
+                        let end_pos = Position::new(
+                            line_idx as u32,
+                            span.end.column.saturating_sub(1),
+                        );
+                        Range::new(start_pos, end_pos)
+                    } else {
+                        // Fallback: highlight whole line
+                        Range::new(
+                            Position::new(line_idx as u32, 0),
+                            Position::new(line_idx as u32, line.chars().count() as u32),
+                        )
+                    };
+
+                    diags.push(Diagnostic::new(
+                        range,
+                        Some(DiagnosticSeverity::ERROR),
+                        None,
+                        Some("qcl".to_string()),
+                        format!("Tokenization error: {}", parse_err.message),
+                        None,
+                        None,
+                    ));
+                    continue; // Cannot parse further for this line
+                }
+                Ok((line_tokens, line_spans)) => {
+                    // Try parsing this line as a (mini) program using the statement parser
+                    let mut sp = StmtParser::new_with_spans(&line_tokens, &line_spans);
+                    match sp.parse_program_with_enhanced_errors(line) {
+                        Ok(_) => {
+                            // No statement-level error on this line
+                        }
+                        Err(parse_err) => {
+                            let range = if let Some(span) = &parse_err.span {
+                                let start_pos = Position::new(
+                                    line_idx as u32,
+                                    span.start.column.saturating_sub(1),
+                                );
+                                let end_pos = Position::new(
+                                    line_idx as u32,
+                                    span.end.column.saturating_sub(1),
+                                );
+                                Range::new(start_pos, end_pos)
+                            } else {
+                                // Fallback: highlight whole line
+                                Range::new(
+                                    Position::new(line_idx as u32, 0),
+                                    Position::new(line_idx as u32, line.chars().count() as u32),
+                                )
+                            };
+
+                            diags.push(Diagnostic::new(
+                                range,
+                                Some(DiagnosticSeverity::ERROR),
+                                None,
+                                Some("qcl".to_string()),
+                                parse_err.message.clone(),
+                                None,
+                                None,
+                            ));
+
+                            // Additionally, attempt expression recovery to collect more issues on this line
+                            let expr_errs = ExprParser::recover_expression_errors(&line_tokens, &line_spans, line);
+                            for ee in expr_errs {
+                                let range2 = if let Some(span) = &ee.span {
+                                    let start_pos = Position::new(
+                                        line_idx as u32,
+                                        span.start.column.saturating_sub(1),
+                                    );
+                                    let end_pos = Position::new(
+                                        line_idx as u32,
+                                        span.end.column.saturating_sub(1),
+                                    );
+                                    Range::new(start_pos, end_pos)
+                                } else {
+                                    Range::new(
+                                        Position::new(line_idx as u32, 0),
+                                        Position::new(line_idx as u32, line.chars().count() as u32),
+                                    )
+                                };
+                                diags.push(Diagnostic::new(
+                                    range2,
+                                    Some(DiagnosticSeverity::ERROR),
+                                    None,
+                                    Some("qcl".to_string()),
+                                    ee.message.clone(),
+                                    None,
+                                    None,
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        diags
     }
 
     fn analyze_statements(&self, statements: &[Box<Stmt>], result: &mut AnalysisResult) {
@@ -312,7 +768,8 @@ impl QclAnalyzer {
 
     /// Generate semantic tokens for QCL code
     pub fn generate_semantic_tokens(&self, content: &str) -> Vec<SemanticToken> {
-        let mut tokens = Vec::new();
+        // We'll first collect tokens with absolute positions, then convert to LSP delta encoding
+        let mut tokens: Vec<SemanticToken> = Vec::new();
         let mut line_number = 0;
         
         // Define the legend indices (must match the legend in main.rs)
@@ -326,11 +783,14 @@ impl QclAnalyzer {
         
         let lines: Vec<&str> = content.lines().collect();
         
+        // Track multi-line block comments
+        let mut in_block_comment = false;
+
         for line in lines {
             let mut char_index = 0;
             let chars: Vec<char> = line.chars().collect();
             let len = chars.len();
-            
+
             while char_index < len {
                 let c = chars[char_index];
                 
@@ -340,20 +800,111 @@ impl QclAnalyzer {
                     continue;
                 }
                 
-                // Handle comments
-                if c == '#' {
-                    let comment_start = char_index;
-                    while char_index < len && !chars[char_index].is_whitespace() {
-                        char_index += 1;
+                // Handle block comments spanning multiple lines
+                if in_block_comment {
+                    // Search for end of block comment '*/' in the current line
+                    let mut j = char_index;
+                    let mut end_found = false;
+                    while j + 1 < len {
+                        if chars[j] == '*' && chars[j + 1] == '/' {
+                            // Emit from current position to the end of '*/'
+                            let comment_len = (j + 2) - char_index;
+                            tokens.push(self.create_token(
+                                line_number,
+                                char_index,
+                                comment_len,
+                                COMMENT_IDX,
+                                0,
+                            ));
+                            // Move past '*/' and exit block comment
+                            char_index = j + 2;
+                            in_block_comment = false;
+                            end_found = true;
+                            break;
+                        }
+                        j += 1;
                     }
+                    if !end_found {
+                        // Entire rest of line is comment
+                        tokens.push(self.create_token(
+                            line_number,
+                            char_index,
+                            len - char_index,
+                            COMMENT_IDX,
+                            0,
+                        ));
+                        // Proceed to next line still inside block comment
+                        break;
+                    }
+                    // Continue scanning the remainder of the line after closing the block comment
+                    continue;
+                }
+
+                // Handle line comments: // ...
+                if c == '/' && char_index + 1 < len && chars[char_index + 1] == '/' {
+                    let comment_start = char_index;
+                    // Everything to end of line is a comment
                     tokens.push(self.create_token(
                         line_number,
                         comment_start,
-                        char_index - comment_start,
+                        len - comment_start,
                         COMMENT_IDX,
                         0,
                     ));
+                    break;
+                }
+
+                // Handle block comment start: /* ... */
+                if c == '/' && char_index + 1 < len && chars[char_index + 1] == '*' {
+                    let comment_start = char_index;
+                    // Look for closing */ on the same line first
+                    let mut j = char_index + 2;
+                    let mut closed_here = false;
+                    while j + 1 < len {
+                        if chars[j] == '*' && chars[j + 1] == '/' {
+                            // Found end on the same line
+                            let comment_len = (j + 2) - comment_start;
+                            tokens.push(self.create_token(
+                                line_number,
+                                comment_start,
+                                comment_len,
+                                COMMENT_IDX,
+                                0,
+                            ));
+                            char_index = j + 2;
+                            closed_here = true;
+                            break;
+                        }
+                        j += 1;
+                    }
+                    if !closed_here {
+                        // Rest of line is comment; continue block comment on next lines
+                        tokens.push(self.create_token(
+                            line_number,
+                            comment_start,
+                            len - comment_start,
+                            COMMENT_IDX,
+                            0,
+                        ));
+                        in_block_comment = true;
+                        break;
+                    }
+                    // Continue scanning after end of block comment on same line
                     continue;
+                }
+
+                // Handle hash-style comments (# ...) for legacy compatibility
+                if c == '#' {
+                    let comment_start = char_index;
+                    // Everything to end of line is a comment
+                    tokens.push(self.create_token(
+                        line_number,
+                        comment_start,
+                        len - comment_start,
+                        COMMENT_IDX,
+                        0,
+                    ));
+                    break;
                 }
                 
                 // Handle strings
@@ -504,7 +1055,32 @@ impl QclAnalyzer {
             line_number += 1;
         }
         
-        tokens
+        // Convert absolute positions to delta-encoded positions required by LSP
+        let mut result: Vec<SemanticToken> = Vec::with_capacity(tokens.len());
+        let mut prev_line: u32 = 0;
+        let mut prev_start: u32 = 0;
+        let mut first = true;
+
+        for t in tokens.into_iter() {
+            let line = t.delta_line;      // stored absolute line
+            let start = t.delta_start;    // stored absolute start
+            let delta_line = if first { line } else { line.saturating_sub(prev_line) };
+            let delta_start = if first || delta_line != 0 { start } else { start.saturating_sub(prev_start) };
+
+            result.push(SemanticToken {
+                delta_line,
+                delta_start,
+                length: t.length,
+                token_type: t.token_type,
+                token_modifiers_bitset: t.token_modifiers_bitset,
+            });
+
+            prev_line = line;
+            prev_start = start;
+            first = false;
+        }
+
+        result
     }
     
     fn create_token(&self, line: u32, start_char: usize, length: usize, 
@@ -516,6 +1092,17 @@ impl QclAnalyzer {
             token_type: token_type_idx, // token type index
             token_modifiers_bitset: modifiers, // token modifiers
         }
+    }
+
+    fn dedup_diagnostics(&self, diagnostics: &mut Vec<Diagnostic>) {
+        diagnostics.sort_by(|a, b| {
+            let ra = &a.range; let rb = &b.range;
+            (ra.start.line, ra.start.character, ra.end.line, ra.end.character, a.message.clone())
+                .cmp(&(rb.start.line, rb.start.character, rb.end.line, rb.end.character, b.message.clone()))
+        });
+        diagnostics.dedup_by(|a, b| {
+            a.range == b.range && a.message == b.message
+        });
     }
 }
 
@@ -732,7 +1319,7 @@ mod tests {
     fn test_generate_semantic_tokens_with_comments() {
         let analyzer = create_analyzer();
         let content = r#"
-            # This is a comment
+            // This is a comment
             let x = 42;
         "#;
         let tokens = analyzer.generate_semantic_tokens(content);

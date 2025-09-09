@@ -11,6 +11,7 @@ pub struct Parser<'a> {
     tokens: &'a [Token],
     pos: usize,
     len: usize,
+    token_spans: Option<&'a [crate::error::Span]>,
 }
 
 impl<'a> Parser<'a> {
@@ -38,34 +39,37 @@ impl<'a> Parser<'a> {
         let exp = match self.parse_expr() {
             Ok(expr) => expr,
             Err(err) => {
-                // Convert position from token index to line/column
-                let position = crate::error::offset_to_position(input, 
-                    if self.pos < self.tokens.len() && self.pos > 0 { 
-                        // Estimate position based on tokens
+                // Prefer precise token span if available; otherwise, fall back to offset estimation
+                if let Some(spans) = &self.token_spans {
+                    if self.pos < spans.len() {
+                        return Err(crate::error::ParseError::with_span(err.to_string(), spans[self.pos].clone()));
+                    }
+                }
+                let position = crate::error::offset_to_position(input,
+                    if self.pos < self.tokens.len() && self.pos > 0 {
                         self.pos * input.len() / self.tokens.len().max(1)
-                    } else { 
-                        input.len() 
+                    } else {
+                        input.len()
                     }
                 );
-                return Err(crate::error::ParseError::with_position(
-                    err.to_string(), 
-                    position
-                ));
+                return Err(crate::error::ParseError::with_position(err.to_string(), position));
             }
         };
 
         if !self.eof() {
-            let position = crate::error::offset_to_position(input, 
-                if self.pos < self.tokens.len() { 
+            if let Some(spans) = &self.token_spans {
+                if self.pos < spans.len() {
+                    return Err(crate::error::ParseError::with_span("Unexpected tokens at end".to_string(), spans[self.pos].clone()));
+                }
+            }
+            let position = crate::error::offset_to_position(input,
+                if self.pos < self.tokens.len() {
                     self.pos * input.len() / self.tokens.len().max(1)
-                } else { 
-                    input.len() 
+                } else {
+                    input.len()
                 }
             );
-            return Err(crate::error::ParseError::with_position(
-                "Unexpected tokens at end".to_string(), 
-                position
-            ));
+            return Err(crate::error::ParseError::with_position("Unexpected tokens at end".to_string(), position));
         }
 
         // All sub-expressions parsed, apply constant folding optimization
@@ -169,11 +173,14 @@ impl<'a> Parser<'a> {
     /// - `!expr`
     /// - `expr`
     fn parse_unary(&mut self) -> Result<Expr> {
+        if self.eof() {
+            return Err(anyhow!(self.err("Expected expression")));
+        }
         let token = &self.tokens[self.pos];
         match token {
             Token::Not => {
                 self.pos += 1;
-                let expr = self.parse_unary()?; // 修复：应该解析 unary 而不是 expr
+                let expr = self.parse_unary()?;
                 Ok(Expr::Unary(UnaryOp::Not, Box::new(expr)))
             }
             _ => self.parse_postfix(),
@@ -187,15 +194,14 @@ impl<'a> Parser<'a> {
     fn parse_postfix(&mut self) -> Result<Expr> {
         let mut expr = self.parse_primary()?;
 
-        // 处理函数调用和点访问
         loop {
             if !self.eof() && self.tokens[self.pos] == Token::LParen {
-                // 函数调用 - 允许任何表达式作为函数调用目标
+                // Function call
                 self.pos += 1; // skip '('
 
                 let mut args = Vec::new();
 
-                // 解析参数列表
+                // Parse arguments
                 while !self.eof() && self.tokens[self.pos] != Token::RParen {
                     args.push(Box::new(self.parse_expr()?));
 
@@ -213,7 +219,7 @@ impl<'a> Parser<'a> {
 
                 expr = Expr::CallExpr(Box::new(expr), args);
             } else if !self.eof() && self.tokens[self.pos] == Token::Dot {
-                // 点访问
+                // Dot access
                 self.pos += 1;
 
                 if self.eof() {
@@ -232,7 +238,7 @@ impl<'a> Parser<'a> {
                     }
                 }
             } else {
-                break; // 没有更多的postfix操作符
+                break; // No more postfix operations
             }
         }
 
@@ -248,6 +254,9 @@ impl<'a> Parser<'a> {
     /// - `[...]`
     /// - `{...}`
     fn parse_primary(&mut self) -> Result<Expr> {
+        if self.eof() {
+            return Err(anyhow!(self.err("Unexpected end of input")));
+        }
         let token = &self.tokens[self.pos];
         let expr = match token {
             Token::Nil => {
@@ -298,7 +307,6 @@ impl<'a> Parser<'a> {
             self.pos += 1;
             Ok(Expr::Paren(Box::new(expr)))
         } else {
-            // This is where the recursion issue was - we need a terminal case
             match &self.tokens[self.pos] {
                 Token::Id(id) => {
                     let expr = Expr::Var(id.clone());
@@ -640,6 +648,80 @@ impl<'a> Parser<'a> {
 
         matches!(self.tokens[self.pos], Token::Semicolon)
     }
+
+    /// Recovering expression analysis: collect multiple parse errors across expression segments
+    /// without building a final AST. Uses shallow segmentation on common boundaries to surface
+    /// multiple issues within a single line/chunk.
+    pub fn recover_expression_errors(
+        tokens: &'a [Token],
+        spans: &'a [crate::error::Span],
+        input: &str,
+    ) -> Vec<crate::error::ParseError> {
+        let mut errors = Vec::new();
+        let len = tokens.len();
+        let mut i = 0usize;
+
+        // Track depth for (), [], {} to decide boundaries at depth 0
+        let mut paren: i32;
+        let mut bracket: i32;
+        let mut brace: i32;
+
+        fn is_hard_boundary(tok: &Token) -> bool {
+            matches!(tok, Token::Comma | Token::Semicolon | Token::RParen | Token::RBracket | Token::RBrace | Token::Else)
+        }
+
+        fn is_soft_boundary(tok: &Token) -> bool {
+            matches!(tok,
+                Token::Eq | Token::Ne | Token::Gt | Token::Lt | Token::Ge | Token::Le |
+                Token::In | Token::And | Token::Or)
+        }
+
+        while i < len {
+            // Skip immediate boundaries to avoid empty segments
+            while i < len && is_hard_boundary(&tokens[i]) {
+                i += 1;
+            }
+            if i >= len { break; }
+
+            // Determine a segment [i, j)
+            let seg_start = i;
+            let mut j = i;
+            paren = 0; bracket = 0; brace = 0;
+            while j < len {
+                match &tokens[j] {
+                    Token::LParen => { paren += 1; j += 1; }
+                    Token::RParen => { if paren > 0 { paren -= 1; } if paren == 0 && bracket == 0 && brace == 0 { j += 1; break; } j += 1; }
+                    Token::LBracket => { bracket += 1; j += 1; }
+                    Token::RBracket => { if bracket > 0 { bracket -= 1; } if paren == 0 && bracket == 0 && brace == 0 { j += 1; break; } j += 1; }
+                    Token::LBrace => { brace += 1; j += 1; }
+                    Token::RBrace => { if brace > 0 { brace -= 1; } if paren == 0 && bracket == 0 && brace == 0 { break; } j += 1; }
+                    t if is_hard_boundary(t) => { break; }
+                    t if is_soft_boundary(t) && paren == 0 && bracket == 0 && brace == 0 => { break; }
+                    _ => { j += 1; }
+                }
+            }
+            if j == seg_start { i = j + 1; continue; }
+
+            // Attempt to parse the segment
+            let seg_tokens = &tokens[seg_start..j];
+            let seg_spans = &spans[seg_start..j];
+            if !seg_tokens.is_empty() {
+                let mut p = Parser::new_with_spans(seg_tokens, seg_spans);
+                match p.parse_with_enhanced_errors(input) {
+                    Ok(_) => {}
+                    Err(e) => errors.push(e),
+                }
+            }
+
+            // Advance to next segment; if current position is at a soft boundary, skip it
+            i = j;
+            if i < len && (is_soft_boundary(&tokens[i]) || is_hard_boundary(&tokens[i])) {
+                i += 1;
+            }
+        }
+
+        errors
+    }
 }
 
 impl<'a> Parser<'a> {
@@ -649,6 +731,18 @@ impl<'a> Parser<'a> {
             tokens,
             pos: 0,
             len,
+            token_spans: None,
+        }
+    }
+
+    /// Create a parser with token spans for precise error reporting
+    pub fn new_with_spans(tokens: &'a [Token], spans: &'a [crate::error::Span]) -> Self {
+        let len = tokens.len();
+        Self {
+            tokens,
+            pos: 0,
+            len,
+            token_spans: Some(spans),
         }
     }
 

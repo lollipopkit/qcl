@@ -614,4 +614,42 @@ mod tests {
         let e = vec![Token::Int(123), Token::Int(456), Token::Int(789)];
         assert_eq!(t.unwrap(), e);
     }
+
+    #[test]
+    fn test_name_with_keywords() {
+        let t = Tokenizer::tokenize("@record.in_value + @record.return_value");
+        let e = vec![
+            Token::At,
+            Token::Id("record".to_string()),
+            Token::Dot,
+            Token::Id("in_value".to_string()),
+            Token::Add,
+            Token::At,
+            Token::Id("record".to_string()),
+            Token::Dot,
+            Token::Id("return_value".to_string()),
+        ];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
+    fn test_name_with_keywords_stmt() {
+        let t = Tokenizer::tokenize("let a = @record.in_return; return a + '1';");
+        let e = vec![
+            Token::Let,
+            Token::Id("a".to_string()),
+            Token::Assign,
+            Token::At,
+            Token::Id("record".to_string()),
+            Token::Dot,
+            Token::Id("in_return".to_string()),
+            Token::Semicolon,
+            Token::Return,
+            Token::Id("a".to_string()),
+            Token::Add,
+            Token::Str("1".to_string()),
+            Token::Semicolon,
+        ];
+        assert_eq!(t.unwrap(), e);
+    }
 }

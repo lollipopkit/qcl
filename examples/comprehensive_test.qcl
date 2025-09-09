@@ -85,7 +85,7 @@ let logical_not = !false;
 
 // 复杂逻辑表达式 / Complex logical expressions
 let complex_logic = (age >= 18) && (age <= 65) && isActive;
-let access_check = (@user.role == "admin") || (@user.permissions["read"] == true);
+let access_check = (@user.role == "admin") || (@user.permissions.read == true);
 
 // =============================================================================
 // 6. 列表操作 / List operations
@@ -181,9 +181,9 @@ fn checkAccess(resource, action) {
     
     if (resource == "documents") {
         if (action == "read") {
-            return user_permissions["documents.read"] == true;
+            return user_permissions."documents.read" == true;
         } else if (action == "write") {
-            return user_permissions["documents.write"] == true;
+            return user_permissions."documents.write" == true;
         }
     }
     
@@ -260,13 +260,13 @@ fn complexPermissionCheck() {
     
     // 检查团队权限 / Check team permissions
     if (user.team in resource.allowed_teams) {
-        let team_permissions = resource.team_permissions[user.team];
+        let team_permissions = resource.team_permissions.(user.team);
         return action in team_permissions;
     }
     
     // 检查个人权限 / Check individual permissions
     if (user.id in resource.allowed_users) {
-        let user_permissions = resource.user_permissions[user.id];
+        let user_permissions = resource.user_permissions.(user.id);
         return action in user_permissions;
     }
     

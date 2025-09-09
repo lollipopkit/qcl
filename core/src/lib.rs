@@ -23,3 +23,5 @@ mod rust_function_test;
 mod stmt_test;
 mod token_test;
 mod val_test;
+mod expr_recover_test;
+mod stmt_recover_test;
