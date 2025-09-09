@@ -103,13 +103,22 @@
       "patterns": [
         {
           "name": "comment.line.double-slash.qcl",
-          "begin": "//",
-          "end": "$"
+          "match": "//.*",
+          "captures": {
+            "0": {
+              "name": "comment.line.double-slash.qcl"
+            }
+          }
         },
         {
           "name": "comment.block.qcl",
           "begin": "/\\*",
-          "end": "\\*/"
+          "end": "\\*/",
+          "captures": {
+            "0": {
+              "name": "comment.block.qcl"
+            }
+          }
         }
       ]
     },

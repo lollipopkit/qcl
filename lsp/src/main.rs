@@ -163,6 +163,34 @@ impl LanguageServer for QclLanguageServer {
                         work_done_progress_options: Default::default(),
                     }
                 )),
+                semantic_tokens_provider: Some(SemanticTokensServerCapabilities::SemanticTokensOptions(
+                    SemanticTokensOptions {
+                        work_done_progress_options: Default::default(),
+                        legend: SemanticTokensLegend {
+                            token_types: vec![
+                                SemanticTokenType::COMMENT,
+                                SemanticTokenType::KEYWORD,
+                                SemanticTokenType::VARIABLE,
+                                SemanticTokenType::FUNCTION,
+                                SemanticTokenType::STRING,
+                                SemanticTokenType::NUMBER,
+                                SemanticTokenType::OPERATOR,
+                                SemanticTokenType::PARAMETER,
+                                SemanticTokenType::PROPERTY,
+                                SemanticTokenType::NAMESPACE,
+                                SemanticTokenType::TYPE,
+                            ],
+                            token_modifiers: vec![
+                                SemanticTokenModifier::DECLARATION,
+                                SemanticTokenModifier::DEFINITION,
+                                SemanticTokenModifier::READONLY,
+                                SemanticTokenModifier::STATIC,
+                            ],
+                        },
+                        range: Some(false),
+                        full: Some(SemanticTokensFullOptions::Bool(true)),
+                    }
+                )),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -265,6 +293,24 @@ impl LanguageServer for QclLanguageServer {
             if !analysis.symbols.is_empty() {
                 return Ok(Some(DocumentSymbolResponse::Nested(analysis.symbols)));
             }
+        }
+        
+        Ok(None)
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        let uri = &params.text_document.uri;
+        let documents = self.documents.read().await;
+        
+        if let Some(document) = documents.get(uri) {
+            let tokens = self.analyzer.generate_semantic_tokens(&document.content);
+            return Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
+                result_id: None,
+                data: tokens,
+            })));
         }
         
         Ok(None)

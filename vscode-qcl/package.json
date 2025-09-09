@@ -3,20 +3,36 @@
   "displayName": "QCL Language Support",
   "description": "Language support for QCL (Query Check Language) with LSP integration",
   "version": "0.0.1",
+  "author": {
+    "name": "lollipopkit",
+    "email": "a@lpkt.cn",
+    "url": "https://github.com/lollipopkit"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/lollipopkit/qcl.git"
   },
   "engines": {
-    "vscode": "^1.74.0"
+    "vscode": "^1.103.0"
   },
   "categories": [
     "Programming Languages"
   ],
   "main": "./out/extension.js",
-  "activationEvents": [
-    "onLanguage:qcl"
-  ],
+  "activationEvents": [],
+  "capabilities": {
+    "semanticTokensProvider": {
+      "legend": {
+        "tokenTypes": [
+          "comment", "keyword", "variable", "function", "string", 
+          "number", "operator", "parameter", "property", "namespace", "type"
+        ],
+        "tokenModifiers": ["declaration", "definition", "readonly", "static"]
+      },
+      "full": true,
+      "range": true
+    }
+  },
   "contributes": {
     "commands": [
       {
@@ -46,6 +62,99 @@
         "injectTo": [
           "source.json"
         ]
+      }
+    ],
+    "semanticTokenTypes": [
+      {
+        "id": "comment",
+        "description": "Comments",
+        "superType": "comment"
+      },
+      {
+        "id": "keyword",
+        "description": "Keywords",
+        "superType": "keyword"
+      },
+      {
+        "id": "variable",
+        "description": "Variables",
+        "superType": "variable"
+      },
+      {
+        "id": "function",
+        "description": "Functions",
+        "superType": "function"
+      },
+      {
+        "id": "string",
+        "description": "Strings",
+        "superType": "string"
+      },
+      {
+        "id": "number",
+        "description": "Numbers",
+        "superType": "number"
+      },
+      {
+        "id": "operator",
+        "description": "Operators",
+        "superType": "operator"
+      },
+      {
+        "id": "parameter",
+        "description": "Parameters",
+        "superType": "parameter"
+      },
+      {
+        "id": "property",
+        "description": "Properties",
+        "superType": "property"
+      },
+      {
+        "id": "namespace",
+        "description": "Namespaces",
+        "superType": "namespace"
+      },
+      {
+        "id": "type",
+        "description": "Types",
+        "superType": "type"
+      }
+    ],
+    "semanticTokenModifiers": [
+      {
+        "id": "declaration",
+        "description": "Declaration"
+      },
+      {
+        "id": "definition",
+        "description": "Definition"
+      },
+      {
+        "id": "readonly",
+        "description": "Readonly"
+      },
+      {
+        "id": "static",
+        "description": "Static"
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "qcl",
+        "scopes": {
+          "comment": ["comment.qcl"],
+          "keyword": ["keyword.control.qcl", "keyword.other.qcl"],
+          "variable": ["variable.other.qcl"],
+          "function": ["entity.name.function.qcl", "support.function.qcl"],
+          "string": ["string.quoted.qcl"],
+          "number": ["constant.numeric.qcl"],
+          "operator": ["keyword.operator.qcl"],
+          "parameter": ["variable.parameter.qcl"],
+          "property": ["variable.other.property.qcl", "support.variable.property.qcl"],
+          "namespace": ["entity.name.namespace.qcl"],
+          "type": ["support.type.qcl", "entity.name.type.qcl"]
+        }
       }
     ]
   },

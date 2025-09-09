@@ -53,6 +53,15 @@ export function activate(context: vscode.ExtensionContext) {
     synchronize: {
       configurationSection: 'qcl',
       fileEvents: vscode.workspace.createFileSystemWatcher('**/.qcl')
+    },
+    // Initialize options for semantic highlighting
+    initializationOptions: {
+      // Enable semantic highlighting
+      semanticHighlighting: true,
+      // Custom configuration for QCL
+      qcl: {
+        enableSemanticTokens: true
+      }
     }
   };
 
@@ -72,6 +81,15 @@ export function activate(context: vscode.ExtensionContext) {
     console.log(`LSP client state change: ${event.oldState} -> ${event.newState}`);
   });
   
+  // Add semantic highlighting event listeners
+  client.onNotification('textDocument/semanticTokens', (params) => {
+    console.log('Semantic tokens received:', params);
+  });
+
+  client.onRequest('textDocument/semanticTokens', (params) => {
+    console.log('Semantic tokens requested:', params);
+  });
+
   // Start with a timeout and proper error handling
   const startPromise = client.start();
   
@@ -84,6 +102,11 @@ export function activate(context: vscode.ExtensionContext) {
     .then(() => {
       console.log('QCL Language Server started successfully');
       vscode.window.showInformationMessage('QCL Language Server started successfully');
+      
+      // Check if semantic highlighting is enabled
+      const config = vscode.workspace.getConfiguration('editor');
+      const semanticHighlighting = config.get('semanticHighlighting.enabled');
+      console.log('Semantic highlighting enabled:', semanticHighlighting);
     })
     .catch((error) => {
       console.error('Failed to start QCL Language Server:', error);
