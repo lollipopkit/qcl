@@ -1,24 +1,30 @@
-use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use dashmap::DashMap;
+use ropey::Rope;
+use tokio::time::{sleep, Duration};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 use tracing::info;
 
 mod analyzer;
-use analyzer::QclAnalyzer;
+use analyzer::{AnalysisResult, QclAnalyzer};
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct Document {
-    content: String,
-    #[allow(dead_code)] // Keep for future version tracking
+    content: Rope,
+    // LSP version, used to invalidate caches on change
     version: i32,
+    // Cached results to avoid repeated parsing/tokenization per request
+    cached_analysis: Option<Arc<AnalysisResult>>,
+    cached_semantic_tokens: Option<Arc<Vec<SemanticToken>>>,
+    // Debounce token incremented on each edit; used to coalesce diagnostics work
+    debounce_seq: u64,
 }
 
 struct QclLanguageServer {
     client: Client,
-    documents: Arc<RwLock<HashMap<Url, Document>>>,
+    documents: Arc<DashMap<Url, Document>>,
     analyzer: QclAnalyzer,
 }
 
@@ -26,28 +32,22 @@ impl QclLanguageServer {
     fn new(client: Client) -> Self {
         Self {
             client,
-            documents: Arc::new(RwLock::new(HashMap::new())),
+            documents: Arc::new(DashMap::new()),
             analyzer: QclAnalyzer::new(),
         }
     }
 
     async fn validate_document(&self, uri: &Url) -> Vec<Diagnostic> {
-        let documents = self.documents.read().await;
-        let Some(document) = documents.get(uri) else {
-            return Vec::new();
-        };
-
-        let analysis = self.analyzer.analyze(&document.content);
-        analysis.diagnostics
+        match self.get_or_compute_analysis(uri).await {
+            Some(analysis) => analysis.diagnostics.clone(),
+            None => Vec::new(),
+        }
     }
 
     async fn get_hover_info(&self, uri: &Url, _position: Position) -> Option<Hover> {
-        let documents = self.documents.read().await;
-        let document = documents.get(uri)?;
-        let content = &document.content;
+        // Use cached or computed analysis; avoid recompute on hot path
+        let analysis = self.get_or_compute_analysis(uri).await?;
 
-        let analysis = self.analyzer.analyze(content);
-        
         if !analysis.context_references.is_empty() {
             let hover_text = format!(
                 "QCL Code\n\nContext references: {:?}\n\nSymbols: {}",
@@ -56,7 +56,7 @@ impl QclLanguageServer {
             );
             return Some(Hover {
                 contents: HoverContents::Scalar(MarkedString::String(hover_text)),
-                range: Some(Range::new(Position::new(0, 0), Position::new(0, content.len() as u32))),
+                range: None,
             });
         }
 
@@ -64,7 +64,7 @@ impl QclLanguageServer {
             let hover_text = format!("QCL Code\n\nSymbols: {}", analysis.symbols.len());
             return Some(Hover {
                 contents: HoverContents::Scalar(MarkedString::String(hover_text)),
-                range: Some(Range::new(Position::new(0, 0), Position::new(0, content.len() as u32))),
+                range: None,
             });
         }
 
@@ -143,8 +143,9 @@ impl LanguageServer for QclLanguageServer {
         
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
+                // Switch to INCREMENTAL now that we apply ranges with UTF-16 mapping
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                    TextDocumentSyncKind::FULL,
+                    TextDocumentSyncKind::INCREMENTAL,
                 )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 completion_provider: Some(CompletionOptions {
@@ -215,12 +216,16 @@ impl LanguageServer for QclLanguageServer {
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri;
         let document = Document {
-            content: params.text_document.text,
+            content: Rope::from_str(&params.text_document.text),
             version: params.text_document.version,
+            cached_analysis: None,
+            cached_semantic_tokens: None,
+            debounce_seq: 0,
         };
 
-        self.documents.write().await.insert(uri.clone(), document);
-        
+        self.documents.insert(uri.clone(), document);
+
+        // Compute diagnostics once and populate cache
         let diagnostics = self.validate_document(&uri).await;
         self.client
             .publish_diagnostics(uri, diagnostics, None)
@@ -229,20 +234,37 @@ impl LanguageServer for QclLanguageServer {
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri;
-        
-        if let Some(change) = params.content_changes.into_iter().next() {
-            let document = Document {
-                content: change.text,
-                version: params.text_document.version,
-            };
+        let version = params.text_document.version;
 
-            self.documents.write().await.insert(uri.clone(), document);
-            
-            let diagnostics = self.validate_document(&uri).await;
-            self.client
-                .publish_diagnostics(uri, diagnostics, None)
-                .await;
+        // Apply all changes (supports both full and incremental)
+        {
+            let mut entry = self
+                .documents
+                .entry(uri.clone())
+                .or_insert_with(Document::default);
+            // Ensure version is monotonic (but still update even if not; clients may resend)
+            entry.version = version;
+
+            if params.content_changes.len() == 1 && params.content_changes[0].range.is_none() {
+                // Full text replacement
+                let change = params.content_changes.into_iter().next().unwrap();
+                entry.content = Rope::from_str(&change.text);
+            } else {
+                // Incremental changes
+                let changes = params.content_changes;
+                for change in changes {
+                    apply_incremental_change_rope(&mut entry.content, &change);
+                }
+            }
+
+            // Invalidate caches and bump debounce seq
+            entry.cached_analysis = None;
+            entry.cached_semantic_tokens = None;
+            entry.debounce_seq = entry.debounce_seq.wrapping_add(1);
         }
+
+        // Debounced diagnostics + cache warmup
+        self.schedule_diagnostics_and_warmup(uri, version, 150).await;
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
@@ -257,8 +279,7 @@ impl LanguageServer for QclLanguageServer {
         
         // Add context-specific completions if triggered by '@'
         let uri = &params.text_document_position.text_document.uri;
-        let documents = self.documents.read().await;
-        if let Some(_document) = documents.get(uri) {
+        if self.documents.get(uri).is_some() {
             // Get current line context for better completions
             let context_items = self.analyzer.get_context_completions("@");
             items.extend(context_items);
@@ -286,15 +307,11 @@ impl LanguageServer for QclLanguageServer {
 
     async fn document_symbol(&self, params: DocumentSymbolParams) -> Result<Option<DocumentSymbolResponse>> {
         let uri = &params.text_document.uri;
-        let documents = self.documents.read().await;
-        
-        if let Some(document) = documents.get(uri) {
-            let analysis = self.analyzer.analyze(&document.content);
+        if let Some(analysis) = self.get_or_compute_analysis(uri).await {
             if !analysis.symbols.is_empty() {
-                return Ok(Some(DocumentSymbolResponse::Nested(analysis.symbols)));
+                return Ok(Some(DocumentSymbolResponse::Nested(analysis.symbols.clone())));
             }
         }
-        
         Ok(None)
     }
 
@@ -303,17 +320,145 @@ impl LanguageServer for QclLanguageServer {
         params: SemanticTokensParams,
     ) -> Result<Option<SemanticTokensResult>> {
         let uri = &params.text_document.uri;
-        let documents = self.documents.read().await;
-        
-        if let Some(document) = documents.get(uri) {
-            let tokens = self.analyzer.generate_semantic_tokens(&document.content);
+        if let Some(tokens) = self.get_or_generate_semantic_tokens(uri).await {
             return Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
                 result_id: None,
-                data: tokens,
+                data: (*tokens).clone(),
             })));
         }
-        
         Ok(None)
+    }
+}
+
+impl QclLanguageServer {
+    // Get cached analysis or compute and store it atomically
+    async fn get_or_compute_analysis(&self, uri: &Url) -> Option<Arc<AnalysisResult>> {
+        // Fast path: try read cache
+        if let Some(doc) = self.documents.get(uri) {
+            if let Some(cached) = doc.cached_analysis.clone() {
+                return Some(cached);
+            }
+        }
+
+        // Snapshot content/version/debounce without long-held locks
+        let (content_snapshot, version_snapshot, seq_snapshot) = {
+            let doc = self.documents.get(uri)?;
+            (
+                doc.content.to_string(),
+                doc.version,
+                doc.debounce_seq,
+            )
+        };
+
+        // Compute analysis
+        let computed = Arc::new(self.analyzer.analyze(&content_snapshot));
+
+        // Store if still applicable; otherwise return computed as-is (caller can re-request)
+        if let Some(mut doc) = self.documents.get_mut(uri) {
+            if doc.version == version_snapshot && doc.debounce_seq == seq_snapshot {
+                doc.cached_analysis = Some(computed.clone());
+            }
+        }
+        Some(computed)
+    }
+
+    // Get cached semantic tokens or compute and store
+    async fn get_or_generate_semantic_tokens(&self, uri: &Url) -> Option<Arc<Vec<SemanticToken>>> {
+        if let Some(doc) = self.documents.get(uri) {
+            if let Some(cached) = doc.cached_semantic_tokens.clone() {
+                return Some(cached);
+            }
+        }
+
+        let (content_snapshot, version_snapshot, seq_snapshot) = {
+            let doc = self.documents.get(uri)?;
+            (
+                doc.content.to_string(),
+                doc.version,
+                doc.debounce_seq,
+            )
+        };
+
+        let generated = Arc::new(self.analyzer.generate_semantic_tokens(&content_snapshot));
+
+        if let Some(mut doc) = self.documents.get_mut(uri) {
+            if doc.version == version_snapshot && doc.debounce_seq == seq_snapshot {
+                doc.cached_semantic_tokens = Some(generated.clone());
+            }
+        }
+        Some(generated)
+    }
+
+    async fn schedule_diagnostics_and_warmup(&self, uri: Url, scheduled_version: i32, delay_ms: u64) {
+        let documents = self.documents.clone();
+        let client = self.client.clone();
+        tokio::spawn(async move {
+            sleep(Duration::from_millis(delay_ms)).await;
+
+            // Check debounce token to ensure no new edits have occurred
+            let (content_snapshot, seq_snapshot, version_snapshot) = if let Some(doc) = documents.get(&uri) {
+                (doc.content.to_string(), doc.debounce_seq, doc.version)
+            } else {
+                return;
+            };
+
+            // Compute analysis and tokens on snapshot
+            let analyzer = QclAnalyzer::new();
+            let analysis = analyzer.analyze(&content_snapshot);
+            let tokens = analyzer.generate_semantic_tokens(&content_snapshot);
+
+            // Publish diagnostics if still current
+            let diagnostics_to_publish = analysis.diagnostics.clone();
+
+            // Try to store caches if document still matches snapshot
+            if let Some(mut doc) = documents.get_mut(&uri) {
+                if doc.debounce_seq == seq_snapshot && doc.version == scheduled_version && doc.version == version_snapshot {
+                    doc.cached_analysis = Some(Arc::new(analysis));
+                    doc.cached_semantic_tokens = Some(Arc::new(tokens));
+                }
+            }
+
+            // Always publish diagnostics for the uri (latest client will override older results)
+            let _ = client.publish_diagnostics(uri.clone(), diagnostics_to_publish, None).await;
+        });
+    }
+}
+
+// Convert LSP UTF-16 position to Rope char index (scalar values), clamped to line end.
+fn position_to_char_idx(text: &Rope, pos: Position) -> usize {
+    let line_idx = pos.line as usize;
+    if line_idx >= text.len_lines() {
+        return text.len_chars();
+    }
+    let line_start_char = text.line_to_char(line_idx);
+    let line_slice = text.line(line_idx);
+    let target_utf16 = pos.character as usize;
+    let mut seen_utf16 = 0usize;
+    let mut chars_in_line = 0usize;
+    for ch in line_slice.chars() {
+        let u16_len = ch.len_utf16();
+        if seen_utf16 + u16_len > target_utf16 {
+            break;
+        }
+        seen_utf16 += u16_len;
+        chars_in_line += 1;
+        if seen_utf16 == target_utf16 { break; }
+    }
+    line_start_char + chars_in_line
+}
+
+fn apply_incremental_change_rope(text: &mut Rope, change: &TextDocumentContentChangeEvent) {
+    if let Some(range) = &change.range {
+        let start_char = position_to_char_idx(text, range.start);
+        let end_char = position_to_char_idx(text, range.end);
+        let (s, e) = if start_char <= end_char { (start_char, end_char) } else { (end_char, start_char) };
+        if s != e { text.remove(s..e); }
+        if !change.text.is_empty() {
+            text.insert(s, &change.text);
+        }
+    } else {
+        // Full replacement fallback
+        *text = Rope::from_str(&change.text);
     }
 }
 
