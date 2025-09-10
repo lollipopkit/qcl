@@ -74,6 +74,18 @@ cargo run -p qcl-lsp
 
 The server communicates via stdin/stdout using the LSP JSON-RPC protocol.
 
+### One‑shot File Analysis (CLI)
+
+Analyze a single file from the command line and print JSON containing diagnostics, symbols, context references, and semantic tokens:
+
+```bash
+cargo run -p qcl-lsp -- --analyze path/to/file.qcl
+```
+
+Notes:
+- The file path must be relative (no absolute paths or `..`).
+- Output is prettified JSON suitable for piping to `jq`.
+
 ### Integration with Editors
 
 #### VS Code

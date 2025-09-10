@@ -19,7 +19,11 @@
     "Programming Languages"
   ],
   "main": "./out/extension.js",
-  "activationEvents": [],
+  "activationEvents": [
+    "onLanguage:qcl",
+    "onCommand:qcl.restartServer",
+    "onCommand:qcl.startServer"
+  ],
   "capabilities": {
     "semanticTokensProvider": {
       "legend": {
@@ -50,6 +54,11 @@
   "contributes": {
     "commands": [
       {
+        "command": "qcl.startServer",
+        "title": "QCL: Start Language Server",
+        "category": "QCL"
+      },
+      {
         "command": "qcl.restartServer",
         "title": "QCL: Restart Language Server",
         "category": "QCL"
@@ -72,10 +81,7 @@
       {
         "language": "qcl",
         "scopeName": "source.qcl",
-        "path": "./syntaxes/qcl.tmLanguage.json",
-        "injectTo": [
-          "source.json"
-        ]
+        "path": "./syntaxes/qcl.tmLanguage.json"
       }
     ],
     "semanticTokenTypes": [
@@ -211,16 +217,37 @@
           "default": true,
           "description": "Enable/disable QCL Language Server Protocol integration"
         },
+        "qcl.lsp.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically start the QCL language server on activation"
+        },
         "qcl.lsp.serverPath": {
           "type": "string",
           "default": "",
-          "description": "Custom path to the QCL LSP server binary (leave empty for auto-detection)"
+          "description": "Custom path to the QCL LSP server binary (leave empty to use PATH or auto-detection). Supports '~' for home directory."
         },
         "qcl.lsp.trace": {
           "type": "string",
           "enum": ["off", "messages", "verbose"],
           "default": "off",
           "description": "Trace communication between VSCode and the QCL language server"
+        },
+        "qcl.lsp.outputChannel.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show a dedicated output channel for QCL (may affect performance)"
+        },
+        "qcl.lsp.semanticTokens.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable semantic tokens; disable to rely on TextMate highlighting only"
+        },
+        "qcl.lsp.semanticTokens.throttleMs": {
+          "type": "number",
+          "default": 150,
+          "minimum": 0,
+          "description": "Throttle consecutive semantic token requests for the same document (ms)"
         }
       }
     }

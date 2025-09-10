@@ -9,6 +9,7 @@ use tracing::info;
 
 mod analyzer;
 use analyzer::{AnalysisResult, QclAnalyzer};
+use qcl_core::{error::Span as CoreSpan, token::Token as CoreToken};
 
 #[cfg(test)]
 mod bench_test;
@@ -48,29 +49,44 @@ impl QclLanguageServer {
     }
 
     async fn get_hover_info(&self, uri: &Url, _position: Position) -> Option<Hover> {
-        // Use cached or computed analysis; avoid recompute on hot path
-        let analysis = self.get_or_compute_analysis(uri).await?;
+        // Snapshot content for position lookup
+        let (content, offset) = {
+            let doc = self.documents.get(uri)?;
+            let off = position_to_char_idx(&doc.content, _position);
+            (doc.content.to_string(), off)
+        };
 
-        if !analysis.context_references.is_empty() {
-            let hover_text = format!(
-                "QCL Code\n\nContext references: {:?}\n\nSymbols: {}",
-                analysis.context_references,
-                analysis.symbols.len()
-            );
+        // Tokenize with spans (cached) and find token at offset
+        let (tokens, spans) = {
+            // Prefer using the shared analyzer to leverage cache
+            if let Ok(mut analyzer) = self.analyzer.lock() {
+                match analyzer.tokenize_with_spans_cached(&content) {
+                    Ok(pair) => pair,
+                    Err(_) => return None,
+                }
+            } else {
+                return None;
+            }
+        };
+
+        if let Some((idx, _token)) = find_token_at_offset(&spans, &tokens, offset) {
+            let hover_text = describe_token_hover(&tokens, &spans, idx);
             return Some(Hover {
                 contents: HoverContents::Scalar(MarkedString::String(hover_text)),
                 range: None,
             });
         }
 
-        if !analysis.symbols.is_empty() {
-            let hover_text = format!("QCL Code\n\nSymbols: {}", analysis.symbols.len());
-            return Some(Hover {
-                contents: HoverContents::Scalar(MarkedString::String(hover_text)),
-                range: None,
-            });
+        // Fallback: surface a minimal file-level hint if available
+        if let Some(analysis) = self.get_or_compute_analysis(uri).await {
+            if !analysis.context_references.is_empty() {
+                let hover_text = format!("Context keys: {:?}", analysis.context_references);
+                return Some(Hover {
+                    contents: HoverContents::Scalar(MarkedString::String(hover_text)),
+                    range: None,
+                });
+            }
         }
-
         None
     }
 
@@ -196,7 +212,8 @@ impl LanguageServer for QclLanguageServer {
                                     SemanticTokenModifier::STATIC,
                                 ],
                             },
-                            range: Some(true),
+                            // Disable range-based semantic tokens to reduce UI churn during scroll
+                            range: Some(false),
                             full: Some(SemanticTokensFullOptions::Bool(true)),
                         },
                     ),
@@ -542,8 +559,178 @@ fn apply_incremental_change_rope(text: &mut Rope, change: &TextDocumentContentCh
     }
 }
 
+// Find the token covering the given absolute char offset using half-open [start,end) spans.
+fn find_token_at_offset(
+    spans: &[CoreSpan],
+    tokens: &[CoreToken],
+    offset: usize,
+) -> Option<(usize, CoreToken)> {
+    for (i, span) in spans.iter().enumerate() {
+        if offset >= span.start.offset && offset < span.end.offset {
+            return Some((i, tokens[i].clone()));
+        }
+    }
+    None
+}
+
+// Build a concise, position-aware hover message for a token.
+fn describe_token_hover(tokens: &[CoreToken], spans: &[CoreSpan], idx: usize) -> String {
+    use CoreToken as T;
+    let tok = &tokens[idx];
+
+    // Attempt to extract full context path when hovering on @, identifiers or dot segments within it
+    if matches!(tok, T::At | T::Id(_) | T::Int(_) ) {
+        if let Some(path) = extract_context_path(tokens, idx) {
+            // Root key is the first segment after '@'
+            let root = path
+                .trim_start_matches('@')
+                .split('.')
+                .next()
+                .unwrap_or("");
+            return if root.is_empty() {
+                format!("Context path: {}", path)
+            } else {
+                format!("Context path: {}\nRoot key: {}", path, root)
+            };
+        }
+    }
+
+    match tok {
+        T::Id(name) => {
+            // Heuristic: function call if next token is '('
+            let is_call = tokens.get(idx + 1).map(|t| matches!(t, T::LParen)).unwrap_or(false);
+            if is_call {
+                format!("Function call: {}(…)", name)
+            } else {
+                format!("Identifier: {}", name)
+            }
+        }
+        T::Str(s) => format!("String literal: \"{}\"", s),
+        T::Int(i) => format!("Integer: {}", i),
+        T::Float(f) => format!("Float: {}", f),
+        T::Bool(b) => format!("Boolean: {}", b),
+        T::Nil => "Nil literal".to_string(),
+
+        // Keywords
+        T::If => "Keyword: if".to_string(),
+        T::Else => "Keyword: else".to_string(),
+        T::While => "Keyword: while".to_string(),
+        T::Let => "Keyword: let".to_string(),
+        T::Break => "Keyword: break".to_string(),
+        T::Continue => "Keyword: continue".to_string(),
+        T::Goto => "Keyword: goto".to_string(),
+        T::Return => "Keyword: return".to_string(),
+        T::Fn => "Keyword: fn".to_string(),
+        T::Import => "Keyword: import".to_string(),
+        T::From => "Keyword: from".to_string(),
+        T::As => "Keyword: as".to_string(),
+        T::Go => "Keyword: go".to_string(),
+        T::Chan => "Keyword: chan".to_string(),
+        T::Select => "Keyword: select".to_string(),
+        T::Case => "Keyword: case".to_string(),
+        T::Default => "Keyword: default".to_string(),
+        T::MakeChan => "Function: make_chan".to_string(),
+
+        // Operators and punctuation
+        T::Eq => "Operator: ==".to_string(),
+        T::Ne => "Operator: !=".to_string(),
+        T::Ge => "Operator: >=".to_string(),
+        T::Le => "Operator: <=".to_string(),
+        T::Gt => "Operator: >".to_string(),
+        T::Lt => "Operator: <".to_string(),
+        T::And => "Operator: &&".to_string(),
+        T::Or => "Operator: ||".to_string(),
+        T::Not => "Operator: !".to_string(),
+        T::In => "Operator: in".to_string(),
+        T::Assign => "Operator: =".to_string(),
+        T::Add => "Operator: +".to_string(),
+        T::Sub => "Operator: -".to_string(),
+        T::Mul => "Operator: *".to_string(),
+        T::Div => "Operator: /".to_string(),
+        T::Mod => "Operator: %".to_string(),
+        T::Send => "Channel op: <- (send)".to_string(),
+        T::Recv => "Channel op: <- (recv)".to_string(),
+        T::Dot => "Accessor: .".to_string(),
+        T::Colon => "Symbol: :".to_string(),
+        T::Comma => "Symbol: ,".to_string(),
+        T::Semicolon => "Symbol: ;".to_string(),
+        T::At => "Context root: @".to_string(),
+        T::LParen => "Symbol: (".to_string(),
+        T::RParen => "Symbol: )".to_string(),
+        T::LBrace => "Symbol: {".to_string(),
+        T::RBrace => "Symbol: }".to_string(),
+        T::LBracket => "Symbol: [".to_string(),
+        T::RBracket => "Symbol: ]".to_string(),
+    }
+}
+
+// Given a token index that is part of an @context path, reconstruct the full path string
+fn extract_context_path(tokens: &[CoreToken], idx: usize) -> Option<String> {
+    use CoreToken as T;
+    // Find the nearest '@' to the left of or at idx
+    let mut at_pos: Option<usize> = None;
+    let mut j = idx as isize;
+    while j >= 0 {
+        match &tokens[j as usize] {
+            T::At => {
+                at_pos = Some(j as usize);
+                break;
+            }
+            T::Id(_) | T::Int(_) | T::Dot => {
+                j -= 1;
+                continue;
+            }
+            _ => break,
+        }
+    }
+    let start = at_pos?;
+    let mut s = String::from("@");
+    let mut k = start + 1;
+    // Optional first segment right after '@'
+    if let Some(seg) = tokens.get(k) {
+        match seg {
+            T::Id(name) => {
+                s.push_str(name);
+                k += 1;
+            }
+            T::Int(n) => {
+                s.push_str(&n.to_string());
+                k += 1;
+            }
+            _ => {}
+        }
+    }
+    // Then repeat (. segment)
+    loop {
+        match (tokens.get(k), tokens.get(k + 1)) {
+            (Some(T::Dot), Some(T::Id(name))) => {
+                s.push('.');
+                s.push_str(name);
+                k += 2;
+            }
+            (Some(T::Dot), Some(T::Int(n))) => {
+                s.push('.');
+                s.push_str(&n.to_string());
+                k += 2;
+            }
+            _ => break,
+        }
+    }
+    Some(s)
+}
+
 #[tokio::main]
 async fn main() {
+    // Check CLI args for one-shot analysis mode before starting LSP server
+    if let Some(output) = try_cli_analyze().unwrap_or_else(|e| {
+        eprintln!("qcl-lsp analyze error: {e}");
+        std::process::exit(2);
+    }) {
+        // Print JSON result to stdout and exit
+        println!("{}", output);
+        return;
+    }
+
     // Initialize tracing to stderr to avoid interfering with LSP protocol on stdout
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
@@ -556,4 +743,90 @@ async fn main() {
 
     // Start the server
     Server::new(stdin, stdout, socket).serve(service).await;
+}
+
+fn try_cli_analyze() -> anyhow::Result<Option<String>> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() <= 1 {
+        return Ok(None);
+    }
+
+    // Look for `--analyze <file>` anywhere in the args
+    if let Some(i) = args.iter().position(|a| a == "--analyze") {
+        let path = args.get(i + 1).cloned().ok_or_else(|| {
+            anyhow::anyhow!("Usage: qcl-lsp --analyze <relative-file-path>")
+        })?;
+
+        // Read file content with safety checks
+        let content = read_file_content(&path)?;
+
+        // Run analysis using the same analyzer used by the LSP
+        let mut analyzer = QclAnalyzer::new();
+        let analysis = analyzer.analyze(&content);
+        let tokens = analyzer.generate_semantic_tokens(&content);
+
+        // Convert HashSet to Vec for deterministic JSON output
+        let mut context_refs: Vec<String> = analysis.context_references.iter().cloned().collect();
+        context_refs.sort();
+
+        // Map tokens to simple arrays to avoid requiring serde on LSP types
+        let tokens_simple: Vec<[u32; 5]> = tokens
+            .iter()
+            .map(|t| [
+                t.delta_line,
+                t.delta_start,
+                t.length,
+                t.token_type,
+                t.token_modifiers_bitset,
+            ])
+            .collect();
+
+        let output = serde_json::json!({
+            "diagnostics": analysis.diagnostics,
+            "symbols": analysis.symbols,
+            "context_references": context_refs,
+            "semantic_tokens": tokens_simple
+        });
+        return Ok(Some(serde_json::to_string_pretty(&output)?));
+    }
+
+    Ok(None)
+}
+
+fn is_safe_path(path: &str) -> bool {
+    use std::path::{Component, Path};
+    let path = Path::new(path);
+
+    if path.as_os_str().is_empty() {
+        return false;
+    }
+    if path.is_absolute() {
+        return false;
+    }
+    if path.components().any(|c| c == Component::ParentDir) {
+        return false;
+    }
+
+    // Basic sanitization similar to CLI: block control chars and normalize components
+    let s = path.to_string_lossy();
+    let suspicious = ['\0', '\n', '\r', '\t'];
+    if s.chars().any(|c| suspicious.contains(&c)) {
+        return false;
+    }
+    // Reject Windows drive-like prefixes in a relative string (e.g. "C:\\...")
+    if s.len() >= 2 {
+        let bytes = s.as_bytes();
+        if bytes[1] == b':' {
+            return false;
+        }
+    }
+    true
+}
+
+fn read_file_content(path: &str) -> anyhow::Result<String> {
+    if !is_safe_path(path) {
+        return Err(anyhow::anyhow!("Unsafe file path: {}", path));
+    }
+    Ok(std::fs::read_to_string(path)
+        .map_err(|e| anyhow::anyhow!("Failed to read file '{}': {}", path, e))?)
 }

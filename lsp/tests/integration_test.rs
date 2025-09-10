@@ -260,39 +260,152 @@ impl TestLanguageServer {
     }
 
     async fn get_hover_info(&self, uri: &Url) -> Option<Hover> {
+        // Tokenize and provide a position-aware hover over the first non-whitespace token
+
         let documents = self.documents.read().await;
         let document = documents.get(uri)?;
         let content = &document.content;
 
-        let analysis = self.analyzer.analyze(content);
+        // Tokenize with spans; pick first non-whitespace token to emulate a hover position
+        let (tokens, spans) = qcl_core::token::Tokenizer::tokenize_enhanced_with_spans(content)
+            .ok()?;
+        let hover_idx = Self::first_non_ws_token_index(content, &spans)?;
+        let text = Self::describe_token_hover_test(&tokens, hover_idx);
 
-        if !analysis.context_references.is_empty() {
-            let hover_text = format!(
-                "QCL Code\n\nContext references: {:?}\n\nSymbols: {}",
-                analysis.context_references,
-                analysis.symbols.len()
-            );
-            return Some(Hover {
-                contents: HoverContents::Scalar(MarkedString::String(hover_text)),
-                range: Some(Range::new(
-                    Position::new(0, 0),
-                    Position::new(0, content.len() as u32),
-                )),
-            });
+        Some(Hover {
+            contents: HoverContents::Scalar(MarkedString::String(text)),
+            range: None,
+        })
+    }
+
+    fn first_non_ws_token_index(content: &str, spans: &[qcl_core::error::Span]) -> Option<usize> {
+        for (i, sp) in spans.iter().enumerate() {
+            let start = sp.start.offset;
+            let end = sp.end.offset.min(content.len());
+            let slice = &content[start..end];
+            if !slice.chars().all(|c| c.is_whitespace()) {
+                return Some(i);
+            }
         }
-
-        if !analysis.symbols.is_empty() {
-            let hover_text = format!("QCL Code\n\nSymbols: {}", analysis.symbols.len());
-            return Some(Hover {
-                contents: HoverContents::Scalar(MarkedString::String(hover_text)),
-                range: Some(Range::new(
-                    Position::new(0, 0),
-                    Position::new(0, content.len() as u32),
-                )),
-            });
-        }
-
         None
+    }
+
+    fn describe_token_hover_test(tokens: &[qcl_core::token::Token], idx: usize) -> String {
+        use qcl_core::token::Token as T;
+        if let Some(path) = Self::extract_context_path_test(tokens, idx) {
+            return format!("Context path: {}", path);
+        }
+        match &tokens[idx] {
+            T::Id(name) => {
+                let is_call = tokens.get(idx + 1).map(|t| matches!(t, T::LParen)).unwrap_or(false);
+                if is_call {
+                    format!("Function call: {}(…)", name)
+                } else {
+                    format!("Identifier: {}", name)
+                }
+            }
+            T::Str(s) => format!("String literal: \"{}\"", s),
+            T::Int(i) => format!("Integer: {}", i),
+            T::Float(f) => format!("Float: {}", f),
+            T::Bool(b) => format!("Boolean: {}", b),
+            T::Nil => "Nil literal".to_string(),
+            T::If => "Keyword: if".to_string(),
+            T::Else => "Keyword: else".to_string(),
+            T::While => "Keyword: while".to_string(),
+            T::Let => "Keyword: let".to_string(),
+            T::Break => "Keyword: break".to_string(),
+            T::Continue => "Keyword: continue".to_string(),
+            T::Goto => "Keyword: goto".to_string(),
+            T::Return => "Keyword: return".to_string(),
+            T::Fn => "Keyword: fn".to_string(),
+            T::Import => "Keyword: import".to_string(),
+            T::From => "Keyword: from".to_string(),
+            T::As => "Keyword: as".to_string(),
+            T::Go => "Keyword: go".to_string(),
+            T::Chan => "Keyword: chan".to_string(),
+            T::Select => "Keyword: select".to_string(),
+            T::Case => "Keyword: case".to_string(),
+            T::Default => "Keyword: default".to_string(),
+            T::MakeChan => "Function: make_chan".to_string(),
+            T::Eq => "Operator: ==".to_string(),
+            T::Ne => "Operator: !=".to_string(),
+            T::Ge => "Operator: >=".to_string(),
+            T::Le => "Operator: <=".to_string(),
+            T::Gt => "Operator: >".to_string(),
+            T::Lt => "Operator: <".to_string(),
+            T::And => "Operator: &&".to_string(),
+            T::Or => "Operator: ||".to_string(),
+            T::Not => "Operator: !".to_string(),
+            T::In => "Operator: in".to_string(),
+            T::Assign => "Operator: =".to_string(),
+            T::Add => "Operator: +".to_string(),
+            T::Sub => "Operator: -".to_string(),
+            T::Mul => "Operator: *".to_string(),
+            T::Div => "Operator: /".to_string(),
+            T::Mod => "Operator: %".to_string(),
+            T::Send => "Channel op: <- (send)".to_string(),
+            T::Recv => "Channel op: <- (recv)".to_string(),
+            T::Dot => "Accessor: .".to_string(),
+            T::Colon => "Symbol: :".to_string(),
+            T::Comma => "Symbol: ,".to_string(),
+            T::Semicolon => "Symbol: ;".to_string(),
+            T::At => "Context root: @".to_string(),
+            T::LParen => "Symbol: (".to_string(),
+            T::RParen => "Symbol: )".to_string(),
+            T::LBrace => "Symbol: {".to_string(),
+            T::RBrace => "Symbol: }".to_string(),
+            T::LBracket => "Symbol: [".to_string(),
+            T::RBracket => "Symbol: ]".to_string(),
+        }
+    }
+
+    fn extract_context_path_test(tokens: &[qcl_core::token::Token], idx: usize) -> Option<String> {
+        use qcl_core::token::Token as T;
+        // find '@'
+        let mut at: Option<usize> = None;
+        let mut j = idx as isize;
+        while j >= 0 {
+            match &tokens[j as usize] {
+                T::At => {
+                    at = Some(j as usize);
+                    break;
+                }
+                T::Id(_) | T::Int(_) | T::Dot => j -= 1,
+                _ => break,
+            }
+        }
+        let start = at?;
+        let mut s = String::from("@");
+        let mut k = start + 1;
+        if let Some(seg) = tokens.get(k) {
+            match seg {
+                T::Id(name) => {
+                    s.push_str(name);
+                    k += 1;
+                }
+                T::Int(n) => {
+                    s.push_str(&n.to_string());
+                    k += 1;
+                }
+                _ => {}
+            }
+        }
+        loop {
+            match (tokens.get(k), tokens.get(k + 1)) {
+                (Some(T::Dot), Some(T::Id(name))) => {
+                    s.push('.');
+                    s.push_str(name);
+                    k += 2;
+                }
+                (Some(T::Dot), Some(T::Int(n))) => {
+                    s.push('.');
+                    s.push_str(&n.to_string());
+                    k += 2;
+                }
+                _ => break,
+            }
+        }
+        Some(s)
     }
 
     fn get_completions(&self) -> Vec<CompletionItem> {
@@ -423,8 +536,8 @@ async fn test_lsp_hover_functionality() {
 
     let hover = hover.unwrap();
     if let HoverContents::Scalar(MarkedString::String(content)) = hover.contents {
-        assert!(content.contains("Context references"));
-        assert!(content.contains("req"));
+        assert!(content.contains("Context path"));
+        assert!(content.contains("@"));
     } else {
         panic!("Expected string hover content");
     }
@@ -443,7 +556,8 @@ async fn test_lsp_hover_functionality() {
 
     let hover = hover.unwrap();
     if let HoverContents::Scalar(MarkedString::String(content)) = hover.contents {
-        assert!(content.contains("Symbols"));
+        // The first non-whitespace token in this program should be the 'import' keyword
+        assert!(content.contains("Keyword:"));
     } else {
         panic!("Expected string hover content");
     }
@@ -676,12 +790,14 @@ async fn test_lsp_complex_program_analysis() {
 
     let hover = hover.unwrap();
     if let HoverContents::Scalar(MarkedString::String(content)) = hover.contents {
-        // The complex program might not have context references extracted properly from statements,
-        // but it should have symbols
-        assert!(content.contains("Symbols") || content.contains("Context references"));
-        if content.contains("Context references") {
-            assert!(content.contains("req") || content.contains("record"));
-        }
+        // Should describe a token at start of file; accept broad categories
+        assert!(
+            content.contains("Keyword:")
+                || content.contains("Identifier:")
+                || content.contains("Context path:")
+                || content.contains("Operator:")
+                || content.contains("String literal:")
+        );
     } else {
         panic!("Expected string hover content");
     }

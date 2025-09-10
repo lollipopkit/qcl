@@ -9,6 +9,9 @@ use tower_lsp::lsp_types::*;
 const MAX_SCAN_LINES: usize = 400; // max lines to line-scan
 const MAX_SCAN_CHUNKS: usize = 300; // max logical chunks to scan
 const MAX_DIAGNOSTICS: usize = 200; // cap diagnostics volume
+// Caps to avoid overwhelming the editor with semantic tokens
+const MAX_TOKENS_PER_DOC: usize = 20_000;   // hard ceiling for full-document tokens
+const MAX_TOKENS_PER_RANGE: usize = 8_000;  // hard ceiling for range tokens
 
 /// Result of analyzing QCL code, containing diagnostics, symbols, and context references
 #[derive(Debug, Clone)]
@@ -39,6 +42,29 @@ impl QclAnalyzer {
     pub fn clear_caches(&mut self) {
         self.token_cache.clear();
         self.completion_cache = None;
+    }
+
+    /// Tokenize with spans, using an internal cache keyed by full content string.
+    pub fn tokenize_with_spans_cached(
+        &mut self,
+        content: &str,
+    ) -> std::result::Result<(Vec<qcl_core::token::Token>, Vec<Span>), qcl_core::error::ParseError>
+    {
+        if let Some(cached) = self.token_cache.get(content) {
+            return Ok(cached.clone());
+        }
+        match Tokenizer::tokenize_enhanced_with_spans(content) {
+            Ok(pair) => {
+                if content.len() < 10_000 {
+                    if self.token_cache.len() >= 100 {
+                        self.token_cache.clear();
+                    }
+                    self.token_cache.insert(content.to_string(), pair.clone());
+                }
+                Ok(pair)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Analyze QCL code and return diagnostics, symbols, and context references
@@ -890,6 +916,7 @@ impl QclAnalyzer {
         const COMMENT_IDX: u32 = 0;
         const KEYWORD_IDX: u32 = 1;
         const VARIABLE_IDX: u32 = 2;
+        const FUNCTION_IDX: u32 = 3;
         const STRING_IDX: u32 = 4;
         const NUMBER_IDX: u32 = 5;
         const OPERATOR_IDX: u32 = 6;
@@ -1068,7 +1095,7 @@ impl QclAnalyzer {
                     continue;
                 }
 
-                // Handle identifiers and keywords
+                // Handle identifiers and keywords (and detect function calls)
                 if c.is_alphabetic() || c == '_' {
                     let ident_start = char_index;
                     while char_index < len
@@ -1080,12 +1107,21 @@ impl QclAnalyzer {
                     let identifier: String = chars[ident_start..char_index].iter().collect();
 
                     // Check for keywords
-                    let token_idx = match identifier.as_str() {
+                    let mut token_idx = match identifier.as_str() {
                         "if" | "else" | "while" | "let" | "fn" | "return" | "break"
                         | "continue" | "goto" | "import" | "from" | "as" | "go" | "select"
                         | "case" | "default" | "true" | "false" | "nil" => KEYWORD_IDX,
                         _ => VARIABLE_IDX,
                     };
+
+                    // If next non-whitespace char is '(', treat as function identifier
+                    if token_idx == VARIABLE_IDX {
+                        let mut j = char_index;
+                        while j < len && chars[j].is_whitespace() { j += 1; }
+                        if j < len && chars[j] == '(' {
+                            token_idx = FUNCTION_IDX;
+                        }
+                    }
 
                     tokens.push(self.create_token(
                         line_number,
@@ -1097,9 +1133,8 @@ impl QclAnalyzer {
                     continue;
                 }
 
-                // Handle context access (@)
+                // Handle context access (@) - skip marking '@' to reduce token density
                 if c == '@' {
-                    tokens.push(self.create_token(line_number, char_index, 1, PROPERTY_IDX, 0));
                     char_index += 1;
                     continue;
                 }
@@ -1134,29 +1169,48 @@ impl QclAnalyzer {
                         }
                     }
 
-                    // Single character operator
+                    // Single character operator: skip to reduce token density
                     char_index += 1;
-                    tokens.push(self.create_token(line_number, op_start, 1, OPERATOR_IDX, 0));
                     continue;
                 }
 
                 // Other operators and punctuation
-                if "+-*/%.,;(){}[]".contains(c) {
-                    let token_idx = match c {
-                        '+' | '-' | '*' | '/' | '%' => OPERATOR_IDX,
-                        '.' => PROPERTY_IDX,
-                        _ => OPERATOR_IDX,
-                    };
-
-                    tokens.push(self.create_token(line_number, char_index, 1, token_idx, 0));
-                    char_index += 1;
-                    continue;
+                if "+-*/%,;(){}[]".contains(c) || c == '.' {
+                    if c == '.' {
+                        // Dot accessor: skip '.' token; only mark following identifier as property
+                        char_index += 1;
+                        // Parse a property identifier immediately after '.'
+                        let prop_start = char_index;
+                        while char_index < len
+                            && (chars[char_index].is_alphanumeric() || chars[char_index] == '_')
+                        {
+                            char_index += 1;
+                        }
+                        if char_index > prop_start {
+                            tokens.push(self.create_token(
+                                line_number,
+                                prop_start,
+                                char_index - prop_start,
+                                PROPERTY_IDX,
+                                0,
+                            ));
+                        }
+                        continue;
+                    } else {
+                        // Skip single-char operators/punctuations to reduce token density
+                        char_index += 1;
+                        continue;
+                    }
                 }
 
                 char_index += 1;
             }
 
             line_number += 1;
+            // Stop early if token budget is exceeded
+            if tokens.len() >= MAX_TOKENS_PER_DOC {
+                break;
+            }
         }
 
         // Convert absolute positions to delta-encoded positions required by LSP
@@ -1230,6 +1284,7 @@ impl QclAnalyzer {
         const COMMENT_IDX: u32 = 0;
         const KEYWORD_IDX: u32 = 1;
         const VARIABLE_IDX: u32 = 2;
+        const FUNCTION_IDX: u32 = 3;
         const STRING_IDX: u32 = 4;
         const NUMBER_IDX: u32 = 5;
         const OPERATOR_IDX: u32 = 6;
@@ -1408,48 +1463,31 @@ impl QclAnalyzer {
                     continue;
                 }
 
-                // Identifiers and keywords, variables (@xxx)
-                if c.is_ascii_alphabetic() || c == '_' || c == '@' {
+                // Identifiers and keywords (and detect function calls)
+                if c.is_ascii_alphabetic() || c == '_' {
+                    let ident_start = char_index;
                     let mut j = char_index + 1;
-                    while j < len
-                        && (chars[j].is_ascii_alphanumeric() || chars[j] == '_' || chars[j] == '.')
-                    {
+                    while j < len && (chars[j].is_ascii_alphanumeric() || chars[j] == '_') {
                         j += 1;
                     }
-                    let slice: String = chars[char_index..j].iter().collect();
-                    let token_idx = if slice == "if"
-                        || slice == "else"
-                        || slice == "while"
-                        || slice == "let"
-                        || slice == "fn"
-                        || slice == "return"
-                        || slice == "break"
-                        || slice == "continue"
-                        || slice == "goto"
-                        || slice == "import"
-                        || slice == "from"
-                        || slice == "as"
-                        || slice == "go"
-                        || slice == "select"
-                        || slice == "case"
-                        || slice == "default"
-                        || slice == "true"
-                        || slice == "false"
-                        || slice == "nil"
-                    {
-                        KEYWORD_IDX
-                    } else if slice.starts_with('@') {
-                        VARIABLE_IDX
-                    } else {
-                        // Detect property access segments after '.' within identifier handling
-                        VARIABLE_IDX
+                    let slice: &str = &line[ident_start..j];
+                    let mut token_idx = match slice {
+                        "if" | "else" | "while" | "let" | "fn" | "return" | "break"
+                        | "continue" | "goto" | "import" | "from" | "as" | "go" | "select"
+                        | "case" | "default" | "true" | "false" | "nil" => KEYWORD_IDX,
+                        _ => VARIABLE_IDX,
                     };
-                    let start = char_index.max(start_char_bound);
+                    // Detect function call by peeking next non-whitespace char
+                    if token_idx == VARIABLE_IDX {
+                        let mut k = j;
+                        while k < len && chars[k].is_whitespace() { k += 1; }
+                        if k < len && chars[k] == '(' { token_idx = FUNCTION_IDX; }
+                    }
+                    let start = ident_start.max(start_char_bound);
                     if start < end_char_bound {
                         let capped_len_total = j.saturating_sub(start);
                         if capped_len_total > 0 {
-                            let capped_len =
-                                capped_len_total.min(end_char_bound.saturating_sub(start));
+                            let capped_len = capped_len_total.min(end_char_bound.saturating_sub(start));
                             tokens.push(self.create_token(
                                 line_number,
                                 start,
@@ -1460,6 +1498,12 @@ impl QclAnalyzer {
                         }
                     }
                     char_index = j;
+                    continue;
+                }
+
+                // Context access '@' - skip marking '@' to reduce token density
+                if c == '@' {
+                    char_index += 1;
                     continue;
                 }
 
@@ -1497,52 +1541,52 @@ impl QclAnalyzer {
                             _ => {}
                         }
                     }
-                    let start = op_start.max(start_char_bound);
-                    if start < end_char_bound {
-                        let capped_len_total = (op_start + 1).saturating_sub(start);
-                        if capped_len_total > 0 {
-                            let capped_len =
-                                capped_len_total.min(end_char_bound.saturating_sub(start));
-                            tokens.push(self.create_token(
-                                line_number,
-                                start,
-                                capped_len,
-                                OPERATOR_IDX,
-                                0,
-                            ));
-                        }
-                    }
+                    // Single character operator: skip to reduce token density
                     char_index += 1;
                     continue;
                 }
 
                 // Other operators and punctuation
-                if "+-*/%.,;(){}[]".contains(c) {
-                    let token_idx = match c {
-                        '+' | '-' | '*' | '/' | '%' => OPERATOR_IDX,
-                        '.' => PROPERTY_IDX,
-                        _ => OPERATOR_IDX,
-                    };
-                    let start = char_index.max(start_char_bound);
-                    if start < end_char_bound {
-                        let capped_len_total = (char_index + 1).saturating_sub(start);
-                        if capped_len_total > 0 {
-                            let capped_len =
-                                capped_len_total.min(end_char_bound.saturating_sub(start));
-                            tokens.push(self.create_token(
-                                line_number,
-                                start,
-                                capped_len,
-                                token_idx,
-                                0,
-                            ));
+                if "+-*/%,;(){}[]".contains(c) || c == '.' {
+                    if c == '.' {
+                        // Skip '.' token; only emit following property
+                        char_index += 1;
+                        // Parse and emit following identifier as property
+                        let prop_start = char_index;
+                        while char_index < len
+                            && (chars[char_index].is_ascii_alphanumeric() || chars[char_index] == '_')
+                        {
+                            char_index += 1;
                         }
+                        if char_index > prop_start {
+                            let start = prop_start.max(start_char_bound);
+                            if start < end_char_bound {
+                                let capped_len = (char_index - prop_start)
+                                    .min(end_char_bound.saturating_sub(start));
+                                if capped_len > 0 {
+                                    tokens.push(self.create_token(
+                                        line_number,
+                                        start,
+                                        capped_len,
+                                        PROPERTY_IDX,
+                                        0,
+                                    ));
+                                }
+                            }
+                        }
+                        continue;
+                    } else {
+                        // Skip single-char operators/punctuations in range to reduce token density
+                        char_index += 1;
+                        continue;
                     }
-                    char_index += 1;
-                    continue;
                 }
 
                 char_index += 1;
+            }
+            // Stop early if range token budget is exceeded
+            if tokens.len() >= MAX_TOKENS_PER_RANGE {
+                break;
             }
         }
 
@@ -1883,5 +1927,16 @@ mod tests {
         }
 
         assert!(found_number, "Should find number token");
+    }
+
+    #[test]
+    fn test_generate_semantic_tokens_function_identifier() {
+        let analyzer = create_analyzer();
+        let content = "let y = foo(1) + bar (2);";
+        let tokens = analyzer.generate_semantic_tokens(content);
+
+        const FUNCTION_IDX: u32 = 3;
+
+        assert!(tokens.iter().any(|t| t.token_type == FUNCTION_IDX), "Should classify function identifiers as FUNCTION");
     }
 }
