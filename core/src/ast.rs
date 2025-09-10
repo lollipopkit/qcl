@@ -43,13 +43,11 @@ impl<'a> Parser<'a> {
             Ok(expr) => expr,
             Err(err) => {
                 // Prefer precise token span if available; otherwise, fall back to offset estimation
-                if let Some(spans) = &self.token_spans {
-                    if self.pos < spans.len() {
-                        return Err(crate::error::ParseError::with_span(
-                            err.to_string(),
-                            spans[self.pos].clone(),
-                        ));
-                    }
+                if let Some(spans) = &self.token_spans && self.pos < spans.len() {
+                    return Err(crate::error::ParseError::with_span(
+                        err.to_string(),
+                        spans[self.pos].clone(),
+                    ));
                 }
                 let position = crate::error::offset_to_position(
                     input,
@@ -67,13 +65,11 @@ impl<'a> Parser<'a> {
         };
 
         if !self.eof() {
-            if let Some(spans) = &self.token_spans {
-                if self.pos < spans.len() {
-                    return Err(crate::error::ParseError::with_span(
-                        "Unexpected tokens at end".to_string(),
-                        spans[self.pos].clone(),
-                    ));
-                }
+            if let Some(spans) = &self.token_spans && self.pos < spans.len() {
+                return Err(crate::error::ParseError::with_span(
+                    "Unexpected tokens at end".to_string(),
+                    spans[self.pos].clone(),
+                ));
             }
             let position = crate::error::offset_to_position(
                 input,

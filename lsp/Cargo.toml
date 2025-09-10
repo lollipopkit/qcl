@@ -22,6 +22,7 @@ url = "2.0"
 anyhow = "1.0"
 dashmap = "5"
 ropey = "1"
+twox-hash = "1"
 
 [features]
 default = ["all"]

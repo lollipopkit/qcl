@@ -714,28 +714,26 @@ impl TcpModule {
 
         thread::spawn(move || {
             let store = get_connection_store();
-            if let Ok(connections) = store.lock() {
-                if let Some(stream_arc) = connections.get(&conn_id) {
-                    if let Ok(mut stream) = stream_arc.lock() {
-                        loop {
-                            let mut buffer = vec![0u8; buffer_size];
-                            match stream.read(&mut buffer) {
-                                Ok(0) => break, // EOF
-                                Ok(bytes_read) => {
-                                    buffer.truncate(bytes_read);
-                                    match String::from_utf8(buffer) {
-                                        Ok(data) => {
-                                            if stream_ch_clone.send(Val::Str(data.into())).is_err()
-                                            {
-                                                break;
-                                            }
-                                        }
-                                        Err(_) => break,
+            if let Ok(connections) = store.lock()
+                && let Some(stream_arc) = connections.get(&conn_id)
+                && let Ok(mut stream) = stream_arc.lock() {
+                loop {
+                    let mut buffer = vec![0u8; buffer_size];
+                    match stream.read(&mut buffer) {
+                        Ok(0) => break, // EOF
+                        Ok(bytes_read) => {
+                            buffer.truncate(bytes_read);
+                            match String::from_utf8(buffer) {
+                                Ok(data) => {
+                                    if stream_ch_clone.send(Val::Str(data.into())).is_err()
+                                    {
+                                        break;
                                     }
                                 }
                                 Err(_) => break,
                             }
                         }
+                        Err(_) => break,
                     }
                 }
             }
@@ -767,19 +765,16 @@ impl TcpModule {
 
         thread::spawn(move || {
             let store = get_connection_store();
-            if let Ok(connections) = store.lock() {
-                if let Some(stream_arc) = connections.get(&conn_id) {
-                    if let Ok(mut stream) = stream_arc.lock() {
-                        while let Ok(val) = write_ch_clone.recv() {
-                            if val == Val::Nil {
-                                break; // Signal to close
-                            }
-                            if let Val::Str(data) = val {
-                                if stream.write_all(data.as_bytes()).is_err() {
-                                    break;
-                                }
-                            }
-                        }
+            if let Ok(connections) = store.lock()
+                && let Some(stream_arc) = connections.get(&conn_id)
+                && let Ok(mut stream) = stream_arc.lock() {
+                while let Ok(val) = write_ch_clone.recv() {
+                    if val == Val::Nil {
+                        break; // Signal to close
+                    }
+                    if let Val::Str(data) = val
+                        && stream.write_all(data.as_bytes()).is_err() {
+                        break;
                     }
                 }
             }

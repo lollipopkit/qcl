@@ -75,13 +75,11 @@ impl<'a> StmtParser<'a> {
                 Ok(s) => s,
                 Err(err) => {
                     // Prefer precise token span if available; otherwise, fall back to offset estimation
-                    if let Some(spans) = &self.token_spans {
-                        if self.pos < spans.len() {
-                            return Err(crate::error::ParseError::with_span(
-                                err.to_string(),
-                                spans[self.pos].clone(),
-                            ));
-                        }
+                    if let Some(spans) = &self.token_spans && self.pos < spans.len() {
+                        return Err(crate::error::ParseError::with_span(
+                            err.to_string(),
+                            spans[self.pos].clone(),
+                        ));
                     }
                     let position = crate::error::offset_to_position(
                         input,
@@ -102,13 +100,11 @@ impl<'a> StmtParser<'a> {
 
         Program::new(statements).map_err(|e| {
             // If we have more tokens at current position, use its span; otherwise fallback to start
-            if let Some(spans) = &self.token_spans {
-                if self.pos < spans.len() {
-                    return crate::error::ParseError::with_span(
-                        e.to_string(),
-                        spans[self.pos].clone(),
-                    );
-                }
+            if let Some(spans) = &self.token_spans && self.pos < spans.len() {
+                return crate::error::ParseError::with_span(
+                    e.to_string(),
+                    spans[self.pos].clone(),
+                );
             }
             crate::error::ParseError::with_position(
                 e.to_string(),

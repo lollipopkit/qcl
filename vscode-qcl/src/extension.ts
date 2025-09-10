@@ -10,9 +10,19 @@ import {
 import type { Middleware } from 'vscode-languageclient/node';
 
 let client: LanguageClient;
+let statusBarItem: vscode.StatusBarItem;
+let isManuallyDisabled = false;
 
 export function activate(context: vscode.ExtensionContext) {
   console.log('QCL extension is now active');
+
+  // Create status bar item
+  statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  statusBarItem.text = '$(sync~spin) QCL LSP: Starting...';
+  statusBarItem.tooltip = 'QCL Language Server is starting';
+  statusBarItem.command = 'qcl.showStatusBarMenu';
+  statusBarItem.show();
+  context.subscriptions.push(statusBarItem);
 
   // Register commands
   const startCommand = vscode.commands.registerCommand('qcl.startServer', async () => {
@@ -21,6 +31,7 @@ export function activate(context: vscode.ExtensionContext) {
       return;
     }
     try {
+      updateStatusBar('starting');
       await client.start();
       vscode.window.showInformationMessage('QCL Language Server started');
     } catch (e: any) {
@@ -31,21 +42,68 @@ export function activate(context: vscode.ExtensionContext) {
   const restartCommand = vscode.commands.registerCommand('qcl.restartServer', async () => {
     if (client) {
       console.log('Restarting QCL Language Server...');
+      updateStatusBar('starting');
       await client.stop();
       await client.start();
       vscode.window.showInformationMessage('QCL Language Server restarted');
     }
   });
 
-  context.subscriptions.push(startCommand, restartCommand);
+  const statusBarMenuCommand = vscode.commands.registerCommand('qcl.showStatusBarMenu', async () => {
+    const items: vscode.QuickPickItem[] = [];
+    
+    if (isManuallyDisabled) {
+      items.push({
+        label: '$(play) Enable QCL LSP',
+        description: 'Start the language server',
+        detail: 'Enable QCL Language Server'
+      });
+    } else {
+      items.push({
+        label: '$(sync) Restart QCL LSP',
+        description: 'Restart the language server',
+        detail: 'Restart QCL Language Server'
+      });
+      
+      items.push({
+        label: '$(circle-slash) Disable QCL LSP',
+        description: 'Temporarily disable (memory state)',
+        detail: 'Disable QCL Language Server temporarily'
+      });
+    }
+    
+    const selected = await vscode.window.showQuickPick(items, {
+      placeHolder: 'QCL Language Server Actions',
+      title: 'QCL Language Server'
+    });
+    
+    if (!selected) return;
+    
+    if (selected.label.includes('Enable')) {
+      isManuallyDisabled = false;
+      await vscode.commands.executeCommand('qcl.startServer');
+    } else if (selected.label.includes('Restart')) {
+      await vscode.commands.executeCommand('qcl.restartServer');
+    } else if (selected.label.includes('Disable')) {
+      isManuallyDisabled = true;
+      if (client) {
+        await client.stop();
+      }
+      updateStatusBar('disabled');
+      vscode.window.showInformationMessage('QCL Language Server disabled temporarily');
+    }
+  });
+
+  context.subscriptions.push(startCommand, restartCommand, statusBarMenuCommand);
 
   // Check if LSP is enabled
   const config = vscode.workspace.getConfiguration('qcl.lsp');
   const lspEnabled = config.get<boolean>('enabled', true);
   const autoStart = config.get<boolean>('autoStart', true);
   
-  if (!lspEnabled) {
-    console.log('QCL LSP is disabled in configuration');
+  if (!lspEnabled || isManuallyDisabled) {
+    console.log('QCL LSP is disabled in configuration or manually disabled');
+    updateStatusBar('disabled');
     return;
   }
 
@@ -58,6 +116,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // If the server path is not found, show an error and return
   if (!serverPath) {
+    updateStatusBar('error', 'Server not found');
     vscode.window.showErrorMessage(
       'QCL LSP server not found. Please build the QCL project first or configure a custom server path.'
     );
@@ -75,20 +134,49 @@ export function activate(context: vscode.ExtensionContext) {
   const semanticTokensEnabled = config.get<boolean>('semanticTokens.enabled', true);
   const throttleMs = Math.max(0, Number(config.get<number>('semanticTokens.throttleMs', 40)) || 0);
 
-  // Semantic tokens throttle/disable via client middleware
+  // Scroll detection and enhanced throttling
+  let isScrolling = false;
+  let scrollTimeout: NodeJS.Timeout | undefined;
+  let lastScrollTime = 0;
+  
+  // Track scroll events to detect when user is scrolling
+  const scrollDetection = vscode.window.onDidChangeTextEditorVisibleRanges(() => {
+    isScrolling = true;
+    lastScrollTime = Date.now();
+    
+    // Clear previous timeout
+    if (scrollTimeout) {
+      clearTimeout(scrollTimeout);
+    }
+    
+    // Set timeout to mark scrolling as finished
+    scrollTimeout = setTimeout(() => {
+      isScrolling = false;
+    }, 300); // Wait 300ms after last scroll event
+  });
+
+  context.subscriptions.push(scrollDetection);
+
+  // Enhanced semantic tokens middleware with scroll-aware throttling
   const lastTokenReqAt = new Map<string, number>();
+  const rangeTokenReqAt = new Map<string, number>();
   const settings = { semanticTokensEnabled, throttleMs };
+  
   const middleware: Middleware = {
     provideDocumentSemanticTokens(document, token, next) {
       if (!settings.semanticTokensEnabled) {
         if (isVerbose) console.log('Semantic tokens disabled (full)');
         return null;
       }
-      if (settings.throttleMs > 0) {
+      
+      // Apply stricter throttling during scrolling
+      const effectiveThrottleMs = isScrolling ? settings.throttleMs * 2 : settings.throttleMs;
+      
+      if (effectiveThrottleMs > 0) {
         const key = document.uri.toString();
         const now = Date.now();
         const last = lastTokenReqAt.get(key) || 0;
-        if (now - last < settings.throttleMs) {
+        if (now - last < effectiveThrottleMs) {
           if (isVerbose) console.log('Semantic tokens full throttled');
           return null;
         }
@@ -101,16 +189,29 @@ export function activate(context: vscode.ExtensionContext) {
         if (isVerbose) console.log('Semantic tokens disabled (range)');
         return null;
       }
+      
+      // Much stricter throttling for range requests during scrolling
+      const key = `${document.uri.toString()}-${range.start.line}-${range.end.line}`;
+      const now = Date.now();
+      const last = rangeTokenReqAt.get(key) || 0;
+      
+      // Skip range requests entirely during scrolling if requested recently
+      if (isScrolling && (now - lastScrollTime < 500)) {
+        if (now - last < settings.throttleMs * 3) {
+          if (isVerbose) console.log('Semantic tokens range skipped during scrolling');
+          return null;
+        }
+      }
+      
+      // Normal throttling for non-scrolling scenarios
       if (settings.throttleMs > 0) {
-        const key = document.uri.toString();
-        const now = Date.now();
-        const last = lastTokenReqAt.get(key) || 0;
         if (now - last < settings.throttleMs) {
           if (isVerbose) console.log('Semantic tokens range throttled');
           return null;
         }
-        lastTokenReqAt.set(key, now);
       }
+      
+      rangeTokenReqAt.set(key, now);
       return next(document, range, token);
     }
   };
@@ -150,6 +251,19 @@ export function activate(context: vscode.ExtensionContext) {
     if (isVerbose) {
       console.log(`LSP client state change: ${event.oldState} -> ${event.newState}`);
     }
+    
+    // Update status bar based on state
+    switch (event.newState) {
+      case 1: // Starting
+        updateStatusBar('starting');
+        break;
+      case 2: // Running
+        updateStatusBar('running');
+        break;
+      case 3: // Stopped
+        updateStatusBar('stopped');
+        break;
+    }
   });
   
   // Avoid heavy per-request logging of semantic tokens to prevent UI jank.
@@ -186,11 +300,13 @@ export function activate(context: vscode.ExtensionContext) {
         const semanticHighlighting = editorConfig.get('semanticHighlighting.enabled');
         console.log('Semantic highlighting enabled:', semanticHighlighting);
       }
+      updateStatusBar('running');
     })
     .catch((error) => {
       console.error('Failed to start QCL Language Server:', error);
       console.error('Error details:', JSON.stringify(error, null, 2));
       vscode.window.showErrorMessage('Failed to start QCL Language Server: ' + error.message);
+      updateStatusBar('error', 'Start failed');
       
       // Try to stop the client if it's in a bad state
       if (client) {
@@ -252,9 +368,42 @@ function expandHome(p: string): string {
   return p;
 }
 
+function updateStatusBar(state: string, customMessage?: string) {
+  if (!statusBarItem) {
+    return;
+  }
+  
+  switch (state) {
+    case 'starting':
+      statusBarItem.text = '$(sync~spin) QCL LSP: Starting...';
+      statusBarItem.tooltip = 'QCL Language Server is starting';
+      break;
+    case 'running':
+      statusBarItem.text = '$(check) QCL LSP: Running';
+      statusBarItem.tooltip = 'QCL Language Server is running';
+      break;
+    case 'stopped':
+      statusBarItem.text = '$(circle-slash) QCL LSP: Stopped';
+      statusBarItem.tooltip = 'QCL Language Server is stopped';
+      break;
+    case 'error':
+      statusBarItem.text = '$(error) QCL LSP: Error';
+      statusBarItem.tooltip = customMessage ? `QCL Language Server error: ${customMessage}` : 'QCL Language Server error';
+      break;
+    case 'disabled':
+      statusBarItem.text = '$(circle-slash) QCL LSP: Disabled';
+      statusBarItem.tooltip = isManuallyDisabled ? 'QCL Language Server is temporarily disabled (click to enable)' : 'QCL Language Server is disabled in settings';
+      break;
+    default:
+      statusBarItem.text = '$(question) QCL LSP: Unknown';
+      statusBarItem.tooltip = 'QCL Language Server status unknown';
+  }
+}
+
 export function deactivate(): Thenable<void> | undefined {
   if (!client) {
     return undefined;
   }
+  updateStatusBar('stopped');
   return client.stop();
 }

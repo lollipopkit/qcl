@@ -22,6 +22,7 @@ pub struct AnalysisResult {
 }
 
 /// QCL Language analyzer for providing LSP functionality
+#[derive(Default)]
 pub struct QclAnalyzer {
     // Cache for tokenization results to avoid re-tokenizing same content
     token_cache: HashMap<String, (Vec<qcl_core::token::Token>, Vec<Span>)>,
@@ -32,10 +33,7 @@ pub struct QclAnalyzer {
 impl QclAnalyzer {
     /// Create a new QCL analyzer
     pub fn new() -> Self {
-        Self {
-            token_cache: HashMap::new(),
-            completion_cache: None,
-        }
+        Self::default()
     }
 
     /// Clear caches - useful when memory usage becomes high
@@ -280,7 +278,7 @@ impl QclAnalyzer {
                             ));
                         }
 
-                        result.diagnostics.extend(collected.into_iter());
+                        result.diagnostics.extend(collected);
                     }
                 }
             }
@@ -399,7 +397,7 @@ impl QclAnalyzer {
                     if paren == 0 && bracket == 0 && brace == 0 {
                         let end_byte = i + 1; // include '}'
                                               // Avoid empty whitespace-only chunks
-                        if content[start_byte..end_byte].trim().len() > 0 {
+                        if !content[start_byte..end_byte].trim().is_empty() {
                             chunks.push((start_byte, end_byte, start_line));
                             if chunks.len() >= MAX_SCAN_CHUNKS {
                                 return chunks;
@@ -413,7 +411,7 @@ impl QclAnalyzer {
                     // Statement terminator outside paren/bracket nesting
                     if paren == 0 && bracket == 0 {
                         let end_byte = i + 1; // include ';'
-                        if content[start_byte..end_byte].trim().len() > 0 {
+                        if !content[start_byte..end_byte].trim().is_empty() {
                             chunks.push((start_byte, end_byte, start_line));
                             if chunks.len() >= MAX_SCAN_CHUNKS {
                                 return chunks;
@@ -432,7 +430,7 @@ impl QclAnalyzer {
         // Trailing chunk
         if start_byte < bytes.len() {
             let tail = &content[start_byte..];
-            if tail.trim().len() > 0 {
+            if !tail.trim().is_empty() {
                 chunks.push((start_byte, bytes.len(), start_line));
             }
         }
@@ -920,7 +918,6 @@ impl QclAnalyzer {
         const STRING_IDX: u32 = 4;
         const NUMBER_IDX: u32 = 5;
         const OPERATOR_IDX: u32 = 6;
-        const PROPERTY_IDX: u32 = 8;
 
         let lines: Vec<&str> = content.lines().collect();
 
@@ -1139,12 +1136,12 @@ impl QclAnalyzer {
                     continue;
                 }
 
-                // Handle operators
+                // Handle operators - only tokenize multi-character operators to reduce density
                 if c == '=' || c == '!' || c == '<' || c == '>' || c == '&' || c == '|' || c == '-'
                 {
                     let op_start = char_index;
 
-                    // Handle multi-character operators
+                    // Handle multi-character operators only
                     if char_index + 1 < len {
                         let next_char = chars[char_index + 1];
                         match (c, next_char) {
@@ -1165,42 +1162,23 @@ impl QclAnalyzer {
                                 ));
                                 continue;
                             }
-                            _ => {}
+                            _ => {
+                                // Skip single-character operators entirely
+                                char_index += 1;
+                                continue;
+                            }
                         }
                     }
 
-                    // Single character operator: skip to reduce token density
+                    // Skip single character operators
                     char_index += 1;
                     continue;
                 }
 
-                // Other operators and punctuation
-                if "+-*/%,;(){}[]".contains(c) || c == '.' {
-                    if c == '.' {
-                        // Dot accessor: skip '.' token; only mark following identifier as property
-                        char_index += 1;
-                        // Parse a property identifier immediately after '.'
-                        let prop_start = char_index;
-                        while char_index < len
-                            && (chars[char_index].is_alphanumeric() || chars[char_index] == '_')
-                        {
-                            char_index += 1;
-                        }
-                        if char_index > prop_start {
-                            tokens.push(self.create_token(
-                                line_number,
-                                prop_start,
-                                char_index - prop_start,
-                                PROPERTY_IDX,
-                                0,
-                            ));
-                        }
-                        continue;
-                    } else {
-                        // Skip single-char operators/punctuations to reduce token density
-                        char_index += 1;
-                        continue;
-                    }
+                // Skip other operators and punctuation to reduce token density
+                if "+-*/%,;(){}[]@.".contains(c) {
+                    char_index += 1;
+                    continue;
                 }
 
                 char_index += 1;
@@ -1288,7 +1266,6 @@ impl QclAnalyzer {
         const STRING_IDX: u32 = 4;
         const NUMBER_IDX: u32 = 5;
         const OPERATOR_IDX: u32 = 6;
-        const PROPERTY_IDX: u32 = 8;
 
         let lines: Vec<&str> = content_slice.lines().collect();
         if lines.is_empty() {
@@ -1507,7 +1484,7 @@ impl QclAnalyzer {
                     continue;
                 }
 
-                // Operators
+                // Operators - only tokenize multi-character operators to reduce density
                 if "=!<>|&-".contains(c) {
                     let op_start = char_index;
                     if char_index + 1 < len {
@@ -1538,48 +1515,22 @@ impl QclAnalyzer {
                                 char_index += 2;
                                 continue;
                             }
-                            _ => {}
+                            _ => {
+                                // Skip single-character operators entirely
+                                char_index += 1;
+                                continue;
+                            }
                         }
                     }
-                    // Single character operator: skip to reduce token density
+                    // Skip single character operators
                     char_index += 1;
                     continue;
                 }
 
-                // Other operators and punctuation
-                if "+-*/%,;(){}[]".contains(c) || c == '.' {
-                    if c == '.' {
-                        // Skip '.' token; only emit following property
-                        char_index += 1;
-                        // Parse and emit following identifier as property
-                        let prop_start = char_index;
-                        while char_index < len
-                            && (chars[char_index].is_ascii_alphanumeric() || chars[char_index] == '_')
-                        {
-                            char_index += 1;
-                        }
-                        if char_index > prop_start {
-                            let start = prop_start.max(start_char_bound);
-                            if start < end_char_bound {
-                                let capped_len = (char_index - prop_start)
-                                    .min(end_char_bound.saturating_sub(start));
-                                if capped_len > 0 {
-                                    tokens.push(self.create_token(
-                                        line_number,
-                                        start,
-                                        capped_len,
-                                        PROPERTY_IDX,
-                                        0,
-                                    ));
-                                }
-                            }
-                        }
-                        continue;
-                    } else {
-                        // Skip single-char operators/punctuations in range to reduce token density
-                        char_index += 1;
-                        continue;
-                    }
+                // Skip other operators and punctuation to reduce token density
+                if "+-*/%,;(){}[]@.".contains(c) {
+                    char_index += 1;
+                    continue;
                 }
 
                 char_index += 1;

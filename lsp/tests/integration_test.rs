@@ -15,6 +15,7 @@ pub struct AnalysisResult {
     pub context_references: HashSet<String>,
 }
 
+#[derive(Default)]
 pub struct QclAnalyzer;
 
 impl QclAnalyzer {
@@ -809,7 +810,7 @@ async fn test_lsp_error_recovery() {
     let uri = Url::parse("file:///error_test.qcl").unwrap();
 
     // Test various error conditions
-    let error_cases = vec![
+    let error_cases = [
         ("", vec![]), // Empty document should be fine
         (
             "@req.user.role == 'unterminated",

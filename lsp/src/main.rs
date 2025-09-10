@@ -1,11 +1,14 @@
 use dashmap::DashMap;
 use ropey::Rope;
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::hash::{Hash, Hasher};
 use tokio::time::{sleep, Duration};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 use tracing::info;
+use twox_hash::XxHash64;
 
 mod analyzer;
 use analyzer::{AnalysisResult, QclAnalyzer};
@@ -22,8 +25,17 @@ struct Document {
     // Cached results to avoid repeated parsing/tokenization per request
     cached_analysis: Option<Arc<AnalysisResult>>,
     cached_semantic_tokens: Option<Arc<Vec<SemanticToken>>>,
+    // Range-based cache for better scrolling performance
+    _cached_range_tokens: HashMap<String, Arc<Vec<SemanticToken>>>,
+    // Last tokens/result_id actually sent to the client (for delta)
+    last_sent_semantic_tokens: Option<Arc<Vec<SemanticToken>>>,
+    last_sent_result_id: Option<String>,
+    // Monotonic counter to produce unique result_id per document state
+    tokens_result_counter: u64,
     // Debounce token incremented on each edit; used to coalesce diagnostics work
     debounce_seq: u64,
+    // Last content hash for more intelligent cache invalidation
+    _last_content_hash: Option<u64>,
 }
 
 struct QclLanguageServer {
@@ -214,7 +226,8 @@ impl LanguageServer for QclLanguageServer {
                             },
                             // Disable range-based semantic tokens to reduce UI churn during scroll
                             range: Some(false),
-                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                            // Enable delta to reduce payloads and UI work
+                            full: Some(SemanticTokensFullOptions::Delta { delta: Some(true) }),
                         },
                     ),
                 ),
@@ -247,7 +260,12 @@ impl LanguageServer for QclLanguageServer {
             version: params.text_document.version,
             cached_analysis: None,
             cached_semantic_tokens: None,
+            _cached_range_tokens: HashMap::new(),
+            last_sent_semantic_tokens: None,
+            last_sent_result_id: None,
+            tokens_result_counter: 0,
             debounce_seq: 0,
+            _last_content_hash: Some(compute_content_hash(&params.text_document.text)),
         };
 
         self.documents.insert(uri.clone(), document);
@@ -264,7 +282,7 @@ impl LanguageServer for QclLanguageServer {
             let mut entry = self
                 .documents
                 .entry(uri.clone())
-                .or_insert_with(Document::default);
+                .or_default();
             // Ensure version is monotonic (but still update even if not; clients may resend)
             entry.version = version;
 
@@ -359,13 +377,29 @@ impl LanguageServer for QclLanguageServer {
         params: SemanticTokensParams,
     ) -> Result<Option<SemanticTokensResult>> {
         let uri = &params.text_document.uri;
-        if let Some(tokens) = self.get_or_generate_semantic_tokens(uri).await {
-            return Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
-                result_id: None,
-                data: (*tokens).clone(),
-            })));
-        }
-        Ok(None)
+        // Compute or fetch tokens for current doc state
+        let tokens_arc = match self.get_or_generate_semantic_tokens(uri).await {
+            Some(t) => t,
+            None => return Ok(None),
+        };
+
+        // Produce a fresh result_id tied to current version/counter
+        let result_id = {
+            if let Some(mut doc) = self.documents.get_mut(uri) {
+                doc.tokens_result_counter = doc.tokens_result_counter.wrapping_add(1);
+                let id = format!("v{}-g{}", doc.version, doc.tokens_result_counter);
+                doc.last_sent_semantic_tokens = Some(tokens_arc.clone());
+                doc.last_sent_result_id = Some(id.clone());
+                Some(id)
+            } else {
+                None
+            }
+        };
+
+        Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
+            result_id,
+            data: (*tokens_arc).clone(),
+        })))
     }
 
     async fn semantic_tokens_range(
@@ -399,6 +433,89 @@ impl LanguageServer for QclLanguageServer {
             data: generated,
         })))
     }
+
+    async fn semantic_tokens_full_delta(
+        &self,
+        params: SemanticTokensDeltaParams,
+    ) -> Result<Option<SemanticTokensFullDeltaResult>> {
+        let uri = &params.text_document.uri;
+
+        // Compute fresh tokens for current doc state
+        let new_tokens = match self.get_or_generate_semantic_tokens(uri).await {
+            Some(t) => t,
+            None => return Ok(None),
+        };
+
+        // Read previous baseline (last sent) and id
+        let (prev_tokens_opt, prev_id_opt) = if let Some(doc) = self.documents.get(uri) {
+            (doc.last_sent_semantic_tokens.clone(), doc.last_sent_result_id.clone())
+        } else {
+            (None, None)
+        };
+
+        // If client's previousResultId doesn't match our last sent id, fall back to full tokens
+        let prev_id_matches = if let Some(server_prev) = prev_id_opt.clone() {
+            params.previous_result_id == server_prev
+        } else {
+            false
+        };
+
+        // Compute new result_id and update last_sent baseline
+        let new_result_id = if let Some(mut doc) = self.documents.get_mut(uri) {
+            doc.tokens_result_counter = doc.tokens_result_counter.wrapping_add(1);
+            let id = format!("v{}-g{}", doc.version, doc.tokens_result_counter);
+            doc.last_sent_semantic_tokens = Some(new_tokens.clone());
+            doc.last_sent_result_id = Some(id.clone());
+            Some(id)
+        } else {
+            None
+        };
+
+        if !prev_id_matches {
+            // Resync: send full tokens
+            return Ok(Some(SemanticTokensFullDeltaResult::Tokens(SemanticTokens {
+                result_id: new_result_id,
+                data: (*new_tokens).clone(),
+            })));
+        }
+
+        // Compute a compact delta with a single edit using common prefix/suffix
+        let prev_tokens = match prev_tokens_opt {
+            Some(p) => p,
+            None => {
+                return Ok(Some(SemanticTokensFullDeltaResult::Tokens(SemanticTokens {
+                    result_id: new_result_id,
+                    data: (*new_tokens).clone(),
+                })));
+            }
+        };
+
+        let (cp, cs, delete_count) = common_prefix_suffix_delete_count(&prev_tokens, &new_tokens);
+        if delete_count == 0 {
+            // No structural change; in theory could return empty edits
+            return Ok(Some(SemanticTokensFullDeltaResult::TokensDelta(SemanticTokensDelta {
+                result_id: new_result_id,
+                edits: vec![],
+            })));
+        }
+
+        let insert_slice: Vec<SemanticToken> = new_tokens[cp..(new_tokens.len() - cs)].to_vec();
+        let edit = SemanticTokensEdit {
+            start: cp as u32,
+            delete_count: delete_count as u32,
+            data: Some(insert_slice),
+        };
+        Ok(Some(SemanticTokensFullDeltaResult::TokensDelta(SemanticTokensDelta {
+            result_id: new_result_id,
+            edits: vec![edit],
+        })))
+    }
+}
+
+fn compute_content_hash(content: &str) -> u64 {
+    let mut hasher = XxHash64::default();
+    content.hash(&mut hasher);
+    hasher.finish()
 }
 
 impl QclLanguageServer {
@@ -513,6 +630,41 @@ impl QclLanguageServer {
     }
 }
 
+// Compute common prefix and suffix lengths between two token arrays and the delete count in the old array.
+fn common_prefix_suffix_delete_count(
+    old: &[SemanticToken],
+    new: &[SemanticToken],
+) -> (usize, usize, usize) {
+    let mut cp = 0usize;
+    let min_len = old.len().min(new.len());
+    while cp < min_len && semantic_token_eq(&old[cp], &new[cp]) {
+        cp += 1;
+    }
+
+    // If completely equal
+    if cp == old.len() && old.len() == new.len() {
+        return (cp, 0, 0);
+    }
+
+    let mut cs = 0usize;
+    while cs < (old.len() - cp)
+        && cs < (new.len() - cp)
+        && semantic_token_eq(&old[old.len() - 1 - cs], &new[new.len() - 1 - cs])
+    {
+        cs += 1;
+    }
+    let delete_count = old.len().saturating_sub(cp + cs);
+    (cp, cs, delete_count)
+}
+
+fn semantic_token_eq(a: &SemanticToken, b: &SemanticToken) -> bool {
+    a.delta_line == b.delta_line
+        && a.delta_start == b.delta_start
+        && a.length == b.length
+        && a.token_type == b.token_type
+        && a.token_modifiers_bitset == b.token_modifiers_bitset
+}
+
 // Convert LSP UTF-16 position to Rope char index (scalar values), clamped to line end.
 fn position_to_char_idx(text: &Rope, pos: Position) -> usize {
     let line_idx = pos.line as usize;
@@ -574,7 +726,7 @@ fn find_token_at_offset(
 }
 
 // Build a concise, position-aware hover message for a token.
-fn describe_token_hover(tokens: &[CoreToken], spans: &[CoreSpan], idx: usize) -> String {
+fn describe_token_hover(tokens: &[CoreToken], _spans: &[CoreSpan], idx: usize) -> String {
     use CoreToken as T;
     let tok = &tokens[idx];
 
@@ -827,6 +979,6 @@ fn read_file_content(path: &str) -> anyhow::Result<String> {
     if !is_safe_path(path) {
         return Err(anyhow::anyhow!("Unsafe file path: {}", path));
     }
-    Ok(std::fs::read_to_string(path)
-        .map_err(|e| anyhow::anyhow!("Failed to read file '{}': {}", path, e))?)
+    std::fs::read_to_string(path)
+        .map_err(|e| anyhow::anyhow!("Failed to read file '{}': {}", path, e))
 }

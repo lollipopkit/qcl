@@ -22,7 +22,8 @@
   "activationEvents": [
     "onLanguage:qcl",
     "onCommand:qcl.restartServer",
-    "onCommand:qcl.startServer"
+    "onCommand:qcl.startServer",
+    "onCommand:qcl.showStatusBarMenu"
   ],
   "capabilities": {
     "semanticTokensProvider": {
@@ -61,6 +62,11 @@
       {
         "command": "qcl.restartServer",
         "title": "QCL: Restart Language Server",
+        "category": "QCL"
+      },
+      {
+        "command": "qcl.showStatusBarMenu",
+        "title": "QCL: Show Status Bar Menu",
         "category": "QCL"
       }
     ],
@@ -245,7 +251,7 @@
         },
         "qcl.lsp.semanticTokens.throttleMs": {
           "type": "number",
-          "default": 150,
+          "default": 100,
           "minimum": 0,
           "description": "Throttle consecutive semantic token requests for the same document (ms)"
         }

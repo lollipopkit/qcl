@@ -63,10 +63,7 @@ fn read_file_content(path: &str) -> anyhow::Result<String> {
 fn main() -> anyhow::Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
     if args.len() < 2 {
-        let mut formats = Vec::new();
-        formats.push("json");
-        formats.push("yaml");
-        formats.push("toml");
+        let formats = ["json", "yaml", "toml"];
 
         let format_str = formats.join("|");
         let flag_str = formats
@@ -131,14 +128,13 @@ fn main() -> anyhow::Result<()> {
     }
 
     let input_args = args[arg_idx..].to_vec();
-    let input: String;
 
     // Check if the first argument is a file path
-    if input_args.len() == 1 {
+    let input = if input_args.len() == 1 {
         let potential_file = &input_args[0];
 
         // Try to read as file first
-        input = match read_file_content(potential_file) {
+        match read_file_content(potential_file) {
             Ok(content) => {
                 // When reading from file, default to statement mode
                 is_statement_mode = true;
@@ -148,11 +144,11 @@ fn main() -> anyhow::Result<()> {
                 // Not a file, treat as expression/program
                 input_args.join(" ")
             }
-        };
+        }
     } else {
         // Multiple arguments, treat as expression/program
-        input = input_args.join(" ");
-    }
+        input_args.join(" ")
+    };
     let ctx: Val = if raw.is_empty() {
         Val::Map(Arc::new(HashMap::new()))
     } else {
