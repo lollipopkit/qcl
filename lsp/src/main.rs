@@ -10,6 +10,9 @@ use tracing::info;
 mod analyzer;
 use analyzer::{AnalysisResult, QclAnalyzer};
 
+#[cfg(test)]
+mod bench_test;
+
 #[derive(Debug, Default)]
 struct Document {
     content: Rope,
@@ -25,7 +28,7 @@ struct Document {
 struct QclLanguageServer {
     client: Client,
     documents: Arc<DashMap<Url, Document>>,
-    analyzer: QclAnalyzer,
+    analyzer: std::sync::Mutex<QclAnalyzer>,
 }
 
 impl QclLanguageServer {
@@ -33,7 +36,7 @@ impl QclLanguageServer {
         Self {
             client,
             documents: Arc::new(DashMap::new()),
-            analyzer: QclAnalyzer::new(),
+            analyzer: std::sync::Mutex::new(QclAnalyzer::new()),
         }
     }
 
@@ -289,8 +292,10 @@ impl LanguageServer for QclLanguageServer {
         let uri = &params.text_document_position.text_document.uri;
         if self.documents.get(uri).is_some() {
             // Get current line context for better completions
-            let context_items = self.analyzer.get_context_completions("@");
-            items.extend(context_items);
+            if let Ok(mut analyzer) = self.analyzer.lock() {
+                let context_items = analyzer.get_context_completions("@");
+                items.extend(context_items);
+            }
         }
 
         Ok(Some(CompletionResponse::Array(items)))
@@ -395,7 +400,7 @@ impl QclLanguageServer {
         // Compute analysis off the async runtime to avoid blocking
         let content_for_compute = content_snapshot.clone();
         let computed_result = tokio::task::spawn_blocking(move || {
-            let analyzer = QclAnalyzer::new();
+            let mut analyzer = QclAnalyzer::new();
             analyzer.analyze(&content_for_compute)
         })
         .await
@@ -464,7 +469,7 @@ impl QclLanguageServer {
             // Compute analysis and tokens on snapshot off the runtime thread
             let content_for_compute = content_snapshot.clone();
             let (analysis, tokens) = match tokio::task::spawn_blocking(move || {
-                let analyzer = QclAnalyzer::new();
+                let mut analyzer = QclAnalyzer::new();
                 let analysis = analyzer.analyze(&content_for_compute);
                 let tokens = analyzer.generate_semantic_tokens(&content_for_compute);
                 (analysis, tokens)

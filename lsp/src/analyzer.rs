@@ -1,8 +1,8 @@
 use qcl_core::{
     ast::Parser as ExprParser, expr::Expr, import::ImportStmt, stmt::Stmt, stmt_parser::StmtParser,
-    token::Tokenizer, val::Val,
+    token::Tokenizer, val::Val, error::Span,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use tower_lsp::lsp_types::*;
 
 // Soft limits to keep LSP responsive on large/broken files
@@ -19,25 +19,52 @@ pub struct AnalysisResult {
 }
 
 /// QCL Language analyzer for providing LSP functionality
-pub struct QclAnalyzer;
+pub struct QclAnalyzer {
+    // Cache for tokenization results to avoid re-tokenizing same content
+    token_cache: HashMap<String, (Vec<qcl_core::token::Token>, Vec<Span>)>,
+    // Cache for completion items that don't change
+    completion_cache: Option<Vec<CompletionItem>>,
+}
 
 impl QclAnalyzer {
     /// Create a new QCL analyzer
     pub fn new() -> Self {
-        Self
+        Self {
+            token_cache: HashMap::new(),
+            completion_cache: None,
+        }
+    }
+
+    /// Clear caches - useful when memory usage becomes high
+    pub fn clear_caches(&mut self) {
+        self.token_cache.clear();
+        self.completion_cache = None;
     }
 
     /// Analyze QCL code and return diagnostics, symbols, and context references
-    pub fn analyze(&self, content: &str) -> AnalysisResult {
+    pub fn analyze(&mut self, content: &str) -> AnalysisResult {
         let mut result = AnalysisResult {
             diagnostics: Vec::new(),
             symbols: Vec::new(),
             context_references: HashSet::new(),
         };
 
-        // Try parsing as expression first
-        let (tokens, spans) = match Tokenizer::tokenize_enhanced_with_spans(content) {
-            Ok(pair) => pair,
+        // Try parsing as expression first - use cached tokenization if available
+        let (tokens, spans) = if let Some(cached) = self.token_cache.get(content) {
+            cached.clone()
+        } else {
+            match Tokenizer::tokenize_enhanced_with_spans(content) {
+            Ok(pair) => {
+                // Cache the successful tokenization result
+                if content.len() < 10_000 { // Only cache reasonably sized content
+                    // Limit cache size to prevent memory issues
+                    if self.token_cache.len() >= 100 {
+                        self.token_cache.clear();
+                    }
+                    self.token_cache.insert(content.to_string(), pair.clone());
+                }
+                pair
+            },
             Err(parse_err) => {
                 // If multi-line, try line-wise scanning to surface multiple errors
                 if content.lines().count() > 1 {
@@ -68,6 +95,7 @@ impl QclAnalyzer {
                 ));
                 return result;
             }
+        }
         };
 
         let mut expr_parser = ExprParser::new_with_spans(&tokens, &spans);
@@ -730,26 +758,29 @@ impl QclAnalyzer {
     }
 
     /// Get context-aware completions for the given prefix
-    pub fn get_context_completions(&self, prefix: &str) -> Vec<CompletionItem> {
-        let mut items = Vec::new();
+    pub fn get_context_completions(&mut self, prefix: &str) -> Vec<CompletionItem> {
+        // Use cached completion items if available
+        let all_items = if let Some(ref cached) = self.completion_cache {
+            cached.clone()
+        } else {
+            let mut items = Vec::new();
+            
+            // Common context patterns
+            let common_contexts = [
+                ("@req", "Request object"),
+                ("@req.user", "User information"),
+                ("@req.user.id", "User ID"),
+                ("@req.user.role", "User role"),
+                ("@req.user.name", "User name"),
+                ("@record", "Record object"),
+                ("@record.id", "Record ID"),
+                ("@record.owner", "Record owner"),
+                ("@record.granted", "Granted users list"),
+                ("@env", "Environment variables"),
+                ("@time", "Current timestamp"),
+            ];
 
-        // Common context patterns
-        let common_contexts = [
-            ("@req", "Request object"),
-            ("@req.user", "User information"),
-            ("@req.user.id", "User ID"),
-            ("@req.user.role", "User role"),
-            ("@req.user.name", "User name"),
-            ("@record", "Record object"),
-            ("@record.id", "Record ID"),
-            ("@record.owner", "Record owner"),
-            ("@record.granted", "Granted users list"),
-            ("@env", "Environment variables"),
-            ("@time", "Current timestamp"),
-        ];
-
-        for (context, desc) in common_contexts {
-            if context.starts_with(prefix) {
+            for (context, desc) in common_contexts {
                 items.push(CompletionItem {
                     label: context.to_string(),
                     kind: Some(CompletionItemKind::PROPERTY),
@@ -757,9 +788,16 @@ impl QclAnalyzer {
                     ..Default::default()
                 });
             }
-        }
+            
+            // Cache the items for future use
+            self.completion_cache = Some(items.clone());
+            items
+        };
 
-        items
+        // Filter by prefix
+        all_items.into_iter()
+            .filter(|item| item.label.starts_with(prefix))
+            .collect()
     }
 
     /// Validate context access in an expression against provided context
@@ -824,9 +862,14 @@ impl QclAnalyzer {
         true
     }
 
-    /// Generate semantic tokens for QCL code
+    /// Generate semantic tokens for QCL code (optimized version)
     pub fn generate_semantic_tokens(&self, content: &str) -> Vec<SemanticToken> {
-        // We'll first collect tokens with absolute positions, then convert to LSP delta encoding
+        // Early return for empty content
+        if content.trim().is_empty() {
+            return Vec::new();
+        }
+
+        // Use the existing, working implementation but with optimizations
         let mut tokens: Vec<SemanticToken> = Vec::new();
         let mut line_number = 0;
 
@@ -1163,7 +1206,7 @@ impl QclAnalyzer {
         }
 
         let start_line_abs = range.start.line as usize;
-        let end_line_abs = range.end.line as usize;
+        let _end_line_abs = range.end.line as usize;
         let start_utf16 = range.start.character;
         let end_utf16 = range.end.character;
 
@@ -1574,7 +1617,7 @@ mod tests {
 
     #[test]
     fn test_analyze_simple_expression() {
-        let analyzer = create_analyzer();
+        let mut analyzer = create_analyzer();
         let result = analyzer.analyze("@req.user.role == 'admin'");
 
         // Should have context references
@@ -1595,7 +1638,7 @@ mod tests {
 
     #[test]
     fn test_analyze_invalid_expression() {
-        let analyzer = create_analyzer();
+        let mut analyzer = create_analyzer();
         let result = analyzer.analyze("@req.user.role == 'unterminated string");
 
         // Should have diagnostic for invalid expression (tokenization error due to unterminated string)
@@ -1609,7 +1652,7 @@ mod tests {
 
     #[test]
     fn test_analyze_statement_program() {
-        let analyzer = create_analyzer();
+        let mut analyzer = create_analyzer();
         let code = r#"
             import math;
             let user_level = @req.user.level;
@@ -1637,7 +1680,7 @@ mod tests {
 
     #[test]
     fn test_get_context_completions() {
-        let analyzer = create_analyzer();
+        let mut analyzer = create_analyzer();
         let completions = analyzer.get_context_completions("@req");
 
         // Should return completions that start with "@req"
