@@ -201,7 +201,29 @@
           ]
         }
       }
-    ]
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "QCL Configuration",
+      "properties": {
+        "qcl.lsp.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable/disable QCL Language Server Protocol integration"
+        },
+        "qcl.lsp.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path to the QCL LSP server binary (leave empty for auto-detection)"
+        },
+        "qcl.lsp.trace": {
+          "type": "string",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "Trace communication between VSCode and the QCL language server"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

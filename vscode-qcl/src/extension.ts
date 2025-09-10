@@ -29,8 +29,18 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(startCommand, restartCommand);
 
+  // Check if LSP is enabled
+  const config = vscode.workspace.getConfiguration('qcl.lsp');
+  const lspEnabled = config.get<boolean>('enabled', true);
+  
+  if (!lspEnabled) {
+    console.log('QCL LSP is disabled in configuration');
+    return;
+  }
+
   // Get the path to the QCL LSP server
-  const serverPath = getServerPath();
+  const customServerPath = config.get<string>('serverPath', '');
+  const serverPath = customServerPath || getServerPath();
 
   console.log('Looking for QCL LSP server...');
   console.log('Server path found:', serverPath);
@@ -38,7 +48,7 @@ export function activate(context: vscode.ExtensionContext) {
   // If the server path is not found, show an error and return
   if (!serverPath) {
     vscode.window.showErrorMessage(
-      'QCL LSP server not found. Please build the QCL project first.'
+      'QCL LSP server not found. Please build the QCL project first or configure a custom server path.'
     );
     return;
   }
@@ -48,6 +58,8 @@ export function activate(context: vscode.ExtensionContext) {
     transport: TransportKind.stdio
   };
 
+  const traceLevel = config.get<string>('trace', 'off');
+  
   const clientOptions: LanguageClientOptions = {
     documentSelector: [{ scheme: 'file', language: 'qcl' }],
     synchronize: {
@@ -62,7 +74,9 @@ export function activate(context: vscode.ExtensionContext) {
       qcl: {
         enableSemanticTokens: true
       }
-    }
+    },
+    outputChannelName: 'QCL Language Server',
+    traceOutputChannel: traceLevel !== 'off' ? vscode.window.createOutputChannel('QCL Language Server Trace') : undefined
   };
 
   client = new LanguageClient(
@@ -128,6 +142,8 @@ function getServerPath(): string | undefined {
     // Check common build output directories
     path.join(__dirname, '..', '..', 'target', 'debug', 'qcl-lsp'),
     path.join(__dirname, '..', 'target', 'debug', 'qcl-lsp'),
+    path.join(__dirname, '..', '..', 'target', 'release', 'qcl-lsp'),
+    path.join(__dirname, '..', 'target', 'release', 'qcl-lsp'),
     // Check if it's in the PATH
     'qcl-lsp',
     '~/.cargo/bin/qcl-lsp',
