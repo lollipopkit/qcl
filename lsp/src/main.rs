@@ -234,12 +234,8 @@ impl LanguageServer for QclLanguageServer {
         };
 
         self.documents.insert(uri.clone(), document);
-
-        // Compute diagnostics once and populate cache
-        let diagnostics = self.validate_document(&uri).await;
-        self.client
-            .publish_diagnostics(uri, diagnostics, None)
-            .await;
+        // Warm up analysis cache on open to keep subsequent requests fast
+        let _ = self.validate_document(&uri).await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
@@ -271,6 +267,13 @@ impl LanguageServer for QclLanguageServer {
             entry.cached_analysis = None;
             entry.cached_semantic_tokens = None;
             entry.debounce_seq = entry.debounce_seq.wrapping_add(1);
+        }
+
+        // Periodically clear analyzer caches to prevent memory growth
+        if self.documents.len() > 50 {
+            if let Ok(mut analyzer) = self.analyzer.lock() {
+                analyzer.clear_caches();
+            }
         }
 
         // Debounced diagnostics + cache warmup
@@ -454,7 +457,6 @@ impl QclLanguageServer {
         delay_ms: u64,
     ) {
         let documents = self.documents.clone();
-        let client = self.client.clone();
         tokio::spawn(async move {
             sleep(Duration::from_millis(delay_ms)).await;
 
@@ -480,9 +482,6 @@ impl QclLanguageServer {
                 Err(_) => return,
             };
 
-            // Publish diagnostics if still current
-            let diagnostics_to_publish = analysis.diagnostics.clone();
-
             // Try to store caches if document still matches snapshot
             if let Some(mut doc) = documents.get_mut(&uri) {
                 if doc.debounce_seq == seq_snapshot
@@ -493,11 +492,6 @@ impl QclLanguageServer {
                     doc.cached_semantic_tokens = Some(Arc::new(tokens));
                 }
             }
-
-            // Always publish diagnostics for the uri (latest client will override older results)
-            let _ = client
-                .publish_diagnostics(uri.clone(), diagnostics_to_publish, None)
-                .await;
         });
     }
 }

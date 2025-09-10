@@ -471,46 +471,48 @@ impl QclAnalyzer {
                             // No statement-level error in this chunk; continue
                         }
                         Err(stmt_err) => {
-                            let range = if let Some(span) = &stmt_err.span {
-                                let start_pos = Position::new(
-                                    (start_line as u32) + (span.start.line - 1),
-                                    span.start.column.saturating_sub(1),
-                                );
-                                let end_pos = Position::new(
-                                    (start_line as u32) + (span.end.line - 1),
-                                    span.end.column.saturating_sub(1),
-                                );
-                                Range::new(start_pos, end_pos)
-                            } else {
-                                Range::new(
-                                    Position::new(start_line as u32, 0),
-                                    Position::new(start_line as u32, chunk.chars().count() as u32),
-                                )
-                            };
-
-                            if diags.len() < MAX_DIAGNOSTICS {
-                                diags.push(Diagnostic::new(
-                                    range.clone(),
-                                    Some(DiagnosticSeverity::ERROR),
-                                    None,
-                                    Some("qcl".to_string()),
-                                    stmt_err.message.clone(),
-                                    None,
-                                    None,
-                                ));
-                            }
-
-                            // Also try expression recovery for potentially multiple, more specific spans
+                            // Try expression recovery first for potentially multiple, more specific spans
                             let expr_errs = ExprParser::recover_expression_errors(
                                 &chunk_tokens,
                                 &chunk_spans,
                                 chunk,
                             );
-                            for ee in expr_errs {
-                                if diags.len() >= MAX_DIAGNOSTICS {
-                                    break;
+                            
+                            if !expr_errs.is_empty() {
+                                // Use expression errors if available (more specific)
+                                for ee in expr_errs {
+                                    if diags.len() >= MAX_DIAGNOSTICS {
+                                        break;
+                                    }
+                                    let range = if let Some(span) = &ee.span {
+                                        let start_pos = Position::new(
+                                            (start_line as u32) + (span.start.line - 1),
+                                            span.start.column.saturating_sub(1),
+                                        );
+                                        let end_pos = Position::new(
+                                            (start_line as u32) + (span.end.line - 1),
+                                            span.end.column.saturating_sub(1),
+                                        );
+                                        Range::new(start_pos, end_pos)
+                                    } else {
+                                        Range::new(
+                                            Position::new(start_line as u32, 0),
+                                            Position::new(start_line as u32, chunk.chars().count() as u32),
+                                        )
+                                    };
+                                    diags.push(Diagnostic::new(
+                                        range,
+                                        Some(DiagnosticSeverity::ERROR),
+                                        None,
+                                        Some("qcl".to_string()),
+                                        ee.message.clone(),
+                                        None,
+                                        None,
+                                    ));
                                 }
-                                let range2 = if let Some(span) = &ee.span {
+                            } else {
+                                // Fall back to statement error if no expression errors found
+                                let range = if let Some(span) = &stmt_err.span {
                                     let start_pos = Position::new(
                                         (start_line as u32) + (span.start.line - 1),
                                         span.start.column.saturating_sub(1),
@@ -521,17 +523,23 @@ impl QclAnalyzer {
                                     );
                                     Range::new(start_pos, end_pos)
                                 } else {
-                                    range
+                                    Range::new(
+                                        Position::new(start_line as u32, 0),
+                                        Position::new(start_line as u32, chunk.chars().count() as u32),
+                                    )
                                 };
-                                diags.push(Diagnostic::new(
-                                    range2,
-                                    Some(DiagnosticSeverity::ERROR),
-                                    None,
-                                    Some("qcl".to_string()),
-                                    ee.message.clone(),
-                                    None,
-                                    None,
-                                ));
+
+                                if diags.len() < MAX_DIAGNOSTICS {
+                                    diags.push(Diagnostic::new(
+                                        range,
+                                        Some(DiagnosticSeverity::ERROR),
+                                        None,
+                                        Some("qcl".to_string()),
+                                        stmt_err.message.clone(),
+                                        None,
+                                        None,
+                                    ));
+                                }
                             }
                         }
                     }
@@ -596,45 +604,48 @@ impl QclAnalyzer {
                             // No statement-level error on this line
                         }
                         Err(parse_err) => {
-                            let range = if let Some(span) = &parse_err.span {
-                                let start_pos = Position::new(
-                                    line_idx as u32,
-                                    span.start.column.saturating_sub(1),
-                                );
-                                let end_pos = Position::new(
-                                    line_idx as u32,
-                                    span.end.column.saturating_sub(1),
-                                );
-                                Range::new(start_pos, end_pos)
-                            } else {
-                                // Fallback: highlight whole line
-                                Range::new(
-                                    Position::new(line_idx as u32, 0),
-                                    Position::new(line_idx as u32, line.chars().count() as u32),
-                                )
-                            };
-
-                            diags.push(Diagnostic::new(
-                                range,
-                                Some(DiagnosticSeverity::ERROR),
-                                None,
-                                Some("qcl".to_string()),
-                                parse_err.message.clone(),
-                                None,
-                                None,
-                            ));
-
-                            // Additionally, attempt expression recovery to collect more issues on this line
+                            // Try expression recovery first for potentially multiple, more specific spans
                             let expr_errs = ExprParser::recover_expression_errors(
                                 &line_tokens,
                                 &line_spans,
                                 line,
                             );
-                            for ee in expr_errs {
-                                if diags.len() >= MAX_DIAGNOSTICS {
-                                    break;
+                            
+                            if !expr_errs.is_empty() {
+                                // Use expression errors if available (more specific)
+                                for ee in expr_errs {
+                                    if diags.len() >= MAX_DIAGNOSTICS {
+                                        break;
+                                    }
+                                    let range = if let Some(span) = &ee.span {
+                                        let start_pos = Position::new(
+                                            line_idx as u32,
+                                            span.start.column.saturating_sub(1),
+                                        );
+                                        let end_pos = Position::new(
+                                            line_idx as u32,
+                                            span.end.column.saturating_sub(1),
+                                        );
+                                        Range::new(start_pos, end_pos)
+                                    } else {
+                                        Range::new(
+                                            Position::new(line_idx as u32, 0),
+                                            Position::new(line_idx as u32, line.chars().count() as u32),
+                                        )
+                                    };
+                                    diags.push(Diagnostic::new(
+                                        range,
+                                        Some(DiagnosticSeverity::ERROR),
+                                        None,
+                                        Some("qcl".to_string()),
+                                        ee.message.clone(),
+                                        None,
+                                        None,
+                                    ));
                                 }
-                                let range2 = if let Some(span) = &ee.span {
+                            } else {
+                                // Fall back to statement error if no expression errors found
+                                let range = if let Some(span) = &parse_err.span {
                                     let start_pos = Position::new(
                                         line_idx as u32,
                                         span.start.column.saturating_sub(1),
@@ -645,17 +656,19 @@ impl QclAnalyzer {
                                     );
                                     Range::new(start_pos, end_pos)
                                 } else {
+                                    // Fallback: highlight whole line
                                     Range::new(
                                         Position::new(line_idx as u32, 0),
                                         Position::new(line_idx as u32, line.chars().count() as u32),
                                     )
                                 };
+
                                 diags.push(Diagnostic::new(
-                                    range2,
+                                    range,
                                     Some(DiagnosticSeverity::ERROR),
                                     None,
                                     Some("qcl".to_string()),
-                                    ee.message.clone(),
+                                    parse_err.message.clone(),
                                     None,
                                     None,
                                 ));
