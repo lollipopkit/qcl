@@ -31,7 +31,10 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse with enhanced error information that includes position
-    pub fn parse_with_enhanced_errors(&mut self, input: &str) -> std::result::Result<Expr, crate::error::ParseError> {
+    pub fn parse_with_enhanced_errors(
+        &mut self,
+        input: &str,
+    ) -> std::result::Result<Expr, crate::error::ParseError> {
         if self.eof() {
             return Ok(Expr::Val(Val::Nil));
         }
@@ -42,34 +45,48 @@ impl<'a> Parser<'a> {
                 // Prefer precise token span if available; otherwise, fall back to offset estimation
                 if let Some(spans) = &self.token_spans {
                     if self.pos < spans.len() {
-                        return Err(crate::error::ParseError::with_span(err.to_string(), spans[self.pos].clone()));
+                        return Err(crate::error::ParseError::with_span(
+                            err.to_string(),
+                            spans[self.pos].clone(),
+                        ));
                     }
                 }
-                let position = crate::error::offset_to_position(input,
+                let position = crate::error::offset_to_position(
+                    input,
                     if self.pos < self.tokens.len() && self.pos > 0 {
                         self.pos * input.len() / self.tokens.len().max(1)
                     } else {
                         input.len()
-                    }
+                    },
                 );
-                return Err(crate::error::ParseError::with_position(err.to_string(), position));
+                return Err(crate::error::ParseError::with_position(
+                    err.to_string(),
+                    position,
+                ));
             }
         };
 
         if !self.eof() {
             if let Some(spans) = &self.token_spans {
                 if self.pos < spans.len() {
-                    return Err(crate::error::ParseError::with_span("Unexpected tokens at end".to_string(), spans[self.pos].clone()));
+                    return Err(crate::error::ParseError::with_span(
+                        "Unexpected tokens at end".to_string(),
+                        spans[self.pos].clone(),
+                    ));
                 }
             }
-            let position = crate::error::offset_to_position(input,
+            let position = crate::error::offset_to_position(
+                input,
                 if self.pos < self.tokens.len() {
                     self.pos * input.len() / self.tokens.len().max(1)
                 } else {
                     input.len()
-                }
+                },
             );
-            return Err(crate::error::ParseError::with_position("Unexpected tokens at end".to_string(), position));
+            return Err(crate::error::ParseError::with_position(
+                "Unexpected tokens at end".to_string(),
+                position,
+            ));
         }
 
         // All sub-expressions parsed, apply constant folding optimization
@@ -627,17 +644,20 @@ impl<'a> Parser<'a> {
             return false;
         }
 
-        matches!(self.tokens[self.pos], Token::Nil
-            | Token::Bool(_)
-            | Token::Int(_)
-            | Token::Float(_)
-            | Token::Str(_)
-            | Token::Id(_)
-            | Token::At
-            | Token::LBracket
-            | Token::LBrace
-            | Token::LParen
-            | Token::Not)
+        matches!(
+            self.tokens[self.pos],
+            Token::Nil
+                | Token::Bool(_)
+                | Token::Int(_)
+                | Token::Float(_)
+                | Token::Str(_)
+                | Token::Id(_)
+                | Token::At
+                | Token::LBracket
+                | Token::LBrace
+                | Token::LParen
+                | Token::Not
+        )
     }
 
     /// Check if the current token is an invalid separator
@@ -667,13 +687,30 @@ impl<'a> Parser<'a> {
         let mut brace: i32;
 
         fn is_hard_boundary(tok: &Token) -> bool {
-            matches!(tok, Token::Comma | Token::Semicolon | Token::RParen | Token::RBracket | Token::RBrace | Token::Else)
+            matches!(
+                tok,
+                Token::Comma
+                    | Token::Semicolon
+                    | Token::RParen
+                    | Token::RBracket
+                    | Token::RBrace
+                    | Token::Else
+            )
         }
 
         fn is_soft_boundary(tok: &Token) -> bool {
-            matches!(tok,
-                Token::Eq | Token::Ne | Token::Gt | Token::Lt | Token::Ge | Token::Le |
-                Token::In | Token::And | Token::Or)
+            matches!(
+                tok,
+                Token::Eq
+                    | Token::Ne
+                    | Token::Gt
+                    | Token::Lt
+                    | Token::Ge
+                    | Token::Le
+                    | Token::In
+                    | Token::And
+                    | Token::Or
+            )
         }
 
         while i < len {
@@ -681,26 +718,74 @@ impl<'a> Parser<'a> {
             while i < len && is_hard_boundary(&tokens[i]) {
                 i += 1;
             }
-            if i >= len { break; }
+            if i >= len {
+                break;
+            }
 
             // Determine a segment [i, j)
             let seg_start = i;
             let mut j = i;
-            paren = 0; bracket = 0; brace = 0;
+            paren = 0;
+            bracket = 0;
+            brace = 0;
             while j < len {
                 match &tokens[j] {
-                    Token::LParen => { paren += 1; j += 1; }
-                    Token::RParen => { if paren > 0 { paren -= 1; } if paren == 0 && bracket == 0 && brace == 0 { j += 1; break; } j += 1; }
-                    Token::LBracket => { bracket += 1; j += 1; }
-                    Token::RBracket => { if bracket > 0 { bracket -= 1; } if paren == 0 && bracket == 0 && brace == 0 { j += 1; break; } j += 1; }
-                    Token::LBrace => { brace += 1; j += 1; }
-                    Token::RBrace => { if brace > 0 { brace -= 1; } if paren == 0 && bracket == 0 && brace == 0 { break; } j += 1; }
-                    t if is_hard_boundary(t) => { break; }
-                    t if is_soft_boundary(t) && paren == 0 && bracket == 0 && brace == 0 => { break; }
-                    _ => { j += 1; }
+                    Token::LParen => {
+                        paren += 1;
+                        j += 1;
+                    }
+                    Token::RParen => {
+                        if paren > 0 {
+                            paren -= 1;
+                        }
+                        if paren == 0 && bracket == 0 && brace == 0 {
+                            j += 1;
+                            break;
+                        }
+                        j += 1;
+                    }
+                    Token::LBracket => {
+                        bracket += 1;
+                        j += 1;
+                    }
+                    Token::RBracket => {
+                        if bracket > 0 {
+                            bracket -= 1;
+                        }
+                        if paren == 0 && bracket == 0 && brace == 0 {
+                            j += 1;
+                            break;
+                        }
+                        j += 1;
+                    }
+                    Token::LBrace => {
+                        brace += 1;
+                        j += 1;
+                    }
+                    Token::RBrace => {
+                        if brace > 0 {
+                            brace -= 1;
+                        }
+                        if paren == 0 && bracket == 0 && brace == 0 {
+                            break;
+                        }
+                        j += 1;
+                    }
+                    t if is_hard_boundary(t) => {
+                        break;
+                    }
+                    t if is_soft_boundary(t) && paren == 0 && bracket == 0 && brace == 0 => {
+                        break;
+                    }
+                    _ => {
+                        j += 1;
+                    }
                 }
             }
-            if j == seg_start { i = j + 1; continue; }
+            if j == seg_start {
+                i = j + 1;
+                continue;
+            }
 
             // Attempt to parse the segment
             let seg_tokens = &tokens[seg_start..j];

@@ -76,7 +76,19 @@ impl Type {
     }
 
     pub fn validate(&self, val: &Val) -> Result<()> {
-        let matches = matches!((self, val), (Type::Int, Val::Int(_)) | (Type::Float, Val::Float(_)) | (Type::String, Val::Str(_)) | (Type::Bool, Val::Bool(_)) | (Type::List, Val::List(_)) | (Type::Map, Val::Map(_)) | (Type::Function, Val::Closure { .. } | Val::RustFunction(_)) | (Type::Channel, Val::Channel(_)) | (Type::Goroutine, Val::Goroutine(_)) | (Type::Nil, Val::Nil));
+        let matches = matches!(
+            (self, val),
+            (Type::Int, Val::Int(_))
+                | (Type::Float, Val::Float(_))
+                | (Type::String, Val::Str(_))
+                | (Type::Bool, Val::Bool(_))
+                | (Type::List, Val::List(_))
+                | (Type::Map, Val::Map(_))
+                | (Type::Function, Val::Closure { .. } | Val::RustFunction(_))
+                | (Type::Channel, Val::Channel(_))
+                | (Type::Goroutine, Val::Goroutine(_))
+                | (Type::Nil, Val::Nil)
+        );
 
         if matches {
             Ok(())
@@ -466,10 +478,7 @@ impl From<serde_json::Value> for Val {
                 Val::List(Arc::new(v))
             }
             serde_json::Value::Object(o) => {
-                let m = o
-                    .into_iter()
-                    .map(|(k, v)| (k, Val::from(v)))
-                    .collect();
+                let m = o.into_iter().map(|(k, v)| (k, Val::from(v))).collect();
                 Val::Map(Arc::new(m))
             }
             serde_json::Value::Null => Val::Nil,
@@ -524,7 +533,6 @@ impl Val {
         Ok(serde_json::to_value(val)?.into())
     }
 }
-
 
 impl PartialEq for Val {
     fn eq(&self, other: &Self) -> bool {

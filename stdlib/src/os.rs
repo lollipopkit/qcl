@@ -1,7 +1,7 @@
 #[cfg(feature = "stdlib-os")]
-use qcl_core::{module::Module, val::Val};
-#[cfg(feature = "stdlib-os")]
 use anyhow::Result;
+#[cfg(feature = "stdlib-os")]
+use qcl_core::{module::Module, val::Val};
 #[cfg(feature = "stdlib-os")]
 use std::collections::HashMap;
 #[cfg(feature = "stdlib-os")]

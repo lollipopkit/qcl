@@ -1,6 +1,6 @@
+use anyhow::Result;
 use qcl_core::module::Module;
 use qcl_core::val::Val;
-use anyhow::Result;
 use std::collections::HashMap;
 
 #[cfg(feature = "stdlib-math")]
@@ -69,7 +69,9 @@ impl MathModule {
         match &args[0] {
             Val::Int(x) if *x >= 0 => Ok(Val::Float((*x as f64).sqrt())),
             Val::Float(x) if *x >= 0.0 => Ok(Val::Float(x.sqrt())),
-            Val::Int(_) | Val::Float(_) => Err(anyhow::anyhow!("sqrt() argument must be non-negative")),
+            Val::Int(_) | Val::Float(_) => {
+                Err(anyhow::anyhow!("sqrt() argument must be non-negative"))
+            }
             _ => Err(anyhow::anyhow!("sqrt() argument must be a number")),
         }
     }
@@ -202,7 +204,9 @@ impl MathModule {
         let x = match &args[0] {
             Val::Int(x) if *x > 0 => *x as f64,
             Val::Float(x) if *x > 0.0 => *x,
-            Val::Int(_) | Val::Float(_) => return Err(anyhow::anyhow!("log() argument must be positive")),
+            Val::Int(_) | Val::Float(_) => {
+                return Err(anyhow::anyhow!("log() argument must be positive"));
+            }
             _ => return Err(anyhow::anyhow!("log() argument must be a number")),
         };
 
@@ -218,7 +222,9 @@ impl MathModule {
         let x = match &args[0] {
             Val::Int(x) if *x > 0 => *x as f64,
             Val::Float(x) if *x > 0.0 => *x,
-            Val::Int(_) | Val::Float(_) => return Err(anyhow::anyhow!("log10() argument must be positive")),
+            Val::Int(_) | Val::Float(_) => {
+                return Err(anyhow::anyhow!("log10() argument must be positive"));
+            }
             _ => return Err(anyhow::anyhow!("log10() argument must be a number")),
         };
 
@@ -234,7 +240,9 @@ impl MathModule {
         let x = match &args[0] {
             Val::Int(x) if *x > 0 => *x as f64,
             Val::Float(x) if *x > 0.0 => *x,
-            Val::Int(_) | Val::Float(_) => return Err(anyhow::anyhow!("log2() argument must be positive")),
+            Val::Int(_) | Val::Float(_) => {
+                return Err(anyhow::anyhow!("log2() argument must be positive"));
+            }
             _ => return Err(anyhow::anyhow!("log2() argument must be a number")),
         };
 
@@ -259,7 +267,9 @@ impl MathModule {
     /// Power function (x^y)
     fn pow(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 2 {
-            return Err(anyhow::anyhow!("pow() takes exactly 2 arguments: base, exponent"));
+            return Err(anyhow::anyhow!(
+                "pow() takes exactly 2 arguments: base, exponent"
+            ));
         }
 
         let base = match &args[0] {
@@ -405,14 +415,10 @@ impl Module for MathModule {
 
 #[cfg(test)]
 mod tests {
-    use qcl_core::{
-        stmt_parser::StmtParser,
-        token::Tokenizer,
-        val::Val,
-    };
-    use anyhow::Result;
-    use std::sync::Arc;
     use crate::register_stdlib_modules;
+    use anyhow::Result;
+    use qcl_core::{stmt_parser::StmtParser, token::Tokenizer, val::Val};
+    use std::sync::Arc;
 
     #[test]
     fn test_math_abs_positive() -> Result<()> {
@@ -425,9 +431,10 @@ mod tests {
         // Create registry and register stdlib modules
         let mut registry = qcl_core::module::ModuleRegistry::new();
         register_stdlib_modules(&mut registry);
-        
+
         // Create environment with stdlib modules
-        let resolver = std::sync::Arc::new(qcl_core::import::ModuleResolver::with_registry(registry));
+        let resolver =
+            std::sync::Arc::new(qcl_core::import::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
 
         let result = program.execute_with_env(&ctx, &mut env)?;
@@ -447,9 +454,10 @@ mod tests {
         // Create registry and register stdlib modules
         let mut registry = qcl_core::module::ModuleRegistry::new();
         register_stdlib_modules(&mut registry);
-        
+
         // Create environment with stdlib modules
-        let resolver = std::sync::Arc::new(qcl_core::import::ModuleResolver::with_registry(registry));
+        let resolver =
+            std::sync::Arc::new(qcl_core::import::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
 
         let result = program.execute_with_env(&ctx, &mut env)?;
@@ -469,9 +477,10 @@ mod tests {
         // Create registry and register stdlib modules
         let mut registry = qcl_core::module::ModuleRegistry::new();
         register_stdlib_modules(&mut registry);
-        
+
         // Create environment with stdlib modules
-        let resolver = std::sync::Arc::new(qcl_core::import::ModuleResolver::with_registry(registry));
+        let resolver =
+            std::sync::Arc::new(qcl_core::import::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
 
         let result = program.execute_with_env(&ctx, &mut env)?;
@@ -491,9 +500,10 @@ mod tests {
         // Create registry and register stdlib modules
         let mut registry = qcl_core::module::ModuleRegistry::new();
         register_stdlib_modules(&mut registry);
-        
+
         // Create environment with stdlib modules
-        let resolver = std::sync::Arc::new(qcl_core::import::ModuleResolver::with_registry(registry));
+        let resolver =
+            std::sync::Arc::new(qcl_core::import::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
 
         let result = program.execute_with_env(&ctx, &mut env)?;

@@ -34,7 +34,6 @@ impl ModuleRegistry {
         registry
     }
 
-    
     /// Register core modules based on enabled features
     /// Similar to Lua's linit.c which opens standard libraries
     fn register_core_modules(&mut self) {

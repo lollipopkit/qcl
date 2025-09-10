@@ -5,6 +5,10 @@ use qcl_core::{
 use std::collections::HashSet;
 use tower_lsp::lsp_types::*;
 
+// Soft limits to keep LSP responsive on large/broken files
+const MAX_SCAN_LINES: usize = 400; // max lines to line-scan
+const MAX_SCAN_CHUNKS: usize = 300; // max logical chunks to scan
+const MAX_DIAGNOSTICS: usize = 200; // cap diagnostics volume
 
 /// Result of analyzing QCL code, containing diagnostics, symbols, and context references
 #[derive(Debug, Clone)]
@@ -96,7 +100,8 @@ impl QclAnalyzer {
             }
             Err(expr_err) => {
                 // Attempt expression-level recovery to surface multiple errors for pure expressions
-                let expr_recover_errors = ExprParser::recover_expression_errors(&tokens, &spans, content);
+                let expr_recover_errors =
+                    ExprParser::recover_expression_errors(&tokens, &spans, content);
                 // Try parsing as statement program
                 let mut stmt_parser = StmtParser::new_with_spans(&tokens, &spans);
                 match stmt_parser.parse_program_with_enhanced_errors(content) {
@@ -118,11 +123,16 @@ impl QclAnalyzer {
                         if !expr_recover_errors.is_empty() && !has_statement_keywords {
                             for e in expr_recover_errors {
                                 let range = if let Some(span) = &e.span {
-                                    let start_pos = Position::new(span.start.line - 1, span.start.column - 1);
-                                    let end_pos = Position::new(span.end.line - 1, span.end.column - 1);
+                                    let start_pos =
+                                        Position::new(span.start.line - 1, span.start.column - 1);
+                                    let end_pos =
+                                        Position::new(span.end.line - 1, span.end.column - 1);
                                     Range::new(start_pos, end_pos)
                                 } else {
-                                    Range::new(Position::new(0, 0), Position::new(0, content.len() as u32))
+                                    Range::new(
+                                        Position::new(0, 0),
+                                        Position::new(0, content.len() as u32),
+                                    )
                                 };
                                 collected.push(Diagnostic::new(
                                     range,
@@ -138,15 +148,21 @@ impl QclAnalyzer {
 
                         // First, attempt recovering parse to collect multiple errors with precise spans
                         let mut recover_parser = StmtParser::new_with_spans(&tokens, &spans);
-                        let (stmts, errs) = recover_parser.parse_program_recovering_with_enhanced_errors(content);
+                        let (stmts, errs) =
+                            recover_parser.parse_program_recovering_with_enhanced_errors(content);
                         if !errs.is_empty() {
                             for e in errs {
                                 let range = if let Some(span) = &e.span {
-                                    let start_pos = Position::new(span.start.line - 1, span.start.column - 1);
-                                    let end_pos = Position::new(span.end.line - 1, span.end.column - 1);
+                                    let start_pos =
+                                        Position::new(span.start.line - 1, span.start.column - 1);
+                                    let end_pos =
+                                        Position::new(span.end.line - 1, span.end.column - 1);
                                     Range::new(start_pos, end_pos)
                                 } else {
-                                    Range::new(Position::new(0, 0), Position::new(0, content.len() as u32))
+                                    Range::new(
+                                        Position::new(0, 0),
+                                        Position::new(0, content.len() as u32),
+                                    )
                                 };
                                 collected.push(Diagnostic::new(
                                     range,
@@ -181,14 +197,22 @@ impl QclAnalyzer {
                                 || content.contains("goto ")
                                 || content.contains("break")
                                 || content.contains("continue");
-                            let parse_err = if has_statement_keywords { &stmt_err } else { &expr_err };
+                            let parse_err = if has_statement_keywords {
+                                &stmt_err
+                            } else {
+                                &expr_err
+                            };
 
                             let range = if let Some(span) = &parse_err.span {
-                                let start_pos = Position::new(span.start.line - 1, span.start.column - 1);
+                                let start_pos =
+                                    Position::new(span.start.line - 1, span.start.column - 1);
                                 let end_pos = Position::new(span.end.line - 1, span.end.column - 1);
                                 Range::new(start_pos, end_pos)
                             } else {
-                                Range::new(Position::new(0, 0), Position::new(0, content.len() as u32))
+                                Range::new(
+                                    Position::new(0, 0),
+                                    Position::new(0, content.len() as u32),
+                                )
                             };
 
                             collected.push(Diagnostic::new(
@@ -276,7 +300,9 @@ impl QclAnalyzer {
                     i += 1;
                 } else {
                     prev_was_backslash = ch == '\\' && !prev_was_backslash;
-                    if !prev_was_backslash { prev_was_backslash = false; }
+                    if !prev_was_backslash {
+                        prev_was_backslash = false;
+                    }
                     i += 1;
                 }
                 continue;
@@ -318,9 +344,12 @@ impl QclAnalyzer {
                     // A closing brace at depth 0 is a good chunk boundary
                     if paren == 0 && bracket == 0 && brace == 0 {
                         let end_byte = i + 1; // include '}'
-                        // Avoid empty whitespace-only chunks
+                                              // Avoid empty whitespace-only chunks
                         if content[start_byte..end_byte].trim().len() > 0 {
                             chunks.push((start_byte, end_byte, start_line));
+                            if chunks.len() >= MAX_SCAN_CHUNKS {
+                                return chunks;
+                            }
                         }
                         start_byte = end_byte;
                         start_line = line;
@@ -332,6 +361,9 @@ impl QclAnalyzer {
                         let end_byte = i + 1; // include ';'
                         if content[start_byte..end_byte].trim().len() > 0 {
                             chunks.push((start_byte, end_byte, start_line));
+                            if chunks.len() >= MAX_SCAN_CHUNKS {
+                                return chunks;
+                            }
                         }
                         start_byte = end_byte;
                         start_line = line;
@@ -363,7 +395,7 @@ impl QclAnalyzer {
             return diags;
         }
 
-        for (start_b, end_b, start_line) in chunks {
+        for (start_b, end_b, start_line) in chunks.into_iter().take(MAX_SCAN_CHUNKS) {
             let chunk = &content[start_b..end_b];
             if chunk.trim().is_empty() {
                 continue;
@@ -389,6 +421,9 @@ impl QclAnalyzer {
                         )
                     };
 
+                    if diags.len() >= MAX_DIAGNOSTICS {
+                        break;
+                    }
                     diags.push(Diagnostic::new(
                         range,
                         Some(DiagnosticSeverity::ERROR),
@@ -425,19 +460,28 @@ impl QclAnalyzer {
                                 )
                             };
 
-                            diags.push(Diagnostic::new(
-                                range.clone(),
-                                Some(DiagnosticSeverity::ERROR),
-                                None,
-                                Some("qcl".to_string()),
-                                stmt_err.message.clone(),
-                                None,
-                                None,
-                            ));
+                            if diags.len() < MAX_DIAGNOSTICS {
+                                diags.push(Diagnostic::new(
+                                    range.clone(),
+                                    Some(DiagnosticSeverity::ERROR),
+                                    None,
+                                    Some("qcl".to_string()),
+                                    stmt_err.message.clone(),
+                                    None,
+                                    None,
+                                ));
+                            }
 
                             // Also try expression recovery for potentially multiple, more specific spans
-                            let expr_errs = ExprParser::recover_expression_errors(&chunk_tokens, &chunk_spans, chunk);
+                            let expr_errs = ExprParser::recover_expression_errors(
+                                &chunk_tokens,
+                                &chunk_spans,
+                                chunk,
+                            );
                             for ee in expr_errs {
+                                if diags.len() >= MAX_DIAGNOSTICS {
+                                    break;
+                                }
                                 let range2 = if let Some(span) = &ee.span {
                                     let start_pos = Position::new(
                                         (start_line as u32) + (span.start.line - 1),
@@ -448,7 +492,9 @@ impl QclAnalyzer {
                                         span.end.column.saturating_sub(1),
                                     );
                                     Range::new(start_pos, end_pos)
-                                } else { range };
+                                } else {
+                                    range
+                                };
                                 diags.push(Diagnostic::new(
                                     range2,
                                     Some(DiagnosticSeverity::ERROR),
@@ -463,6 +509,9 @@ impl QclAnalyzer {
                     }
                 }
             }
+            if diags.len() >= MAX_DIAGNOSTICS {
+                break;
+            }
         }
 
         diags
@@ -474,7 +523,7 @@ impl QclAnalyzer {
     fn scan_lines_for_diagnostics(&self, content: &str) -> Vec<Diagnostic> {
         let mut diags = Vec::new();
 
-        for (line_idx, line) in content.lines().enumerate() {
+        for (line_idx, line) in content.lines().enumerate().take(MAX_SCAN_LINES) {
             // Skip empty or whitespace-only lines to reduce noise
             if line.trim().is_empty() {
                 continue;
@@ -483,15 +532,14 @@ impl QclAnalyzer {
             // Try tokenizing the single line first to get precise position if it fails
             match Tokenizer::tokenize_enhanced_with_spans(line) {
                 Err(parse_err) => {
+                    if diags.len() >= MAX_DIAGNOSTICS {
+                        break;
+                    }
                     let range = if let Some(span) = &parse_err.span {
-                        let start_pos = Position::new(
-                            line_idx as u32,
-                            span.start.column.saturating_sub(1),
-                        );
-                        let end_pos = Position::new(
-                            line_idx as u32,
-                            span.end.column.saturating_sub(1),
-                        );
+                        let start_pos =
+                            Position::new(line_idx as u32, span.start.column.saturating_sub(1));
+                        let end_pos =
+                            Position::new(line_idx as u32, span.end.column.saturating_sub(1));
                         Range::new(start_pos, end_pos)
                     } else {
                         // Fallback: highlight whole line
@@ -549,8 +597,15 @@ impl QclAnalyzer {
                             ));
 
                             // Additionally, attempt expression recovery to collect more issues on this line
-                            let expr_errs = ExprParser::recover_expression_errors(&line_tokens, &line_spans, line);
+                            let expr_errs = ExprParser::recover_expression_errors(
+                                &line_tokens,
+                                &line_spans,
+                                line,
+                            );
                             for ee in expr_errs {
+                                if diags.len() >= MAX_DIAGNOSTICS {
+                                    break;
+                                }
                                 let range2 = if let Some(span) = &ee.span {
                                     let start_pos = Position::new(
                                         line_idx as u32,
@@ -580,6 +635,9 @@ impl QclAnalyzer {
                         }
                     }
                 }
+            }
+            if diags.len() >= MAX_DIAGNOSTICS {
+                break;
             }
         }
 
@@ -771,7 +829,7 @@ impl QclAnalyzer {
         // We'll first collect tokens with absolute positions, then convert to LSP delta encoding
         let mut tokens: Vec<SemanticToken> = Vec::new();
         let mut line_number = 0;
-        
+
         // Define the legend indices (must match the legend in main.rs)
         const COMMENT_IDX: u32 = 0;
         const KEYWORD_IDX: u32 = 1;
@@ -780,9 +838,9 @@ impl QclAnalyzer {
         const NUMBER_IDX: u32 = 5;
         const OPERATOR_IDX: u32 = 6;
         const PROPERTY_IDX: u32 = 8;
-        
+
         let lines: Vec<&str> = content.lines().collect();
-        
+
         // Track multi-line block comments
         let mut in_block_comment = false;
 
@@ -793,13 +851,13 @@ impl QclAnalyzer {
 
             while char_index < len {
                 let c = chars[char_index];
-                
+
                 // Skip whitespace
                 if c.is_whitespace() {
                     char_index += 1;
                     continue;
                 }
-                
+
                 // Handle block comments spanning multiple lines
                 if in_block_comment {
                     // Search for end of block comment '*/' in the current line
@@ -906,13 +964,13 @@ impl QclAnalyzer {
                     ));
                     break;
                 }
-                
+
                 // Handle strings
                 if c == '"' || c == '\'' {
                     let string_start = char_index;
                     let quote_char = c;
                     char_index += 1;
-                    
+
                     while char_index < len && chars[char_index] != quote_char {
                         if chars[char_index] == '\\' && char_index + 1 < len {
                             char_index += 2;
@@ -920,11 +978,11 @@ impl QclAnalyzer {
                             char_index += 1;
                         }
                     }
-                    
+
                     if char_index < len && chars[char_index] == quote_char {
                         char_index += 1;
                     }
-                    
+
                     tokens.push(self.create_token(
                         line_number,
                         string_start,
@@ -934,15 +992,16 @@ impl QclAnalyzer {
                     ));
                     continue;
                 }
-                
+
                 // Handle numbers
                 if c.is_ascii_digit() {
                     let num_start = char_index;
-                    while char_index < len && 
-                        (chars[char_index].is_ascii_digit() || chars[char_index] == '.') {
+                    while char_index < len
+                        && (chars[char_index].is_ascii_digit() || chars[char_index] == '.')
+                    {
                         char_index += 1;
                     }
-                    
+
                     tokens.push(self.create_token(
                         line_number,
                         num_start,
@@ -952,25 +1011,26 @@ impl QclAnalyzer {
                     ));
                     continue;
                 }
-                
+
                 // Handle identifiers and keywords
                 if c.is_alphabetic() || c == '_' {
                     let ident_start = char_index;
-                    while char_index < len && 
-                        (chars[char_index].is_alphanumeric() || chars[char_index] == '_') {
+                    while char_index < len
+                        && (chars[char_index].is_alphanumeric() || chars[char_index] == '_')
+                    {
                         char_index += 1;
                     }
-                    
+
                     let identifier: String = chars[ident_start..char_index].iter().collect();
-                    
+
                     // Check for keywords
                     let token_idx = match identifier.as_str() {
-                        "if" | "else" | "while" | "let" | "fn" | "return" | "break" | "continue" |
-                        "goto" | "import" | "from" | "as" | "go" | "select" | "case" | "default" |
-                        "true" | "false" | "nil" => KEYWORD_IDX,
+                        "if" | "else" | "while" | "let" | "fn" | "return" | "break"
+                        | "continue" | "goto" | "import" | "from" | "as" | "go" | "select"
+                        | "case" | "default" | "true" | "false" | "nil" => KEYWORD_IDX,
                         _ => VARIABLE_IDX,
                     };
-                    
+
                     tokens.push(self.create_token(
                         line_number,
                         ident_start,
@@ -980,30 +1040,30 @@ impl QclAnalyzer {
                     ));
                     continue;
                 }
-                
+
                 // Handle context access (@)
                 if c == '@' {
-                    tokens.push(self.create_token(
-                        line_number,
-                        char_index,
-                        1,
-                        PROPERTY_IDX,
-                        0,
-                    ));
+                    tokens.push(self.create_token(line_number, char_index, 1, PROPERTY_IDX, 0));
                     char_index += 1;
                     continue;
                 }
-                
+
                 // Handle operators
-                if c == '=' || c == '!' || c == '<' || c == '>' || c == '&' || c == '|' || c == '-' {
+                if c == '=' || c == '!' || c == '<' || c == '>' || c == '&' || c == '|' || c == '-'
+                {
                     let op_start = char_index;
-                    
+
                     // Handle multi-character operators
                     if char_index + 1 < len {
                         let next_char = chars[char_index + 1];
                         match (c, next_char) {
-                            ('=', '=') | ('!', '=') | ('<', '=') | ('>', '=') | 
-                            ('&', '&') | ('|', '|') | ('-', '>') => {
+                            ('=', '=')
+                            | ('!', '=')
+                            | ('<', '=')
+                            | ('>', '=')
+                            | ('&', '&')
+                            | ('|', '|')
+                            | ('-', '>') => {
                                 char_index += 2;
                                 tokens.push(self.create_token(
                                     line_number,
@@ -1017,19 +1077,13 @@ impl QclAnalyzer {
                             _ => {}
                         }
                     }
-                    
+
                     // Single character operator
                     char_index += 1;
-                    tokens.push(self.create_token(
-                        line_number,
-                        op_start,
-                        1,
-                        OPERATOR_IDX,
-                        0,
-                    ));
+                    tokens.push(self.create_token(line_number, op_start, 1, OPERATOR_IDX, 0));
                     continue;
                 }
-                
+
                 // Other operators and punctuation
                 if "+-*/%.,;(){}[]".contains(c) {
                     let token_idx = match c {
@@ -1037,24 +1091,18 @@ impl QclAnalyzer {
                         '.' => PROPERTY_IDX,
                         _ => OPERATOR_IDX,
                     };
-                    
-                    tokens.push(self.create_token(
-                        line_number,
-                        char_index,
-                        1,
-                        token_idx,
-                        0,
-                    ));
+
+                    tokens.push(self.create_token(line_number, char_index, 1, token_idx, 0));
                     char_index += 1;
                     continue;
                 }
-                
+
                 char_index += 1;
             }
-            
+
             line_number += 1;
         }
-        
+
         // Convert absolute positions to delta-encoded positions required by LSP
         let mut result: Vec<SemanticToken> = Vec::with_capacity(tokens.len());
         let mut prev_line: u32 = 0;
@@ -1062,10 +1110,18 @@ impl QclAnalyzer {
         let mut first = true;
 
         for t in tokens.into_iter() {
-            let line = t.delta_line;      // stored absolute line
-            let start = t.delta_start;    // stored absolute start
-            let delta_line = if first { line } else { line.saturating_sub(prev_line) };
-            let delta_start = if first || delta_line != 0 { start } else { start.saturating_sub(prev_start) };
+            let line = t.delta_line; // stored absolute line
+            let start = t.delta_start; // stored absolute start
+            let delta_line = if first {
+                line
+            } else {
+                line.saturating_sub(prev_line)
+            };
+            let delta_start = if first || delta_line != 0 {
+                start
+            } else {
+                start.saturating_sub(prev_start)
+            };
 
             result.push(SemanticToken {
                 delta_line,
@@ -1082,27 +1138,427 @@ impl QclAnalyzer {
 
         result
     }
-    
-    fn create_token(&self, line: u32, start_char: usize, length: usize, 
-                   token_type_idx: u32, modifiers: u32) -> SemanticToken {
+
+    /// Generate semantic tokens for a specific LSP range (best-effort).
+    /// Note: range is interpreted using UTF-16 columns per LSP spec.
+    pub fn generate_semantic_tokens_in_range(
+        &self,
+        content_slice: &str,
+        range: Range,
+    ) -> Vec<SemanticToken> {
+        // Helper to convert UTF-16 column to char index for a single line
+        fn utf16_to_char_idx(line: &str, utf16_col: u32) -> usize {
+            let mut seen = 0usize;
+            for (i, ch) in line.chars().enumerate() {
+                let w = ch.len_utf16();
+                if seen + w > utf16_col as usize {
+                    return i;
+                }
+                seen += w;
+                if seen == utf16_col as usize {
+                    return i + 1;
+                }
+            }
+            line.chars().count()
+        }
+
+        let start_line_abs = range.start.line as usize;
+        let end_line_abs = range.end.line as usize;
+        let start_utf16 = range.start.character;
+        let end_utf16 = range.end.character;
+
+        // We'll first collect tokens with absolute positions, then convert to LSP delta encoding
+        let mut tokens: Vec<SemanticToken> = Vec::new();
+
+        // Define the legend indices (must match the legend in main.rs)
+        const COMMENT_IDX: u32 = 0;
+        const KEYWORD_IDX: u32 = 1;
+        const VARIABLE_IDX: u32 = 2;
+        const STRING_IDX: u32 = 4;
+        const NUMBER_IDX: u32 = 5;
+        const OPERATOR_IDX: u32 = 6;
+        const PROPERTY_IDX: u32 = 8;
+
+        let lines: Vec<&str> = content_slice.lines().collect();
+        if lines.is_empty() {
+            return Vec::new();
+        }
+        let first_local = 0usize;
+        let last_local = lines.len().saturating_sub(1);
+
+        // Track multi-line block comments inside the processed window only
+        let mut in_block_comment = false;
+
+        for (local_idx, line) in lines.iter().enumerate() {
+            let line_number = (start_line_abs + local_idx) as u32;
+            let mut char_index = 0usize;
+            let chars: Vec<char> = line.chars().collect();
+            let len = chars.len();
+
+            // Compute char bounds for clamping tokens on boundary lines
+            let start_char_bound = if local_idx == first_local {
+                utf16_to_char_idx(line, start_utf16)
+            } else {
+                0
+            };
+            let end_char_bound = if local_idx == last_local {
+                utf16_to_char_idx(line, end_utf16).max(start_char_bound)
+            } else {
+                len
+            };
+
+            while char_index < len {
+                let c = chars[char_index];
+
+                // Skip whitespace
+                if c.is_whitespace() {
+                    char_index += 1;
+                    continue;
+                }
+
+                // Handle block comments spanning multiple lines
+                if in_block_comment {
+                    // Search for end of block comment '*/' in the current line
+                    let mut j = char_index;
+                    while j + 1 < len {
+                        if chars[j] == '*' && chars[j + 1] == '/' {
+                            // emit block until here if within bounds
+                            let start = char_index.max(start_char_bound);
+                            let length = if j + 2 > start {
+                                (j + 2).saturating_sub(start)
+                            } else {
+                                0
+                            };
+                            if length > 0 && start < end_char_bound {
+                                let capped_len = length.min(end_char_bound.saturating_sub(start));
+                                tokens.push(self.create_token(
+                                    line_number,
+                                    start,
+                                    capped_len,
+                                    COMMENT_IDX,
+                                    0,
+                                ));
+                            }
+                            char_index = j + 2;
+                            in_block_comment = false;
+                            break;
+                        }
+                        j += 1;
+                    }
+                    if in_block_comment {
+                        // whole rest of line is a comment
+                        let start = char_index.max(start_char_bound);
+                        if start < end_char_bound {
+                            let capped_len = end_char_bound - start;
+                            tokens.push(self.create_token(
+                                line_number,
+                                start,
+                                capped_len,
+                                COMMENT_IDX,
+                                0,
+                            ));
+                        }
+                        break;
+                    }
+                    continue;
+                }
+
+                // Line comments
+                if c == '/' && char_index + 1 < len && chars[char_index + 1] == '/' {
+                    let start = char_index.max(start_char_bound);
+                    if start < end_char_bound {
+                        let capped_len = end_char_bound - start;
+                        tokens.push(self.create_token(
+                            line_number,
+                            start,
+                            capped_len,
+                            COMMENT_IDX,
+                            0,
+                        ));
+                    }
+                    break;
+                }
+                // Block comment start
+                if c == '/' && char_index + 1 < len && chars[char_index + 1] == '*' {
+                    in_block_comment = true;
+                    let start = char_index.max(start_char_bound);
+                    if start < end_char_bound {
+                        let capped_len = (char_index + 2).saturating_sub(start);
+                        if capped_len > 0 {
+                            tokens.push(self.create_token(
+                                line_number,
+                                start,
+                                capped_len,
+                                COMMENT_IDX,
+                                0,
+                            ));
+                        }
+                    }
+                    char_index += 2;
+                    continue;
+                }
+
+                // Strings (single quoted or double quoted)
+                if c == '"' || c == '\'' {
+                    let mut j = char_index + 1;
+                    while j < len {
+                        if chars[j] == c && chars[j - 1] != '\\' {
+                            break;
+                        }
+                        j += 1;
+                    }
+                    let end = if j < len { j + 1 } else { len };
+                    let start = char_index.max(start_char_bound);
+                    if start < end_char_bound {
+                        let capped_len_total = end.saturating_sub(start);
+                        if capped_len_total > 0 {
+                            let capped_len =
+                                capped_len_total.min(end_char_bound.saturating_sub(start));
+                            tokens.push(self.create_token(
+                                line_number,
+                                start,
+                                capped_len,
+                                STRING_IDX,
+                                0,
+                            ));
+                        }
+                    }
+                    char_index = end;
+                    continue;
+                }
+
+                // Numbers
+                if c.is_ascii_digit() {
+                    let mut j = char_index + 1;
+                    while j < len && (chars[j].is_ascii_digit() || chars[j] == '.') {
+                        j += 1;
+                    }
+                    let start = char_index.max(start_char_bound);
+                    if start < end_char_bound {
+                        let capped_len_total = j.saturating_sub(start);
+                        if capped_len_total > 0 {
+                            let capped_len =
+                                capped_len_total.min(end_char_bound.saturating_sub(start));
+                            tokens.push(self.create_token(
+                                line_number,
+                                start,
+                                capped_len,
+                                NUMBER_IDX,
+                                0,
+                            ));
+                        }
+                    }
+                    char_index = j;
+                    continue;
+                }
+
+                // Identifiers and keywords, variables (@xxx)
+                if c.is_ascii_alphabetic() || c == '_' || c == '@' {
+                    let mut j = char_index + 1;
+                    while j < len
+                        && (chars[j].is_ascii_alphanumeric() || chars[j] == '_' || chars[j] == '.')
+                    {
+                        j += 1;
+                    }
+                    let slice: String = chars[char_index..j].iter().collect();
+                    let token_idx = if slice == "if"
+                        || slice == "else"
+                        || slice == "while"
+                        || slice == "let"
+                        || slice == "fn"
+                        || slice == "return"
+                        || slice == "break"
+                        || slice == "continue"
+                        || slice == "goto"
+                        || slice == "import"
+                        || slice == "from"
+                        || slice == "as"
+                        || slice == "go"
+                        || slice == "select"
+                        || slice == "case"
+                        || slice == "default"
+                        || slice == "true"
+                        || slice == "false"
+                        || slice == "nil"
+                    {
+                        KEYWORD_IDX
+                    } else if slice.starts_with('@') {
+                        VARIABLE_IDX
+                    } else {
+                        // Detect property access segments after '.' within identifier handling
+                        VARIABLE_IDX
+                    };
+                    let start = char_index.max(start_char_bound);
+                    if start < end_char_bound {
+                        let capped_len_total = j.saturating_sub(start);
+                        if capped_len_total > 0 {
+                            let capped_len =
+                                capped_len_total.min(end_char_bound.saturating_sub(start));
+                            tokens.push(self.create_token(
+                                line_number,
+                                start,
+                                capped_len,
+                                token_idx,
+                                0,
+                            ));
+                        }
+                    }
+                    char_index = j;
+                    continue;
+                }
+
+                // Operators
+                if "=!<>|&-".contains(c) {
+                    let op_start = char_index;
+                    if char_index + 1 < len {
+                        let next_char = chars[char_index + 1];
+                        match (c, next_char) {
+                            ('=', '=')
+                            | ('!', '=')
+                            | ('<', '=')
+                            | ('>', '=')
+                            | ('&', '&')
+                            | ('|', '|')
+                            | ('-', '>') => {
+                                let start = op_start.max(start_char_bound);
+                                if start < end_char_bound {
+                                    let capped_len_total = (op_start + 2).saturating_sub(start);
+                                    if capped_len_total > 0 {
+                                        let capped_len = capped_len_total
+                                            .min(end_char_bound.saturating_sub(start));
+                                        tokens.push(self.create_token(
+                                            line_number,
+                                            start,
+                                            capped_len,
+                                            OPERATOR_IDX,
+                                            0,
+                                        ));
+                                    }
+                                }
+                                char_index += 2;
+                                continue;
+                            }
+                            _ => {}
+                        }
+                    }
+                    let start = op_start.max(start_char_bound);
+                    if start < end_char_bound {
+                        let capped_len_total = (op_start + 1).saturating_sub(start);
+                        if capped_len_total > 0 {
+                            let capped_len =
+                                capped_len_total.min(end_char_bound.saturating_sub(start));
+                            tokens.push(self.create_token(
+                                line_number,
+                                start,
+                                capped_len,
+                                OPERATOR_IDX,
+                                0,
+                            ));
+                        }
+                    }
+                    char_index += 1;
+                    continue;
+                }
+
+                // Other operators and punctuation
+                if "+-*/%.,;(){}[]".contains(c) {
+                    let token_idx = match c {
+                        '+' | '-' | '*' | '/' | '%' => OPERATOR_IDX,
+                        '.' => PROPERTY_IDX,
+                        _ => OPERATOR_IDX,
+                    };
+                    let start = char_index.max(start_char_bound);
+                    if start < end_char_bound {
+                        let capped_len_total = (char_index + 1).saturating_sub(start);
+                        if capped_len_total > 0 {
+                            let capped_len =
+                                capped_len_total.min(end_char_bound.saturating_sub(start));
+                            tokens.push(self.create_token(
+                                line_number,
+                                start,
+                                capped_len,
+                                token_idx,
+                                0,
+                            ));
+                        }
+                    }
+                    char_index += 1;
+                    continue;
+                }
+
+                char_index += 1;
+            }
+        }
+
+        // Convert absolute positions to delta-encoded positions required by LSP
+        let mut result: Vec<SemanticToken> = Vec::with_capacity(tokens.len());
+        let mut prev_line: u32 = 0;
+        let mut prev_start: u32 = 0;
+        let mut first = true;
+        for t in tokens.into_iter() {
+            let line = t.delta_line;
+            let start = t.delta_start;
+            let delta_line = if first {
+                line
+            } else {
+                line.saturating_sub(prev_line)
+            };
+            let delta_start = if first || delta_line != 0 {
+                start
+            } else {
+                start.saturating_sub(prev_start)
+            };
+            result.push(SemanticToken {
+                delta_line,
+                delta_start,
+                length: t.length,
+                token_type: t.token_type,
+                token_modifiers_bitset: t.token_modifiers_bitset,
+            });
+            prev_line = line;
+            prev_start = start;
+            first = false;
+        }
+        result
+    }
+
+    fn create_token(
+        &self,
+        line: u32,
+        start_char: usize,
+        length: usize,
+        token_type_idx: u32,
+        modifiers: u32,
+    ) -> SemanticToken {
         SemanticToken {
-            delta_line: line,           // line number (0-based)
-            delta_start: start_char as u32, // start character (0-based)
-            length: length as u32,     // token length
-            token_type: token_type_idx, // token type index
+            delta_line: line,                  // line number (0-based)
+            delta_start: start_char as u32,    // start character (0-based)
+            length: length as u32,             // token length
+            token_type: token_type_idx,        // token type index
             token_modifiers_bitset: modifiers, // token modifiers
         }
     }
 
     fn dedup_diagnostics(&self, diagnostics: &mut Vec<Diagnostic>) {
         diagnostics.sort_by(|a, b| {
-            let ra = &a.range; let rb = &b.range;
-            (ra.start.line, ra.start.character, ra.end.line, ra.end.character, a.message.clone())
-                .cmp(&(rb.start.line, rb.start.character, rb.end.line, rb.end.character, b.message.clone()))
+            let ra = &a.range;
+            let rb = &b.range;
+            (
+                ra.start.line,
+                ra.start.character,
+                ra.end.line,
+                ra.end.character,
+                a.message.clone(),
+            )
+                .cmp(&(
+                    rb.start.line,
+                    rb.start.character,
+                    rb.end.line,
+                    rb.end.character,
+                    b.message.clone(),
+                ))
         });
-        diagnostics.dedup_by(|a, b| {
-            a.range == b.range && a.message == b.message
-        });
+        diagnostics.dedup_by(|a, b| a.range == b.range && a.message == b.message);
     }
 }
 
@@ -1130,9 +1586,10 @@ mod tests {
         assert_eq!(result.symbols[0].kind, SymbolKind::CONSTANT);
 
         // Check that diagnostics include context requirement info (this is now expected behavior)
-        let has_context_info = result.diagnostics.iter().any(|d| 
-            d.severity == Some(DiagnosticSeverity::INFORMATION) && 
-            d.message.contains("requires context"));
+        let has_context_info = result.diagnostics.iter().any(|d| {
+            d.severity == Some(DiagnosticSeverity::INFORMATION)
+                && d.message.contains("requires context")
+        });
         assert!(has_context_info, "Expected context requirement diagnostic");
     }
 
@@ -1143,7 +1600,10 @@ mod tests {
 
         // Should have diagnostic for invalid expression (tokenization error due to unterminated string)
         assert!(!result.diagnostics.is_empty());
-        assert_eq!(result.diagnostics[0].severity, Some(DiagnosticSeverity::ERROR));
+        assert_eq!(
+            result.diagnostics[0].severity,
+            Some(DiagnosticSeverity::ERROR)
+        );
         assert!(result.diagnostics[0].message.contains("Tokenization error"));
     }
 
@@ -1182,14 +1642,14 @@ mod tests {
 
         // Should return completions that start with "@req"
         assert!(!completions.is_empty());
-        
+
         let labels: Vec<&String> = completions.iter().map(|c| &c.label).collect();
         assert!(labels.contains(&&"@req".to_string()));
         assert!(labels.contains(&&"@req.user".to_string()));
         assert!(labels.contains(&&"@req.user.id".to_string()));
         assert!(labels.contains(&&"@req.user.role".to_string()));
         assert!(labels.contains(&&"@req.user.name".to_string()));
-        
+
         // Should not include completions that don't match the prefix
         assert!(!labels.contains(&&"@record".to_string()));
     }
@@ -1197,20 +1657,20 @@ mod tests {
     #[test]
     fn test_validate_context_access_with_valid_context() {
         let analyzer = create_analyzer();
-        
+
         // Create a context with req.user.role
         let mut user_map = HashMap::new();
         user_map.insert("role".to_string(), Val::Str("admin".to_string().into()));
         user_map.insert("id".to_string(), Val::Int(123));
-        
+
         let mut req_map = HashMap::new();
         req_map.insert("user".to_string(), Val::Map(user_map.into()));
-        
+
         let mut context_map = HashMap::new();
         context_map.insert("req".to_string(), Val::Map(req_map.into()));
         let context = Val::Map(context_map.into());
 
-        // Parse expression that uses req.user.role  
+        // Parse expression that uses req.user.role
         let tokens = qcl_core::token::Tokenizer::tokenize("@req.user.role == 'admin'").unwrap();
         let mut parser = qcl_core::ast::Parser::new(&tokens);
         let expr_result = parser.parse();
@@ -1224,21 +1684,21 @@ mod tests {
     #[test]
     fn test_context_has_key() {
         let analyzer = create_analyzer();
-        
+
         // Create nested context structure
         let mut inner_map = HashMap::new();
         inner_map.insert("name".to_string(), Val::Str("test".to_string().into()));
-        
+
         let mut middle_map = HashMap::new();
         middle_map.insert("user".to_string(), Val::Map(inner_map.into()));
-        
+
         let mut context_map = HashMap::new();
         context_map.insert("req".to_string(), Val::Map(middle_map.into()));
         let context = Val::Map(context_map.into());
 
         // Test existing nested key
         assert!(analyzer.context_has_key(&context, "req.user.name"));
-        
+
         // Test non-existing key
         assert!(!analyzer.context_has_key(&context, "req.user.role"));
         assert!(!analyzer.context_has_key(&context, "req.admin"));
@@ -1250,20 +1710,20 @@ mod tests {
         let analyzer = create_analyzer();
         let content = "@req.user.role == 'admin'";
         let tokens = analyzer.generate_semantic_tokens(content);
-        
+
         // Define the legend indices for testing
         const OPERATOR_IDX: u32 = 6;
         const STRING_IDX: u32 = 4;
         const PROPERTY_IDX: u32 = 8;
-        
+
         // Should have tokens for: @, req, ., user, ., role, ==, 'admin'
         assert!(!tokens.is_empty());
-        
+
         // Check that we have a keyword token for '==' (operator)
         let mut found_operator = false;
         let mut found_string = false;
         let mut found_property = false;
-        
+
         for token in &tokens {
             if token.token_type == OPERATOR_IDX {
                 found_operator = true;
@@ -1273,7 +1733,7 @@ mod tests {
                 found_property = true;
             }
         }
-        
+
         assert!(found_operator, "Should find operator token");
         assert!(found_string, "Should find string token");
         assert!(found_property, "Should find property token for '@'");
@@ -1289,30 +1749,33 @@ mod tests {
             }
         "#;
         let tokens = analyzer.generate_semantic_tokens(content);
-        
+
         // Define the legend indices for testing
         const KEYWORD_IDX: u32 = 1;
-        
+
         // Should have tokens for keywords, variables, operators, etc.
         assert!(!tokens.is_empty());
-        
+
         // Check for specific tokens
         let mut found_let = false;
         let mut found_if = false;
         let mut found_return = false;
-        
+
         for token in &tokens {
             if token.token_type == KEYWORD_IDX {
-                // This is a simplified check - in a real implementation, 
+                // This is a simplified check - in a real implementation,
                 // we'd need to look at the actual content
                 found_let = true;
                 found_if = true;
                 found_return = true;
             }
         }
-        
+
         // Should find keywords
-        assert!(found_let || found_if || found_return, "Should find keyword tokens");
+        assert!(
+            found_let || found_if || found_return,
+            "Should find keyword tokens"
+        );
     }
 
     #[test]
@@ -1323,13 +1786,13 @@ mod tests {
             let x = 42;
         "#;
         let tokens = analyzer.generate_semantic_tokens(content);
-        
+
         // Define the legend indices for testing
         const COMMENT_IDX: u32 = 0;
-        
+
         // Should have tokens including comment
         assert!(!tokens.is_empty());
-        
+
         // Check for comment token
         let mut found_comment = false;
         for token in &tokens {
@@ -1338,7 +1801,7 @@ mod tests {
                 break;
             }
         }
-        
+
         assert!(found_comment, "Should find comment token");
     }
 
@@ -1347,13 +1810,13 @@ mod tests {
         let analyzer = create_analyzer();
         let content = "let x = 42 + 3.14;";
         let tokens = analyzer.generate_semantic_tokens(content);
-        
+
         // Define the legend indices for testing
         const NUMBER_IDX: u32 = 5;
-        
+
         // Should have tokens including numbers
         assert!(!tokens.is_empty());
-        
+
         // Check for number tokens
         let mut found_number = false;
         for token in &tokens {
@@ -1362,7 +1825,7 @@ mod tests {
                 break;
             }
         }
-        
+
         assert!(found_number, "Should find number token");
     }
 }

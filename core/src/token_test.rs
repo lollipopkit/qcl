@@ -480,7 +480,8 @@ mod tests {
 
     #[test]
     fn complex_list_map() {
-        let t = Tokenizer::tokenize(r#"[{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]"#);
+        let t =
+            Tokenizer::tokenize(r#"[{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]"#);
         let e = vec![
             Token::LBracket,
             Token::LBrace,
@@ -584,7 +585,13 @@ mod tests {
         // In most languages, nested block comments don't work as expected
         // The first */ closes the comment, leaving the rest as tokens
         let t = Tokenizer::tokenize("123 /* 外层注释 /* 内层注释 */ 外层继续 */ 456");
-        let e = vec![Token::Int(123), Token::Id("外层继续".to_string()), Token::Mul, Token::Div, Token::Int(456)];
+        let e = vec![
+            Token::Int(123),
+            Token::Id("外层继续".to_string()),
+            Token::Mul,
+            Token::Div,
+            Token::Int(456),
+        ];
         assert_eq!(t.unwrap(), e);
     }
 

@@ -60,7 +60,10 @@ mod tests {
         let stmt = parser.parse_statement()?;
 
         match stmt {
-            Stmt::ChannelRecv { variable, channel: _ } => {
+            Stmt::ChannelRecv {
+                variable,
+                channel: _,
+            } => {
                 assert_eq!(variable, None);
             }
             _ => panic!("Expected ChannelRecv statement"),
@@ -86,17 +89,17 @@ mod tests {
     #[test]
     fn test_basic_channel_operations() -> Result<()> {
         let ch = Channel::new();
-        
+
         // Test that try_recv returns None when channel is empty
         assert_eq!(ch.try_recv()?, None);
-        
+
         // Test that try_send works (though with unbuffered channels it might fail)
         let test_val = Val::Int(42);
-        
+
         // For unbuffered channels, try_send typically fails unless there's a concurrent receiver
         // So we just test that the operation doesn't panic
         let _ = ch.try_send(test_val.clone());
-        
+
         Ok(())
     }
 
@@ -113,7 +116,7 @@ mod tests {
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
 
-        // Should have 3 statements: let, go, and empty statement from trailing semicolon 
+        // Should have 3 statements: let, go, and empty statement from trailing semicolon
         assert_eq!(program.statements.len(), 3);
 
         // Execute the program
@@ -128,14 +131,14 @@ mod tests {
     fn test_channel_types_in_val() {
         let ch = Channel::new();
         let ch_val = Val::Channel(ch);
-        
+
         assert_eq!(ch_val.type_name(), "Channel");
-        
+
         let goroutine_id = next_goroutine_id();
         let handle = std::thread::spawn(|| Ok(Val::Nil));
         let goroutine_handle = crate::concurrency::GoroutineHandle::new(handle, goroutine_id);
         let goroutine_val = Val::Goroutine(goroutine_handle);
-        
+
         assert_eq!(goroutine_val.type_name(), "Goroutine");
     }
 }

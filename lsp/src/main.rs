@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use dashmap::DashMap;
 use ropey::Rope;
+use std::sync::Arc;
 use tokio::time::{sleep, Duration};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
@@ -76,9 +76,8 @@ impl QclLanguageServer {
 
         // QCL keywords
         let keywords = [
-            "if", "else", "while", "let", "fn", "return", "break", "continue",
-            "goto", "import", "from", "as", "go", "select", "case", "default",
-            "true", "false", "nil"
+            "if", "else", "while", "let", "fn", "return", "break", "continue", "goto", "import",
+            "from", "as", "go", "select", "case", "default", "true", "false", "nil",
         ];
 
         for keyword in keywords {
@@ -106,7 +105,9 @@ impl QclLanguageServer {
             label: "@".to_string(),
             kind: Some(CompletionItemKind::VARIABLE),
             detail: Some("Context access".to_string()),
-            documentation: Some(Documentation::String("Access context variables (e.g., @req.user.role)".to_string())),
+            documentation: Some(Documentation::String(
+                "Access context variables (e.g., @req.user.role)".to_string(),
+            )),
             ..Default::default()
         });
 
@@ -139,8 +140,11 @@ impl QclLanguageServer {
 #[tower_lsp::async_trait]
 impl LanguageServer for QclLanguageServer {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
-        info!("QCL Language Server initializing with params: {:?}", params.root_uri);
-        
+        info!(
+            "QCL Language Server initializing with params: {:?}",
+            params.root_uri
+        );
+
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 // Switch to INCREMENTAL now that we apply ranges with UTF-16 mapping
@@ -162,36 +166,38 @@ impl LanguageServer for QclLanguageServer {
                         inter_file_dependencies: false,
                         workspace_diagnostics: false,
                         work_done_progress_options: Default::default(),
-                    }
+                    },
                 )),
-                semantic_tokens_provider: Some(SemanticTokensServerCapabilities::SemanticTokensOptions(
-                    SemanticTokensOptions {
-                        work_done_progress_options: Default::default(),
-                        legend: SemanticTokensLegend {
-                            token_types: vec![
-                                SemanticTokenType::COMMENT,
-                                SemanticTokenType::KEYWORD,
-                                SemanticTokenType::VARIABLE,
-                                SemanticTokenType::FUNCTION,
-                                SemanticTokenType::STRING,
-                                SemanticTokenType::NUMBER,
-                                SemanticTokenType::OPERATOR,
-                                SemanticTokenType::PARAMETER,
-                                SemanticTokenType::PROPERTY,
-                                SemanticTokenType::NAMESPACE,
-                                SemanticTokenType::TYPE,
-                            ],
-                            token_modifiers: vec![
-                                SemanticTokenModifier::DECLARATION,
-                                SemanticTokenModifier::DEFINITION,
-                                SemanticTokenModifier::READONLY,
-                                SemanticTokenModifier::STATIC,
-                            ],
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(
+                        SemanticTokensOptions {
+                            work_done_progress_options: Default::default(),
+                            legend: SemanticTokensLegend {
+                                token_types: vec![
+                                    SemanticTokenType::COMMENT,
+                                    SemanticTokenType::KEYWORD,
+                                    SemanticTokenType::VARIABLE,
+                                    SemanticTokenType::FUNCTION,
+                                    SemanticTokenType::STRING,
+                                    SemanticTokenType::NUMBER,
+                                    SemanticTokenType::OPERATOR,
+                                    SemanticTokenType::PARAMETER,
+                                    SemanticTokenType::PROPERTY,
+                                    SemanticTokenType::NAMESPACE,
+                                    SemanticTokenType::TYPE,
+                                ],
+                                token_modifiers: vec![
+                                    SemanticTokenModifier::DECLARATION,
+                                    SemanticTokenModifier::DEFINITION,
+                                    SemanticTokenModifier::READONLY,
+                                    SemanticTokenModifier::STATIC,
+                                ],
+                            },
+                            range: Some(true),
+                            full: Some(SemanticTokensFullOptions::Bool(true)),
                         },
-                        range: Some(false),
-                        full: Some(SemanticTokensFullOptions::Bool(true)),
-                    }
-                )),
+                    ),
+                ),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -203,7 +209,8 @@ impl LanguageServer for QclLanguageServer {
 
     async fn initialized(&self, _: InitializedParams) {
         info!("QCL Language Server initialized");
-        let _ = self.client
+        let _ = self
+            .client
             .log_message(MessageType::INFO, "QCL Language Server started")
             .await;
     }
@@ -264,19 +271,20 @@ impl LanguageServer for QclLanguageServer {
         }
 
         // Debounced diagnostics + cache warmup
-        self.schedule_diagnostics_and_warmup(uri, version, 150).await;
+        self.schedule_diagnostics_and_warmup(uri, version, 150)
+            .await;
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let uri = &params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
-        
+
         Ok(self.get_hover_info(uri, position).await)
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let mut items = self.get_completions();
-        
+
         // Add context-specific completions if triggered by '@'
         let uri = &params.text_document_position.text_document.uri;
         if self.documents.get(uri).is_some() {
@@ -284,32 +292,38 @@ impl LanguageServer for QclLanguageServer {
             let context_items = self.analyzer.get_context_completions("@");
             items.extend(context_items);
         }
-        
+
         Ok(Some(CompletionResponse::Array(items)))
     }
 
-    async fn diagnostic(&self, params: DocumentDiagnosticParams) -> Result<DocumentDiagnosticReportResult> {
+    async fn diagnostic(
+        &self,
+        params: DocumentDiagnosticParams,
+    ) -> Result<DocumentDiagnosticReportResult> {
         let uri = &params.text_document.uri;
         let diagnostics = self.validate_document(uri).await;
-        
+
         Ok(DocumentDiagnosticReportResult::Report(
-            DocumentDiagnosticReport::Full(
-                RelatedFullDocumentDiagnosticReport {
-                    related_documents: None,
-                    full_document_diagnostic_report: FullDocumentDiagnosticReport {
-                        result_id: None,
-                        items: diagnostics,
-                    },
-                }
-            )
+            DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+                related_documents: None,
+                full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                    result_id: None,
+                    items: diagnostics,
+                },
+            }),
         ))
     }
 
-    async fn document_symbol(&self, params: DocumentSymbolParams) -> Result<Option<DocumentSymbolResponse>> {
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
         let uri = &params.text_document.uri;
         if let Some(analysis) = self.get_or_compute_analysis(uri).await {
             if !analysis.symbols.is_empty() {
-                return Ok(Some(DocumentSymbolResponse::Nested(analysis.symbols.clone())));
+                return Ok(Some(DocumentSymbolResponse::Nested(
+                    analysis.symbols.clone(),
+                )));
             }
         }
         Ok(None)
@@ -328,6 +342,38 @@ impl LanguageServer for QclLanguageServer {
         }
         Ok(None)
     }
+
+    async fn semantic_tokens_range(
+        &self,
+        params: SemanticTokensRangeParams,
+    ) -> Result<Option<SemanticTokensRangeResult>> {
+        let uri = &params.text_document.uri;
+        // Snapshot content; slice only the requested range to reduce copying
+        let (slice_string, range) = if let Some(doc) = self.documents.get(uri) {
+            let start_char = position_to_char_idx(&doc.content, params.range.start);
+            let end_char = position_to_char_idx(&doc.content, params.range.end);
+            let s = start_char.min(doc.content.len_chars());
+            let e = end_char.min(doc.content.len_chars()).max(s);
+            let slice_string = doc.content.slice(s..e).to_string();
+            (slice_string, params.range)
+        } else {
+            return Ok(None);
+        };
+
+        // Generate range tokens off the async runtime
+        let generated = tokio::task::spawn_blocking(move || {
+            let analyzer = QclAnalyzer::new();
+            analyzer.generate_semantic_tokens_in_range(&slice_string, range)
+        })
+        .await
+        .ok()
+        .unwrap_or_default();
+
+        Ok(Some(SemanticTokensRangeResult::Tokens(SemanticTokens {
+            result_id: None,
+            data: generated,
+        })))
+    }
 }
 
 impl QclLanguageServer {
@@ -343,15 +389,18 @@ impl QclLanguageServer {
         // Snapshot content/version/debounce without long-held locks
         let (content_snapshot, version_snapshot, seq_snapshot) = {
             let doc = self.documents.get(uri)?;
-            (
-                doc.content.to_string(),
-                doc.version,
-                doc.debounce_seq,
-            )
+            (doc.content.to_string(), doc.version, doc.debounce_seq)
         };
 
-        // Compute analysis
-        let computed = Arc::new(self.analyzer.analyze(&content_snapshot));
+        // Compute analysis off the async runtime to avoid blocking
+        let content_for_compute = content_snapshot.clone();
+        let computed_result = tokio::task::spawn_blocking(move || {
+            let analyzer = QclAnalyzer::new();
+            analyzer.analyze(&content_for_compute)
+        })
+        .await
+        .ok()?;
+        let computed = Arc::new(computed_result);
 
         // Store if still applicable; otherwise return computed as-is (caller can re-request)
         if let Some(mut doc) = self.documents.get_mut(uri) {
@@ -372,14 +421,18 @@ impl QclLanguageServer {
 
         let (content_snapshot, version_snapshot, seq_snapshot) = {
             let doc = self.documents.get(uri)?;
-            (
-                doc.content.to_string(),
-                doc.version,
-                doc.debounce_seq,
-            )
+            (doc.content.to_string(), doc.version, doc.debounce_seq)
         };
 
-        let generated = Arc::new(self.analyzer.generate_semantic_tokens(&content_snapshot));
+        // Generate tokens off the async runtime to avoid blocking
+        let content_for_tokens = content_snapshot.clone();
+        let generated_result = tokio::task::spawn_blocking(move || {
+            let analyzer = QclAnalyzer::new();
+            analyzer.generate_semantic_tokens(&content_for_tokens)
+        })
+        .await
+        .ok()?;
+        let generated = Arc::new(generated_result);
 
         if let Some(mut doc) = self.documents.get_mut(uri) {
             if doc.version == version_snapshot && doc.debounce_seq == seq_snapshot {
@@ -389,37 +442,57 @@ impl QclLanguageServer {
         Some(generated)
     }
 
-    async fn schedule_diagnostics_and_warmup(&self, uri: Url, scheduled_version: i32, delay_ms: u64) {
+    async fn schedule_diagnostics_and_warmup(
+        &self,
+        uri: Url,
+        scheduled_version: i32,
+        delay_ms: u64,
+    ) {
         let documents = self.documents.clone();
         let client = self.client.clone();
         tokio::spawn(async move {
             sleep(Duration::from_millis(delay_ms)).await;
 
             // Check debounce token to ensure no new edits have occurred
-            let (content_snapshot, seq_snapshot, version_snapshot) = if let Some(doc) = documents.get(&uri) {
-                (doc.content.to_string(), doc.debounce_seq, doc.version)
-            } else {
-                return;
-            };
+            let (content_snapshot, seq_snapshot, version_snapshot) =
+                if let Some(doc) = documents.get(&uri) {
+                    (doc.content.to_string(), doc.debounce_seq, doc.version)
+                } else {
+                    return;
+                };
 
-            // Compute analysis and tokens on snapshot
-            let analyzer = QclAnalyzer::new();
-            let analysis = analyzer.analyze(&content_snapshot);
-            let tokens = analyzer.generate_semantic_tokens(&content_snapshot);
+            // Compute analysis and tokens on snapshot off the runtime thread
+            let content_for_compute = content_snapshot.clone();
+            let (analysis, tokens) = match tokio::task::spawn_blocking(move || {
+                let analyzer = QclAnalyzer::new();
+                let analysis = analyzer.analyze(&content_for_compute);
+                let tokens = analyzer.generate_semantic_tokens(&content_for_compute);
+                (analysis, tokens)
+            })
+            .await
+            {
+                Ok(pair) => pair,
+                Err(_) => return,
+            };
 
             // Publish diagnostics if still current
             let diagnostics_to_publish = analysis.diagnostics.clone();
 
             // Try to store caches if document still matches snapshot
             if let Some(mut doc) = documents.get_mut(&uri) {
-                if doc.debounce_seq == seq_snapshot && doc.version == scheduled_version && doc.version == version_snapshot {
+                if doc.debounce_seq == seq_snapshot
+                    && doc.version == scheduled_version
+                    && doc.version == version_snapshot
+                {
                     doc.cached_analysis = Some(Arc::new(analysis));
                     doc.cached_semantic_tokens = Some(Arc::new(tokens));
                 }
             }
 
             // Always publish diagnostics for the uri (latest client will override older results)
-            let _ = client.publish_diagnostics(uri.clone(), diagnostics_to_publish, None).await;
+            let _ = client
+                .publish_diagnostics(uri.clone(), diagnostics_to_publish, None)
+                .await;
         });
     }
 }
@@ -442,7 +515,9 @@ fn position_to_char_idx(text: &Rope, pos: Position) -> usize {
         }
         seen_utf16 += u16_len;
         chars_in_line += 1;
-        if seen_utf16 == target_utf16 { break; }
+        if seen_utf16 == target_utf16 {
+            break;
+        }
     }
     line_start_char + chars_in_line
 }
@@ -451,8 +526,14 @@ fn apply_incremental_change_rope(text: &mut Rope, change: &TextDocumentContentCh
     if let Some(range) = &change.range {
         let start_char = position_to_char_idx(text, range.start);
         let end_char = position_to_char_idx(text, range.end);
-        let (s, e) = if start_char <= end_char { (start_char, end_char) } else { (end_char, start_char) };
-        if s != e { text.remove(s..e); }
+        let (s, e) = if start_char <= end_char {
+            (start_char, end_char)
+        } else {
+            (end_char, start_char)
+        };
+        if s != e {
+            text.remove(s..e);
+        }
         if !change.text.is_empty() {
             text.insert(s, &change.text);
         }
@@ -468,12 +549,12 @@ async fn main() {
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .init();
-    
+
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
     let (service, socket) = LspService::new(QclLanguageServer::new);
-    
+
     // Start the server
     Server::new(stdin, stdout, socket).serve(service).await;
 }

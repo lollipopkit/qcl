@@ -2,7 +2,7 @@
 #[cfg(feature = "stdlib-tcp")]
 mod tests {
     use crate::tcp::TcpModule;
-    use qcl_core::{module::Module, val::Val, stmt::Environment, import::ModuleResolver};
+    use qcl_core::{import::ModuleResolver, module::Module, stmt::Environment, val::Val};
     use std::sync::Arc;
 
     fn create_test_env() -> Environment {
@@ -13,8 +13,11 @@ mod tests {
     fn test_tcp_module_creation() {
         let tcp_module = TcpModule::new();
         assert_eq!(tcp_module.name(), "tcp");
-        assert_eq!(tcp_module.description(), "TCP networking interface with concurrency support");
-        
+        assert_eq!(
+            tcp_module.description(),
+            "TCP networking interface with concurrency support"
+        );
+
         let exports = tcp_module.exports();
         assert!(exports.contains_key("connect"));
         assert!(exports.contains_key("connect_async"));
@@ -38,21 +41,21 @@ mod tests {
         let tcp_module = TcpModule::new();
         let exports = tcp_module.exports();
         let resolve_func = exports.get("resolve").unwrap();
-        
+
         let env = create_test_env();
         let ctx = Val::Nil;
-        
+
         if let Val::RustFunction(func) = resolve_func {
             // Test with localhost
             let args = vec![Val::Str("localhost".into())];
             let result = func(&args, &env, &ctx);
             assert!(result.is_ok());
-            
+
             // Test with invalid arguments
             let args = vec![];
             let result = func(&args, &env, &ctx);
             assert!(result.is_err());
-            
+
             let args = vec![Val::Int(123)];
             let result = func(&args, &env, &ctx);
             assert!(result.is_err());
@@ -66,26 +69,26 @@ mod tests {
         let tcp_module = TcpModule::new();
         let exports = tcp_module.exports();
         let connect_func = exports.get("connect").unwrap();
-        
+
         let env = create_test_env();
         let ctx = Val::Nil;
-        
+
         if let Val::RustFunction(func) = connect_func {
             // Test with no arguments
             let args = vec![];
             let result = func(&args, &env, &ctx);
             assert!(result.is_err());
-            
+
             // Test with too many arguments
             let args = vec![Val::Str("127.0.0.1".into()), Val::Int(8080), Val::Int(123)];
             let result = func(&args, &env, &ctx);
             assert!(result.is_err());
-            
+
             // Test with invalid address type
             let args = vec![Val::Int(123)];
             let result = func(&args, &env, &ctx);
             assert!(result.is_err());
-            
+
             // Test with invalid port type
             let args = vec![Val::Str("127.0.0.1".into()), Val::Str("invalid".into())];
             let result = func(&args, &env, &ctx);
@@ -100,26 +103,26 @@ mod tests {
         let tcp_module = TcpModule::new();
         let exports = tcp_module.exports();
         let send_func = exports.get("send").unwrap();
-        
+
         let env = create_test_env();
         let ctx = Val::Nil;
-        
+
         if let Val::RustFunction(func) = send_func {
             // Test with wrong number of arguments
             let args = vec![Val::Str("conn_id".into())];
             let result = func(&args, &env, &ctx);
             assert!(result.is_err());
-            
+
             // Test with invalid connection id type
             let args = vec![Val::Int(123), Val::Str("data".into())];
             let result = func(&args, &env, &ctx);
             assert!(result.is_err());
-            
+
             // Test with invalid data type
             let args = vec![Val::Str("conn_id".into()), Val::Int(123)];
             let result = func(&args, &env, &ctx);
             assert!(result.is_err());
-            
+
             // Test with non-existent connection
             let args = vec![Val::Str("non_existent".into()), Val::Str("data".into())];
             let result = func(&args, &env, &ctx);
@@ -134,15 +137,15 @@ mod tests {
         let tcp_module = TcpModule::new();
         let exports = tcp_module.exports();
         let connect_async_func = exports.get("connect_async").unwrap();
-        
+
         let env = create_test_env();
         let ctx = Val::Nil;
-        
+
         if let Val::RustFunction(func) = connect_async_func {
             // Test with invalid address to ensure we get a channel back
             let args = vec![Val::Str("invalid:99999".into())];
             let result = func(&args, &env, &ctx);
-            
+
             match result {
                 Ok(Val::Channel(_)) => {
                     // Success - we got a channel back
@@ -160,15 +163,15 @@ mod tests {
         let tcp_module = TcpModule::new();
         let exports = tcp_module.exports();
         let send_async_func = exports.get("send_async").unwrap();
-        
+
         let env = create_test_env();
         let ctx = Val::Nil;
-        
+
         if let Val::RustFunction(func) = send_async_func {
             // Test with non-existent connection to ensure we get a channel back
             let args = vec![Val::Str("non_existent".into()), Val::Str("data".into())];
             let result = func(&args, &env, &ctx);
-            
+
             match result {
                 Ok(Val::Channel(_)) => {
                     // Success - we got a channel back
@@ -186,15 +189,15 @@ mod tests {
         let tcp_module = TcpModule::new();
         let exports = tcp_module.exports();
         let recv_async_func = exports.get("recv_async").unwrap();
-        
+
         let env = create_test_env();
         let ctx = Val::Nil;
-        
+
         if let Val::RustFunction(func) = recv_async_func {
             // Test with non-existent connection to ensure we get a channel back
             let args = vec![Val::Str("non_existent".into())];
             let result = func(&args, &env, &ctx);
-            
+
             match result {
                 Ok(Val::Channel(_)) => {
                     // Success - we got a channel back
@@ -212,15 +215,15 @@ mod tests {
         let tcp_module = TcpModule::new();
         let exports = tcp_module.exports();
         let accept_async_func = exports.get("accept_async").unwrap();
-        
+
         let env = create_test_env();
         let ctx = Val::Nil;
-        
+
         if let Val::RustFunction(func) = accept_async_func {
             // Test with non-existent listener to ensure we get a channel back
             let args = vec![Val::Str("non_existent".into())];
             let result = func(&args, &env, &ctx);
-            
+
             match result {
                 Ok(Val::Channel(_)) => {
                     // Success - we got a channel back
@@ -238,15 +241,15 @@ mod tests {
         let tcp_module = TcpModule::new();
         let exports = tcp_module.exports();
         let read_stream_func = exports.get("read_stream").unwrap();
-        
+
         let env = create_test_env();
         let ctx = Val::Nil;
-        
+
         if let Val::RustFunction(func) = read_stream_func {
             // Test with non-existent connection to ensure we get a channel back
             let args = vec![Val::Str("non_existent".into())];
             let result = func(&args, &env, &ctx);
-            
+
             match result {
                 Ok(Val::Channel(_)) => {
                     // Success - we got a channel back
@@ -264,15 +267,15 @@ mod tests {
         let tcp_module = TcpModule::new();
         let exports = tcp_module.exports();
         let write_stream_func = exports.get("write_stream").unwrap();
-        
+
         let env = create_test_env();
         let ctx = Val::Nil;
-        
+
         if let Val::RustFunction(func) = write_stream_func {
             // Test with non-existent connection to ensure we get a channel back
             let args = vec![Val::Str("non_existent".into())];
             let result = func(&args, &env, &ctx);
-            
+
             match result {
                 Ok(Val::Channel(_)) => {
                     // Success - we got a channel back
@@ -297,7 +300,7 @@ mod tests {
             let args = vec![];
             let result = func(&args, &env, &ctx);
             assert!(result.is_err());
-            
+
             let args = vec![Val::Int(123)];
             let result = func(&args, &env, &ctx);
             assert!(result.is_err());
@@ -308,7 +311,7 @@ mod tests {
             let args = vec![Val::Str("conn".into())];
             let result = func(&args, &env, &ctx);
             assert!(result.is_err());
-            
+
             let args = vec![Val::Int(123), Val::Str("data".into())];
             let result = func(&args, &env, &ctx);
             assert!(result.is_err());
@@ -319,7 +322,7 @@ mod tests {
             let args = vec![];
             let result = func(&args, &env, &ctx);
             assert!(result.is_err());
-            
+
             let args = vec![Val::Int(123)];
             let result = func(&args, &env, &ctx);
             assert!(result.is_err());

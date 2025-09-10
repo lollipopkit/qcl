@@ -3,9 +3,9 @@ use qcl_core::{
     token::Tokenizer,
 };
 use std::collections::{HashMap, HashSet};
-use tower_lsp::lsp_types::*;
-use tokio::sync::RwLock;
 use std::sync::Arc;
+use tokio::sync::RwLock;
+use tower_lsp::lsp_types::*;
 
 // Re-implement the analyzer for testing since we can't import from qcl_lsp
 #[derive(Debug, Clone)]
@@ -265,7 +265,7 @@ impl TestLanguageServer {
         let content = &document.content;
 
         let analysis = self.analyzer.analyze(content);
-        
+
         if !analysis.context_references.is_empty() {
             let hover_text = format!(
                 "QCL Code\n\nContext references: {:?}\n\nSymbols: {}",
@@ -274,7 +274,10 @@ impl TestLanguageServer {
             );
             return Some(Hover {
                 contents: HoverContents::Scalar(MarkedString::String(hover_text)),
-                range: Some(Range::new(Position::new(0, 0), Position::new(0, content.len() as u32))),
+                range: Some(Range::new(
+                    Position::new(0, 0),
+                    Position::new(0, content.len() as u32),
+                )),
             });
         }
 
@@ -282,7 +285,10 @@ impl TestLanguageServer {
             let hover_text = format!("QCL Code\n\nSymbols: {}", analysis.symbols.len());
             return Some(Hover {
                 contents: HoverContents::Scalar(MarkedString::String(hover_text)),
-                range: Some(Range::new(Position::new(0, 0), Position::new(0, content.len() as u32))),
+                range: Some(Range::new(
+                    Position::new(0, 0),
+                    Position::new(0, content.len() as u32),
+                )),
             });
         }
 
@@ -294,9 +300,8 @@ impl TestLanguageServer {
 
         // QCL keywords
         let keywords = [
-            "if", "else", "while", "let", "fn", "return", "break", "continue",
-            "goto", "import", "from", "as", "go", "select", "case", "default",
-            "true", "false", "nil"
+            "if", "else", "while", "let", "fn", "return", "break", "continue", "goto", "import",
+            "from", "as", "go", "select", "case", "default", "true", "false", "nil",
         ];
 
         for keyword in keywords {
@@ -324,7 +329,9 @@ impl TestLanguageServer {
             label: "@".to_string(),
             kind: Some(CompletionItemKind::VARIABLE),
             detail: Some("Context access".to_string()),
-            documentation: Some(Documentation::String("Access context variables (e.g., @req.user.role)".to_string())),
+            documentation: Some(Documentation::String(
+                "Access context variables (e.g., @req.user.role)".to_string(),
+            )),
             ..Default::default()
         });
 
@@ -333,14 +340,14 @@ impl TestLanguageServer {
 
     async fn get_document_symbols(&self, uri: &Url) -> Option<Vec<DocumentSymbol>> {
         let documents = self.documents.read().await;
-        
+
         if let Some(document) = documents.get(uri) {
             let analysis = self.analyzer.analyze(&document.content);
             if !analysis.symbols.is_empty() {
                 return Some(analysis.symbols);
             }
         }
-        
+
         None
     }
 }
@@ -351,12 +358,20 @@ async fn test_lsp_expression_validation() {
     let uri = Url::parse("file:///test.qcl").unwrap();
 
     // Test valid expression
-    server.open_document(uri.clone(), "@req.user.role == 'admin'".to_string(), 1).await;
+    server
+        .open_document(uri.clone(), "@req.user.role == 'admin'".to_string(), 1)
+        .await;
     let diagnostics = server.validate_document(&uri).await;
     assert!(diagnostics.is_empty());
 
     // Test invalid expression (tokenization error)
-    server.update_document(uri.clone(), "@req.user.role == 'unterminated".to_string(), 2).await;
+    server
+        .update_document(
+            uri.clone(),
+            "@req.user.role == 'unterminated".to_string(),
+            2,
+        )
+        .await;
     let diagnostics = server.validate_document(&uri).await;
     assert!(!diagnostics.is_empty());
     assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::ERROR));
@@ -375,12 +390,16 @@ async fn test_lsp_statement_validation() {
         }
     "#;
 
-    server.open_document(uri.clone(), program.to_string(), 1).await;
+    server
+        .open_document(uri.clone(), program.to_string(), 1)
+        .await;
     let diagnostics = server.validate_document(&uri).await;
     assert!(diagnostics.is_empty());
 
     // Test invalid statement
-    server.update_document(uri.clone(), "let invalid_statement".to_string(), 2).await;
+    server
+        .update_document(uri.clone(), "let invalid_statement".to_string(), 2)
+        .await;
     let diagnostics = server.validate_document(&uri).await;
     assert!(!diagnostics.is_empty());
     assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::ERROR));
@@ -392,10 +411,16 @@ async fn test_lsp_hover_functionality() {
     let uri = Url::parse("file:///test.qcl").unwrap();
 
     // Test hover with context references
-    server.open_document(uri.clone(), "@req.user.role == 'admin' && @req.user.id > 0".to_string(), 1).await;
+    server
+        .open_document(
+            uri.clone(),
+            "@req.user.role == 'admin' && @req.user.id > 0".to_string(),
+            1,
+        )
+        .await;
     let hover = server.get_hover_info(&uri).await;
     assert!(hover.is_some());
-    
+
     let hover = hover.unwrap();
     if let HoverContents::Scalar(MarkedString::String(content)) = hover.contents {
         assert!(content.contains("Context references"));
@@ -410,10 +435,12 @@ async fn test_lsp_hover_functionality() {
         let result = math.sqrt(42);
         fn test() { return result; }
     "#;
-    server.update_document(uri.clone(), program.to_string(), 2).await;
+    server
+        .update_document(uri.clone(), program.to_string(), 2)
+        .await;
     let hover = server.get_hover_info(&uri).await;
     assert!(hover.is_some());
-    
+
     let hover = hover.unwrap();
     if let HoverContents::Scalar(MarkedString::String(content)) = hover.contents {
         assert!(content.contains("Symbols"));
@@ -445,17 +472,20 @@ async fn test_lsp_completion_functionality() {
     assert!(labels.contains(&&"@".to_string()));
 
     // Verify completion kinds
-    let keyword_items: Vec<_> = completions.iter()
+    let keyword_items: Vec<_> = completions
+        .iter()
         .filter(|item| item.kind == Some(CompletionItemKind::KEYWORD))
         .collect();
     assert!(!keyword_items.is_empty());
 
-    let operator_items: Vec<_> = completions.iter()
+    let operator_items: Vec<_> = completions
+        .iter()
         .filter(|item| item.kind == Some(CompletionItemKind::OPERATOR))
         .collect();
     assert!(!operator_items.is_empty());
 
-    let context_items: Vec<_> = completions.iter()
+    let context_items: Vec<_> = completions
+        .iter()
         .filter(|item| item.kind == Some(CompletionItemKind::VARIABLE))
         .collect();
     assert!(!context_items.is_empty());
@@ -486,7 +516,9 @@ async fn test_lsp_document_symbols() {
         let final_result = main();
     "#;
 
-    server.open_document(uri.clone(), program.to_string(), 1).await;
+    server
+        .open_document(uri.clone(), program.to_string(), 1)
+        .await;
     let symbols = server.get_document_symbols(&uri).await;
     assert!(symbols.is_some());
 
@@ -502,23 +534,27 @@ async fn test_lsp_document_symbols() {
     assert!(symbol_names.contains(&&"start_label:".to_string()));
 
     // Check symbol kinds
-    let import_symbols: Vec<_> = symbols.iter()
+    let import_symbols: Vec<_> = symbols
+        .iter()
         .filter(|s| s.kind == SymbolKind::MODULE)
         .collect();
     assert_eq!(import_symbols.len(), 2);
 
-    let function_symbols: Vec<_> = symbols.iter()
+    let function_symbols: Vec<_> = symbols
+        .iter()
         .filter(|s| s.kind == SymbolKind::FUNCTION)
         .collect();
     assert_eq!(function_symbols.len(), 2);
 
-    let variable_symbols: Vec<_> = symbols.iter()
+    let variable_symbols: Vec<_> = symbols
+        .iter()
         .filter(|s| s.kind == SymbolKind::VARIABLE)
         .collect();
     // Only top-level variables are detected in our simple analyzer
     assert!(variable_symbols.len() >= 2); // At least global_var and final_result
 
-    let label_symbols: Vec<_> = symbols.iter()
+    let label_symbols: Vec<_> = symbols
+        .iter()
         .filter(|s| s.kind == SymbolKind::KEY)
         .collect();
     assert_eq!(label_symbols.len(), 1);
@@ -527,17 +563,17 @@ async fn test_lsp_document_symbols() {
 #[tokio::test]
 async fn test_lsp_context_completions() {
     let analyzer = QclAnalyzer::new();
-    
+
     // Test context completions with "@req" prefix
     let completions = analyzer.get_context_completions("@req");
     assert!(!completions.is_empty());
-    
+
     let labels: Vec<&String> = completions.iter().map(|c| &c.label).collect();
     assert!(labels.contains(&&"@req".to_string()));
     assert!(labels.contains(&&"@req.user".to_string()));
     assert!(labels.contains(&&"@req.user.id".to_string()));
     assert!(labels.contains(&&"@req.user.role".to_string()));
-    
+
     // Should not include non-matching prefixes
     assert!(!labels.contains(&&"@record".to_string()));
     assert!(!labels.contains(&&"@env".to_string()));
@@ -545,7 +581,7 @@ async fn test_lsp_context_completions() {
     // Test with "@" prefix
     let completions = analyzer.get_context_completions("@");
     assert!(completions.len() >= 10); // Should have all predefined contexts
-    
+
     let labels: Vec<&String> = completions.iter().map(|c| &c.label).collect();
     assert!(labels.contains(&&"@req".to_string()));
     assert!(labels.contains(&&"@record".to_string()));
@@ -598,44 +634,46 @@ async fn test_lsp_complex_program_analysis() {
         }
     "#;
 
-    server.open_document(uri.clone(), complex_program.to_string(), 1).await;
-    
+    server
+        .open_document(uri.clone(), complex_program.to_string(), 1)
+        .await;
+
     // Test diagnostics - should be clean
     let diagnostics = server.validate_document(&uri).await;
     assert!(diagnostics.is_empty());
-    
+
     // Test document symbols
     let symbols = server.get_document_symbols(&uri).await;
     assert!(symbols.is_some());
     let symbols = symbols.unwrap();
-    
+
     // Should have imports, variables, functions, labels
     assert!(symbols.len() >= 8);
-    
+
     let symbol_names: Vec<&String> = symbols.iter().map(|s| &s.name).collect();
-    
+
     // Check imports
     assert!(symbol_names.contains(&&"import math".to_string()));
     assert!(symbol_names.contains(&&"import string".to_string()));
     assert!(symbol_names.contains(&&"import datetime".to_string()));
-    
+
     // Check variables
     assert!(symbol_names.contains(&&"user_level".to_string()));
     assert!(symbol_names.contains(&&"user_name".to_string()));
     assert!(symbol_names.contains(&&"record_id".to_string()));
-    
+
     // Check functions
     assert!(symbol_names.contains(&&"validate_access".to_string()));
     assert!(symbol_names.contains(&&"calculate_score".to_string()));
-    
+
     // Check labels - the main label should be there, let's make error_handler optional
     assert!(symbol_names.contains(&&"main:".to_string()));
     // Note: error_handler might not be detected depending on how nested it is in the if statement
-    
+
     // Test hover - should detect context references or symbols
     let hover = server.get_hover_info(&uri).await;
     assert!(hover.is_some());
-    
+
     let hover = hover.unwrap();
     if let HoverContents::Scalar(MarkedString::String(content)) = hover.contents {
         // The complex program might not have context references extracted properly from statements,
@@ -657,15 +695,20 @@ async fn test_lsp_error_recovery() {
     // Test various error conditions
     let error_cases = vec![
         ("", vec![]), // Empty document should be fine
-        ("@req.user.role == 'unterminated", vec![DiagnosticSeverity::ERROR]), // Tokenization error
+        (
+            "@req.user.role == 'unterminated",
+            vec![DiagnosticSeverity::ERROR],
+        ), // Tokenization error
         ("let incomplete", vec![DiagnosticSeverity::ERROR]), // Incomplete statement
         ("@req.user.role == 'admin'", vec![]), // Valid expression should work
     ];
 
     for (i, (code, expected_severities)) in error_cases.iter().enumerate() {
-        server.update_document(uri.clone(), code.to_string(), i as i32 + 1).await;
+        server
+            .update_document(uri.clone(), code.to_string(), i as i32 + 1)
+            .await;
         let diagnostics = server.validate_document(&uri).await;
-        
+
         assert_eq!(
             diagnostics.len(),
             expected_severities.len(),
@@ -675,7 +718,7 @@ async fn test_lsp_error_recovery() {
             code,
             diagnostics.len()
         );
-        
+
         for (diagnostic, expected_severity) in diagnostics.iter().zip(expected_severities.iter()) {
             assert_eq!(
                 diagnostic.severity,

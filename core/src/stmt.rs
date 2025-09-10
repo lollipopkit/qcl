@@ -325,79 +325,96 @@ impl Stmt {
                 let body_clone = (**body).clone();
                 let env_clone = env.clone();
                 let ctx_clone = ctx.clone();
-                
+
                 // Spawn a new thread for the goroutine
                 let handle = std::thread::spawn(move || {
                     let mut goroutine_env = env_clone;
-                    body_clone.execute(&mut goroutine_env, &ctx_clone)
+                    body_clone
+                        .execute(&mut goroutine_env, &ctx_clone)
                         .map(|_| Val::Nil) // Goroutines don't return values directly
                 });
-                
+
                 let goroutine_id = next_goroutine_id();
                 let _goroutine_handle = GoroutineHandle::new(handle, goroutine_id);
-                
+
                 // Optionally store the goroutine handle in the environment
                 // For now, we just create it and let it run
-                
+
                 Ok(ControlFlow::None)
             }
             Stmt::ChannelSend { channel, value } => {
                 let ch_val = channel.eval_with_env(ctx, Some(env))?;
                 let send_val = value.eval_with_env(ctx, Some(env))?;
-                
+
                 if let Val::Channel(ch) = ch_val {
                     ch.send(send_val)?;
                     Ok(ControlFlow::None)
                 } else {
-                    Err(anyhow!("Expected channel for send operation, got {}", ch_val.type_name()))
+                    Err(anyhow!(
+                        "Expected channel for send operation, got {}",
+                        ch_val.type_name()
+                    ))
                 }
             }
             Stmt::ChannelRecv { variable, channel } => {
                 let ch_val = channel.eval_with_env(ctx, Some(env))?;
-                
+
                 if let Val::Channel(ch) = ch_val {
                     let received_val = ch.recv()?;
-                    
+
                     // If a variable is specified, assign the received value
                     if let Some(var_name) = variable {
                         env.define(var_name.clone(), received_val);
                     }
-                    
+
                     Ok(ControlFlow::None)
                 } else {
-                    Err(anyhow!("Expected channel for receive operation, got {}", ch_val.type_name()))
+                    Err(anyhow!(
+                        "Expected channel for receive operation, got {}",
+                        ch_val.type_name()
+                    ))
                 }
             }
             Stmt::Select { cases } => {
                 // For now, implement a simple select that tries each case in order
                 // A full implementation would require more sophisticated channel selection
-                
+
                 for case in cases {
                     match case {
-                        SelectCase::Recv { variable, channel, body } => {
+                        SelectCase::Recv {
+                            variable,
+                            channel,
+                            body,
+                        } => {
                             let ch_val = channel.eval_with_env(ctx, Some(env))?;
                             if let Val::Channel(ch) = ch_val
-                                && let Ok(Some(received_val)) = ch.try_recv() {
-                                    if let Some(var_name) = variable {
-                                        env.define(var_name.clone(), received_val);
-                                    }
-                                    return body.execute(env, ctx);
+                                && let Ok(Some(received_val)) = ch.try_recv()
+                            {
+                                if let Some(var_name) = variable {
+                                    env.define(var_name.clone(), received_val);
                                 }
+                                return body.execute(env, ctx);
+                            }
                         }
-                        SelectCase::Send { channel, value, body } => {
+                        SelectCase::Send {
+                            channel,
+                            value,
+                            body,
+                        } => {
                             let ch_val = channel.eval_with_env(ctx, Some(env))?;
                             let send_val = value.eval_with_env(ctx, Some(env))?;
                             if let Val::Channel(ch) = ch_val
-                                && let Ok(true) = ch.try_send(send_val) {
-                                    return body.execute(env, ctx);
-                                }
+                                && let Ok(true) = ch.try_send(send_val)
+                            {
+                                return body.execute(env, ctx);
+                            }
                         }
                         SelectCase::Default { body } => {
                             return body.execute(env, ctx);
                         }
                     }
                 }
-                
+
                 // If no case was ready and no default, block (simplified implementation)
                 Ok(ControlFlow::None)
             }
@@ -558,14 +575,22 @@ impl Display for Stmt {
                 writeln!(f, "select {{")?;
                 for case in cases {
                     match case {
-                        SelectCase::Recv { variable, channel, body } => {
+                        SelectCase::Recv {
+                            variable,
+                            channel,
+                            body,
+                        } => {
                             if let Some(var) = variable {
                                 writeln!(f, "case {} := <-{}: {}", var, channel, body)?;
                             } else {
                                 writeln!(f, "case <-{}: {}", channel, body)?;
                             }
                         }
-                        SelectCase::Send { channel, value, body } => {
+                        SelectCase::Send {
+                            channel,
+                            value,
+                            body,
+                        } => {
                             writeln!(f, "case {} <- {}: {}", channel, value, body)?;
                         }
                         SelectCase::Default { body } => {

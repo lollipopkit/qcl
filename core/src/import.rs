@@ -115,9 +115,10 @@ impl ModuleResolver {
 
         // Check cache first
         if let Ok(cache) = self.file_modules.read()
-            && let Some(module) = cache.get(&resolved_path) {
-                return Ok(module.clone());
-            }
+            && let Some(module) = cache.get(&resolved_path)
+        {
+            return Ok(module.clone());
+        }
 
         // Load and parse the file
         let module = self.load_file_module(&resolved_path)?;
@@ -297,7 +298,7 @@ mod tests {
 
         // Test that nonexistent modules fail
         assert!(resolver.resolve_module("nonexistent").is_err());
-        
+
         // Note: stdlib modules are now registered externally
         // The resolver starts with an empty registry
     }

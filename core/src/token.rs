@@ -43,15 +43,15 @@ pub enum Token {
     Return,   // return
     Fn,       // fn (function definition)
     // Import keywords
-    Import,      // import
-    From,        // from
-    As,          // as
+    Import, // import
+    From,   // from
+    As,     // as
     // Concurrency keywords
-    Go,          // go
-    Chan,        // chan
-    Select,      // select
-    Case,        // case
-    Default,     // default
+    Go,      // go
+    Chan,    // chan
+    Select,  // select
+    Case,    // case
+    Default, // default
     // Channel operations
     Send,        // <- (for channel send)
     Recv,        // <- (for channel receive)
@@ -104,7 +104,9 @@ impl Tokenizer {
     }
 
     /// Tokenize and return tokens with precise spans aligned by index
-    pub fn tokenize_enhanced_with_spans(s: &str) -> std::result::Result<(Vec<Token>, Vec<crate::error::Span>), crate::error::ParseError> {
+    pub fn tokenize_enhanced_with_spans(
+        s: &str,
+    ) -> std::result::Result<(Vec<Token>, Vec<crate::error::Span>), crate::error::ParseError> {
         let mut t = Tokenizer::new_enhanced(s);
         match t.parse() {
             Ok(()) => Ok((t.tokens, t.token_spans)),
@@ -145,7 +147,7 @@ impl Tokenizer {
         let start_idx = self.idx;
         let start_line = self.line;
         let start_column = self.column;
-        
+
         for c in s.chars() {
             if self.idx >= self.len || self.chars[self.idx] != c {
                 // Reset position if match failed
@@ -176,10 +178,16 @@ impl Tokenizer {
         } else {
             format!("at end, near '{}'", chars)
         };
-        
+
         // Use the stored input for better context if needed
         let line_context = self.get_line_context();
-        format!("Syntax error:\n{} ({})\nLine {}: {}", msg.as_ref(), ctx, self.line, line_context)
+        format!(
+            "Syntax error:\n{} ({})\nLine {}: {}",
+            msg.as_ref(),
+            ctx,
+            self.line,
+            line_context
+        )
     }
 
     /// Get the current line from input for error context
@@ -225,7 +233,7 @@ impl Tokenizer {
         // Skip past /*
         self.advance_char();
         self.advance_char();
-        
+
         while !self.eof() {
             let c = self.chars[self.idx];
             if c == '*' && self.idx + 1 < self.len && self.chars[self.idx + 1] == '/' {
@@ -235,7 +243,7 @@ impl Tokenizer {
             }
             self.advance_char();
         }
-        
+
         Err(anyhow!(self.err("Block comment not closed")))
     }
 
@@ -554,14 +562,15 @@ impl Tokenizer {
             '.' => {
                 let next = self.chars.get(self.idx + 1);
                 if let Some(&c) = next
-                    && c.is_ascii_digit() {
-                        let start = self.current_position();
-                        self.advance_char();
-                        let end = self.current_position();
-                        self.push_with_span(Token::Dot, start, end);
-                        // To avoid confusion with Dot in float, only parse int here
-                        return self.parse_int();
-                    }
+                    && c.is_ascii_digit()
+                {
+                    let start = self.current_position();
+                    self.advance_char();
+                    let end = self.current_position();
+                    self.push_with_span(Token::Dot, start, end);
+                    // To avoid confusion with Dot in float, only parse int here
+                    return self.parse_int();
+                }
                 let start = self.current_position();
                 self.advance_char();
                 let end = self.current_position();
@@ -591,9 +600,10 @@ impl Tokenizer {
             '+' => {
                 let next = self.chars.get(self.idx + 1);
                 if let Some(&c) = next
-                    && c.is_ascii_digit() {
-                        return self.parse_num();
-                    }
+                    && c.is_ascii_digit()
+                {
+                    return self.parse_num();
+                }
                 let start = self.current_position();
                 self.advance_char();
                 let end = self.current_position();
@@ -603,9 +613,10 @@ impl Tokenizer {
             '-' => {
                 let next = self.chars.get(self.idx + 1);
                 if let Some(&c) = next
-                    && c.is_ascii_digit() {
-                        return self.parse_num();
-                    }
+                    && c.is_ascii_digit()
+                {
+                    return self.parse_num();
+                }
                 let start = self.current_position();
                 self.advance_char();
                 let end = self.current_position();
@@ -733,13 +744,40 @@ impl Tokenizer {
     }
 
     fn is_punctuation(&self, c: char) -> bool {
-        matches!(c, '(' | ')' | '{' | '}' | '[' | ']' | '.' | ':' | ',' | ';' | '&' | '|' | '+' | '-'
-            | '*' | '/' | '%' | '@' | '=' | '!' | '>' | '<')
+        matches!(
+            c,
+            '(' | ')'
+                | '{'
+                | '}'
+                | '['
+                | ']'
+                | '.'
+                | ':'
+                | ','
+                | ';'
+                | '&'
+                | '|'
+                | '+'
+                | '-'
+                | '*'
+                | '/'
+                | '%'
+                | '@'
+                | '='
+                | '!'
+                | '>'
+                | '<'
+        )
     }
 }
 
 impl Tokenizer {
-    fn push_with_span(&mut self, token: Token, start: crate::error::Position, end: crate::error::Position) {
+    fn push_with_span(
+        &mut self,
+        token: Token,
+        start: crate::error::Position,
+        end: crate::error::Position,
+    ) {
         self.tokens.push(token);
         self.token_spans.push(crate::error::Span::new(start, end));
     }

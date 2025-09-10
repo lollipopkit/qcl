@@ -57,7 +57,10 @@ impl<'a> StmtParser<'a> {
     }
 
     /// Parse program with enhanced error reporting
-    pub fn parse_program_with_enhanced_errors(&mut self, input: &str) -> std::result::Result<Program, crate::error::ParseError> {
+    pub fn parse_program_with_enhanced_errors(
+        &mut self,
+        input: &str,
+    ) -> std::result::Result<Program, crate::error::ParseError> {
         let mut statements = Vec::new();
 
         while !self.eof() {
@@ -74,17 +77,24 @@ impl<'a> StmtParser<'a> {
                     // Prefer precise token span if available; otherwise, fall back to offset estimation
                     if let Some(spans) = &self.token_spans {
                         if self.pos < spans.len() {
-                            return Err(crate::error::ParseError::with_span(err.to_string(), spans[self.pos].clone()));
+                            return Err(crate::error::ParseError::with_span(
+                                err.to_string(),
+                                spans[self.pos].clone(),
+                            ));
                         }
                     }
-                    let position = crate::error::offset_to_position(input,
+                    let position = crate::error::offset_to_position(
+                        input,
                         if self.pos < self.tokens.len() && self.pos > 0 {
                             self.pos * input.len() / self.tokens.len().max(1)
                         } else {
                             input.len()
-                        }
+                        },
                     );
-                    return Err(crate::error::ParseError::with_position(err.to_string(), position));
+                    return Err(crate::error::ParseError::with_position(
+                        err.to_string(),
+                        position,
+                    ));
                 }
             };
             statements.push(Box::new(stmt));
@@ -94,12 +104,19 @@ impl<'a> StmtParser<'a> {
             // If we have more tokens at current position, use its span; otherwise fallback to start
             if let Some(spans) = &self.token_spans {
                 if self.pos < spans.len() {
-                    return crate::error::ParseError::with_span(e.to_string(), spans[self.pos].clone());
+                    return crate::error::ParseError::with_span(
+                        e.to_string(),
+                        spans[self.pos].clone(),
+                    );
                 }
             }
             crate::error::ParseError::with_position(
                 e.to_string(),
-                crate::error::Position { line: 0, column: 0, offset: 0 }
+                crate::error::Position {
+                    line: 0,
+                    column: 0,
+                    offset: 0,
+                },
             )
         })
     }
@@ -164,11 +181,31 @@ impl<'a> StmtParser<'a> {
                     let mut seen_block: bool = false;
                     while !self.eof() {
                         match self.tokens[self.pos] {
-                            Token::LParen => { paren += 1; self.pos += 1; }
-                            Token::RParen => { if paren > 0 { paren -= 1; } self.pos += 1; }
-                            Token::LBracket => { bracket += 1; self.pos += 1; }
-                            Token::RBracket => { if bracket > 0 { bracket -= 1; } self.pos += 1; }
-                            Token::LBrace => { brace += 1; seen_block = true; self.pos += 1; }
+                            Token::LParen => {
+                                paren += 1;
+                                self.pos += 1;
+                            }
+                            Token::RParen => {
+                                if paren > 0 {
+                                    paren -= 1;
+                                }
+                                self.pos += 1;
+                            }
+                            Token::LBracket => {
+                                bracket += 1;
+                                self.pos += 1;
+                            }
+                            Token::RBracket => {
+                                if bracket > 0 {
+                                    bracket -= 1;
+                                }
+                                self.pos += 1;
+                            }
+                            Token::LBrace => {
+                                brace += 1;
+                                seen_block = true;
+                                self.pos += 1;
+                            }
                             Token::RBrace => {
                                 // If we have seen a block start and this '}' closes it (brace would go from 1->0),
                                 // break here to avoid skipping the following statement.
@@ -176,7 +213,9 @@ impl<'a> StmtParser<'a> {
                                     self.pos += 1; // consume '}'
                                     break;
                                 }
-                                if brace > 0 { brace -= 1; }
+                                if brace > 0 {
+                                    brace -= 1;
+                                }
                                 self.pos += 1;
                             }
                             Token::Semicolon => {
@@ -187,7 +226,9 @@ impl<'a> StmtParser<'a> {
                                     self.pos += 1;
                                 }
                             }
-                            _ => { self.pos += 1; }
+                            _ => {
+                                self.pos += 1;
+                            }
                         }
                     }
                 }
@@ -680,9 +721,11 @@ impl<'a> StmtParser<'a> {
             match &self.tokens[self.pos] {
                 Token::Case => {
                     self.pos += 1; // consume 'case'
-                    
+
                     // Check if this is a receive or send case
-                    if self.peek_ahead(1) == Some(&Token::Assign) && self.peek_ahead(2) == Some(&Token::Recv) {
+                    if self.peek_ahead(1) == Some(&Token::Assign)
+                        && self.peek_ahead(2) == Some(&Token::Recv)
+                    {
                         // case var := <-ch:
                         let var_name = self.expect_id()?;
                         self.expect_token(Token::Assign)?;
@@ -690,7 +733,7 @@ impl<'a> StmtParser<'a> {
                         let channel = Box::new(self.parse_expression()?);
                         self.expect_token(Token::Colon)?;
                         let body = Box::new(self.parse_statement()?);
-                        
+
                         cases.push(SelectCase::Recv {
                             variable: Some(var_name),
                             channel,
@@ -702,7 +745,7 @@ impl<'a> StmtParser<'a> {
                         let channel = Box::new(self.parse_expression()?);
                         self.expect_token(Token::Colon)?;
                         let body = Box::new(self.parse_statement()?);
-                        
+
                         cases.push(SelectCase::Recv {
                             variable: None,
                             channel,
@@ -715,7 +758,7 @@ impl<'a> StmtParser<'a> {
                         let value = Box::new(self.parse_expression()?);
                         self.expect_token(Token::Colon)?;
                         let body = Box::new(self.parse_statement()?);
-                        
+
                         cases.push(SelectCase::Send {
                             channel,
                             value,
@@ -727,7 +770,7 @@ impl<'a> StmtParser<'a> {
                     self.pos += 1; // consume 'default'
                     self.expect_token(Token::Colon)?;
                     let body = Box::new(self.parse_statement()?);
-                    
+
                     cases.push(SelectCase::Default { body });
                 }
                 _ => break,
@@ -743,7 +786,7 @@ impl<'a> StmtParser<'a> {
         self.expect_token(Token::Recv)?; // <-
         let channel = Box::new(self.parse_expression()?);
         self.expect_token(Token::Semicolon)?;
-        
+
         Ok(Stmt::ChannelRecv {
             variable: None,
             channel,

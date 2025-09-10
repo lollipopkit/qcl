@@ -20,7 +20,11 @@ return 1 + ;
         let (_stmts, errs) = parser.parse_program_recovering_with_enhanced_errors(code);
 
         // Expect multiple errors collected (at least 2 with current recovery strategy)
-        assert!(errs.len() >= 2, "expected multiple errors, got {}", errs.len());
+        assert!(
+            errs.len() >= 2,
+            "expected multiple errors, got {}",
+            errs.len()
+        );
         // Every error should have a span
         assert!(errs.iter().all(|e| e.span.is_some()));
     }

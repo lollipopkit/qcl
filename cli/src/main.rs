@@ -1,27 +1,33 @@
-use std::{collections::HashMap, sync::Arc, path::Path};
+use sanitize_filename::{Options, sanitize_with_options};
 use std::io::BufRead;
-use sanitize_filename::{sanitize_with_options, Options};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
-use qcl_core::{de, expr::Expr, stmt_parser::StmtParser, token::Tokenizer, val::Val, module::ModuleRegistry, import, stmt};
+use qcl_core::{
+    de, expr::Expr, import, module::ModuleRegistry, stmt, stmt_parser::StmtParser,
+    token::Tokenizer, val::Val,
+};
 
 fn is_safe_path(path: &str) -> bool {
     let path = Path::new(path);
-    
+
     // Check for empty path
     if path.as_os_str().is_empty() {
         return false;
     }
-    
+
     // Check for absolute paths (security measure)
     if path.is_absolute() {
         return false;
     }
-    
+
     // Check for parent directory traversal attempts
-    if path.components().any(|c| c == std::path::Component::ParentDir) {
+    if path
+        .components()
+        .any(|c| c == std::path::Component::ParentDir)
+    {
         return false;
     }
-    
+
     // Use sanitize-filename to validate path components
     let path_str = path.to_string_lossy();
     let options = Options {
@@ -29,19 +35,19 @@ fn is_safe_path(path: &str) -> bool {
         windows: true, // Enable Windows compatibility for cross-platform safety
         replacement: "",
     };
-    
+
     // Check if sanitization would change the path
     let sanitized = sanitize_with_options(&path_str, options);
     if sanitized != path_str {
         return false;
     }
-    
+
     // Additional check for suspicious characters
     let suspicious_chars = ['\0', '\n', '\r', '\t'];
     if path_str.chars().any(|c| suspicious_chars.contains(&c)) {
         return false;
     }
-    
+
     true
 }
 
@@ -49,7 +55,7 @@ fn read_file_content(path: &str) -> anyhow::Result<String> {
     if !is_safe_path(path) {
         return Err(anyhow::anyhow!("Unsafe file path: {}", path));
     }
-    
+
     std::fs::read_to_string(path)
         .map_err(|e| anyhow::anyhow!("Failed to read file '{}': {}", path, e))
 }
@@ -83,7 +89,7 @@ fn main() -> anyhow::Result<()> {
         .lock()
         .lines()
         .collect::<Result<Vec<_>, _>>();
-    
+
     let raw = match raw {
         Ok(lines) => lines.join("\n"),
         Err(_) => String::new(),
@@ -126,11 +132,11 @@ fn main() -> anyhow::Result<()> {
 
     let input_args = args[arg_idx..].to_vec();
     let input: String;
-    
+
     // Check if the first argument is a file path
     if input_args.len() == 1 {
         let potential_file = &input_args[0];
-        
+
         // Try to read as file first
         input = match read_file_content(potential_file) {
             Ok(content) => {
@@ -157,15 +163,15 @@ fn main() -> anyhow::Result<()> {
         let tokens = Tokenizer::tokenize(&input)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        
+
         // Create module registry and register stdlib modules
         let mut registry = ModuleRegistry::new();
         qcl_stdlib::register_stdlib_modules(&mut registry);
-        
+
         // Create environment with stdlib modules
         let resolver = Arc::new(import::ModuleResolver::with_registry(registry));
         let mut env = stmt::Environment::with_resolver(resolver);
-        
+
         let res = program.execute_with_env(&ctx, &mut env)?;
         println!("{}", res);
     } else {

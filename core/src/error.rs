@@ -9,11 +9,19 @@ pub struct Position {
 
 impl Position {
     pub fn new(line: u32, column: u32, offset: usize) -> Self {
-        Self { line, column, offset }
+        Self {
+            line,
+            column,
+            offset,
+        }
     }
 
     pub fn start() -> Self {
-        Self { line: 1, column: 1, offset: 0 }
+        Self {
+            line: 1,
+            column: 1,
+            offset: 0,
+        }
     }
 }
 
@@ -35,14 +43,21 @@ impl Span {
     }
 
     pub fn single(pos: Position) -> Self {
-        Self { start: pos.clone(), end: pos }
+        Self {
+            start: pos.clone(),
+            end: pos,
+        }
     }
 }
 
 impl fmt::Display for Span {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.start.line == self.end.line {
-            write!(f, "{}:{}-{}", self.start.line, self.start.column, self.end.column)
+            write!(
+                f,
+                "{}:{}-{}",
+                self.start.line, self.start.column, self.end.column
+            )
         } else {
             write!(f, "{}-{}", self.start, self.end)
         }
@@ -58,17 +73,23 @@ pub struct ParseError {
 
 impl ParseError {
     pub fn new(message: String) -> Self {
-        Self { message, span: None }
+        Self {
+            message,
+            span: None,
+        }
     }
 
     pub fn with_span(message: String, span: Span) -> Self {
-        Self { message, span: Some(span) }
+        Self {
+            message,
+            span: Some(span),
+        }
     }
 
     pub fn with_position(message: String, position: Position) -> Self {
-        Self { 
-            message, 
-            span: Some(Span::single(position))
+        Self {
+            message,
+            span: Some(Span::single(position)),
         }
     }
 }
@@ -89,7 +110,7 @@ impl std::error::Error for ParseError {}
 pub fn offset_to_position(text: &str, offset: usize) -> Position {
     let mut line = 1;
     let mut column = 1;
-    
+
     for (i, ch) in text.char_indices() {
         if i >= offset {
             break;
@@ -101,7 +122,7 @@ pub fn offset_to_position(text: &str, offset: usize) -> Position {
             column += 1;
         }
     }
-    
+
     Position::new(line, column, offset)
 }
 
@@ -112,7 +133,7 @@ mod tests {
     #[test]
     fn test_offset_to_position() {
         let text = "line1\nline2\nline3";
-        
+
         assert_eq!(offset_to_position(text, 0), Position::new(1, 1, 0));
         assert_eq!(offset_to_position(text, 5), Position::new(1, 6, 5)); // at '\n'
         assert_eq!(offset_to_position(text, 6), Position::new(2, 1, 6)); // start of line2
@@ -128,16 +149,10 @@ mod tests {
 
     #[test]
     fn test_span_display() {
-        let span1 = Span::new(
-            Position::new(1, 5, 4),
-            Position::new(1, 10, 9)
-        );
+        let span1 = Span::new(Position::new(1, 5, 4), Position::new(1, 10, 9));
         assert_eq!(span1.to_string(), "1:5-10");
 
-        let span2 = Span::new(
-            Position::new(1, 5, 4),
-            Position::new(3, 2, 20)
-        );
+        let span2 = Span::new(Position::new(1, 5, 4), Position::new(3, 2, 20));
         assert_eq!(span2.to_string(), "1:5-3:2");
     }
 

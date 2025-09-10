@@ -1,11 +1,11 @@
+use crate::val::Val;
+use anyhow::{Result, anyhow};
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex, mpsc},
     thread::{self, JoinHandle},
     time::Duration,
 };
-use anyhow::{Result, anyhow};
-use crate::val::Val;
 
 /// Channel implementation using Arc<Mutex<>> for thread safety
 #[derive(Debug)]
@@ -40,17 +40,17 @@ impl Channel {
         let (_tx, _rx) = mpsc::sync_channel::<Val>(capacity);
         // Convert sync_channel to regular channel for consistency
         let (tx_regular, rx_regular) = mpsc::channel();
-        
+
         // Spawn a bridge thread to handle the buffering
         let _tx_bridge = tx_regular.clone();
         thread::spawn(move || {
             let mut _buffer: VecDeque<Val> = VecDeque::with_capacity(capacity);
-            
+
             // This is a simplified bridge - in practice you'd want more sophisticated buffering
             // TODO: Implement proper buffering logic
             // For now, just return to avoid never loop
         });
-        
+
         Self {
             sender: Arc::new(Mutex::new(tx_regular)),
             receiver: Arc::new(Mutex::new(rx_regular)),
@@ -60,14 +60,20 @@ impl Channel {
 
     /// Send a value to the channel (blocking)
     pub fn send(&self, value: Val) -> Result<()> {
-        let sender = self.sender.lock().map_err(|_| anyhow!("Channel sender poisoned"))?;
+        let sender = self
+            .sender
+            .lock()
+            .map_err(|_| anyhow!("Channel sender poisoned"))?;
         sender.send(value).map_err(|_| anyhow!("Channel closed"))?;
         Ok(())
     }
 
     /// Try to send a value to the channel (non-blocking)
     pub fn try_send(&self, value: Val) -> Result<bool> {
-        let sender = self.sender.lock().map_err(|_| anyhow!("Channel sender poisoned"))?;
+        let sender = self
+            .sender
+            .lock()
+            .map_err(|_| anyhow!("Channel sender poisoned"))?;
         match sender.send(value) {
             Ok(()) => Ok(true),
             Err(_) => Ok(false), // Channel is full or closed
@@ -76,13 +82,19 @@ impl Channel {
 
     /// Receive a value from the channel (blocking)
     pub fn recv(&self) -> Result<Val> {
-        let receiver = self.receiver.lock().map_err(|_| anyhow!("Channel receiver poisoned"))?;
+        let receiver = self
+            .receiver
+            .lock()
+            .map_err(|_| anyhow!("Channel receiver poisoned"))?;
         receiver.recv().map_err(|_| anyhow!("Channel closed"))
     }
 
     /// Try to receive a value from the channel (non-blocking)
     pub fn try_recv(&self) -> Result<Option<Val>> {
-        let receiver = self.receiver.lock().map_err(|_| anyhow!("Channel receiver poisoned"))?;
+        let receiver = self
+            .receiver
+            .lock()
+            .map_err(|_| anyhow!("Channel receiver poisoned"))?;
         match receiver.try_recv() {
             Ok(val) => Ok(Some(val)),
             Err(mpsc::TryRecvError::Empty) => Ok(None),
@@ -110,8 +122,7 @@ impl Clone for Channel {
 impl PartialEq for Channel {
     fn eq(&self, other: &Self) -> bool {
         // Compare by pointer equality for simplicity
-        Arc::ptr_eq(&self.sender, &other.sender) && 
-        Arc::ptr_eq(&self.receiver, &other.receiver)
+        Arc::ptr_eq(&self.sender, &other.sender) && Arc::ptr_eq(&self.receiver, &other.receiver)
     }
 }
 
@@ -176,10 +187,7 @@ pub enum SelectCase {
         var_name: Option<String>,
     },
     /// Send to channel: case ch <- val
-    Send {
-        channel: Channel,
-        value: Val,
-    },
+    Send { channel: Channel, value: Val },
     /// Default case
     Default,
 }
@@ -198,10 +206,13 @@ pub enum SelectResult {
 }
 
 /// Execute a select statement with multiple channel operations
-pub fn select_channels(cases: &[SelectCase], _timeout: Option<Duration>) -> Result<(usize, SelectResult)> {
+pub fn select_channels(
+    cases: &[SelectCase],
+    _timeout: Option<Duration>,
+) -> Result<(usize, SelectResult)> {
     // This is a simplified select implementation
     // A full implementation would require more sophisticated channel selection logic
-    
+
     // For now, just try each case in order
     for (i, case) in cases.iter().enumerate() {
         match case {
@@ -220,7 +231,7 @@ pub fn select_channels(cases: &[SelectCase], _timeout: Option<Duration>) -> Resu
             }
         }
     }
-    
+
     // If no case was ready and there's no default, this would block
     // For simplicity, return none for now
     Ok((0, SelectResult::None))
