@@ -17,6 +17,7 @@ use qcl_core::{error::Span as CoreSpan, token::Token as CoreToken};
 #[cfg(test)]
 mod bench_test;
 
+
 #[derive(Debug, Default)]
 struct Document {
     content: Rope,
@@ -191,6 +192,8 @@ impl LanguageServer for QclLanguageServer {
                     completion_item: None,
                 }),
                 document_symbol_provider: Some(OneOf::Left(true)),
+                references_provider: Some(OneOf::Left(true)),
+                definition_provider: Some(OneOf::Left(true)),
                 diagnostic_provider: Some(DiagnosticServerCapabilities::Options(
                     DiagnosticOptions {
                         identifier: Some("qcl".to_string()),
@@ -369,6 +372,56 @@ impl LanguageServer for QclLanguageServer {
                 )));
             }
         }
+        Ok(None)
+    }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let uri = &params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        
+        // Get document content to find symbol at position
+        let content = {
+            let doc = match self.documents.get(uri) {
+                Some(doc) => doc,
+                None => return Ok(None),
+            };
+            doc.content.to_string()
+        };
+
+        // Find the symbol at the cursor position
+        if let Some(symbol_name) = self.find_symbol_at_position(&content, position).await {
+            // Find all references to this symbol in the document
+            let locations = self.find_all_references(&content, &symbol_name, uri).await;
+            
+            if !locations.is_empty() {
+                return Ok(Some(locations));
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn goto_definition(&self, params: GotoDefinitionParams) -> Result<Option<GotoDefinitionResponse>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+        
+        // Get document content to find symbol at position
+        let content = {
+            let doc = match self.documents.get(uri) {
+                Some(doc) => doc,
+                None => return Ok(None),
+            };
+            doc.content.to_string()
+        };
+
+        // Find the symbol at the cursor position
+        if let Some(symbol_name) = self.find_symbol_at_position(&content, position).await {
+            // Find the definition of this symbol in the document
+            if let Some(definition_location) = self.find_definition(&content, &symbol_name, uri).await {
+                return Ok(Some(GotoDefinitionResponse::Scalar(definition_location)));
+            }
+        }
+
         Ok(None)
     }
 
@@ -627,6 +680,191 @@ impl QclLanguageServer {
                 }
             }
         });
+    }
+
+    /// Find the symbol name at the given position in the content
+    async fn find_symbol_at_position(&self, content: &str, position: Position) -> Option<String> {
+        // Convert position to character offset
+        let lines: Vec<&str> = content.lines().collect();
+        if position.line as usize >= lines.len() {
+            return None;
+        }
+
+        let line = lines[position.line as usize];
+        let char_offset = position.character as usize;
+        
+        if char_offset >= line.len() {
+            return None;
+        }
+
+        // Try to tokenize and find the token at the position
+        if let Ok(mut analyzer) = self.analyzer.lock() {
+            if let Ok((tokens, spans)) = analyzer.tokenize_with_spans_cached(content) {
+                // Convert line/column position to absolute character offset
+                let mut absolute_offset = 0;
+                for (i, line_text) in lines.iter().enumerate() {
+                    if i == position.line as usize {
+                        absolute_offset += char_offset;
+                        break;
+                    }
+                    absolute_offset += line_text.len() + 1; // +1 for newline
+                }
+
+                // Find token at this offset
+                if let Some((idx, token)) = find_token_at_offset(&spans, &tokens, absolute_offset) {
+                    use qcl_core::token::Token;
+                    match token {
+                        Token::Id(name) => return Some(name),
+                        Token::At => {
+                            // Handle context access - extract full path
+                            if let Some(path) = extract_context_path(&tokens, idx) {
+                                return Some(path);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        // Fallback: extract identifier at cursor position using simple text analysis
+        let chars: Vec<char> = line.chars().collect();
+        if char_offset >= chars.len() {
+            return None;
+        }
+
+        // Find the start and end of the identifier at the cursor
+        let mut start = char_offset;
+        let mut end = char_offset;
+
+        // Move start backwards to find beginning of identifier
+        while start > 0 && (chars[start - 1].is_alphanumeric() || chars[start - 1] == '_') {
+            start -= 1;
+        }
+
+        // Move end forwards to find end of identifier  
+        while end < chars.len() && (chars[end].is_alphanumeric() || chars[end] == '_') {
+            end += 1;
+        }
+
+        if start < end {
+            let symbol: String = chars[start..end].iter().collect();
+            if !symbol.is_empty() {
+                return Some(symbol);
+            }
+        }
+
+        None
+    }
+
+    /// Find all references to the given symbol in the content
+    async fn find_all_references(&self, content: &str, symbol_name: &str, uri: &Url) -> Vec<Location> {
+        let mut locations = Vec::new();
+        let lines: Vec<&str> = content.lines().collect();
+
+        // Handle context access patterns (like @req.user.role)
+        if symbol_name.starts_with('@') {
+            for (line_idx, line) in lines.iter().enumerate() {
+                let mut start = 0;
+                while let Some(pos) = line[start..].find(symbol_name) {
+                    let absolute_pos = start + pos;
+                    let range = Range::new(
+                        Position::new(line_idx as u32, absolute_pos as u32),
+                        Position::new(line_idx as u32, (absolute_pos + symbol_name.len()) as u32),
+                    );
+                    locations.push(Location::new(uri.clone(), range));
+                    start = absolute_pos + 1;
+                }
+            }
+        } else {
+            // Handle regular identifiers (variables, functions, labels)
+            for (line_idx, line) in lines.iter().enumerate() {
+                let mut start = 0;
+                while let Some(pos) = line[start..].find(symbol_name) {
+                    let absolute_pos = start + pos;
+                    let chars: Vec<char> = line.chars().collect();
+                    
+                    // Check if this is a whole word match (not part of another identifier)
+                    let is_word_start = absolute_pos == 0 || 
+                        !chars.get(absolute_pos - 1).map(|c| c.is_alphanumeric() || *c == '_').unwrap_or(false);
+                    let is_word_end = absolute_pos + symbol_name.len() >= chars.len() ||
+                        !chars.get(absolute_pos + symbol_name.len()).map(|c| c.is_alphanumeric() || *c == '_').unwrap_or(false);
+                    
+                    if is_word_start && is_word_end {
+                        let range = Range::new(
+                            Position::new(line_idx as u32, absolute_pos as u32),
+                            Position::new(line_idx as u32, (absolute_pos + symbol_name.len()) as u32),
+                        );
+                        locations.push(Location::new(uri.clone(), range));
+                    }
+                    start = absolute_pos + 1;
+                }
+            }
+        }
+
+        locations
+    }
+
+    /// Find the definition location of a symbol in the content
+    async fn find_definition(&self, content: &str, symbol_name: &str, uri: &Url) -> Option<Location> {
+        let lines: Vec<&str> = content.lines().collect();
+
+        // For context access patterns (@req.user.role), there's no single definition - they're contextual
+        if symbol_name.starts_with('@') {
+            return None;
+        }
+
+        // Look for symbol definitions in the document
+        for (line_idx, line) in lines.iter().enumerate() {
+            let trimmed = line.trim();
+            
+            // Check for variable declaration: "let symbol_name ="
+            if trimmed.starts_with("let ") && trimmed.contains(&format!("{} =", symbol_name)) {
+                if let Some(pos) = line.find(&format!("let {}", symbol_name)) {
+                    let range = Range::new(
+                        Position::new(line_idx as u32, (pos + 4) as u32), // Skip "let "
+                        Position::new(line_idx as u32, (pos + 4 + symbol_name.len()) as u32),
+                    );
+                    return Some(Location::new(uri.clone(), range));
+                }
+            }
+            
+            // Check for function declaration: "fn symbol_name("
+            if trimmed.starts_with("fn ") && trimmed.contains(&format!("{}(", symbol_name)) {
+                if let Some(pos) = line.find(&format!("fn {}", symbol_name)) {
+                    let range = Range::new(
+                        Position::new(line_idx as u32, (pos + 3) as u32), // Skip "fn "
+                        Position::new(line_idx as u32, (pos + 3 + symbol_name.len()) as u32),
+                    );
+                    return Some(Location::new(uri.clone(), range));
+                }
+            }
+            
+            // Check for label declaration: "symbol_name:"
+            if trimmed.starts_with(&format!("{}:", symbol_name)) {
+                if let Some(pos) = line.find(&format!("{}:", symbol_name)) {
+                    let range = Range::new(
+                        Position::new(line_idx as u32, pos as u32),
+                        Position::new(line_idx as u32, (pos + symbol_name.len()) as u32),
+                    );
+                    return Some(Location::new(uri.clone(), range));
+                }
+            }
+            
+            // Check for import statements: "import symbol_name" or "from symbol_name"
+            if (trimmed.starts_with("import ") && trimmed.contains(&format!("import {}", symbol_name))) ||
+               (trimmed.starts_with("from ") && trimmed.contains(&format!("from {}", symbol_name))) {
+                if let Some(pos) = line.find(symbol_name) {
+                    let range = Range::new(
+                        Position::new(line_idx as u32, pos as u32),
+                        Position::new(line_idx as u32, (pos + symbol_name.len()) as u32),
+                    );
+                    return Some(Location::new(uri.clone(), range));
+                }
+            }
+        }
+
+        None
     }
 }
 

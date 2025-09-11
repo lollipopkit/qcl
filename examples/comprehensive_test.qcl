@@ -292,9 +292,7 @@ fn safeAccess() {
     return email_verified == true;
 }
 
-// =============================================================================
 // 14. 实际业务场景示例 / Real-world business scenario examples
-// =============================================================================
 
 // 文档访问权限检查 / Document access permission check
 fn documentAccessCheck() {
@@ -361,9 +359,7 @@ fn geoAccessCheck() {
     return true;
 }
 
-// =============================================================================
-// 15. 最终返回值 / Final return value
-// =============================================================================
+// 15. Final return value
 
 // 执行一个综合的访问检查 / Execute a comprehensive access check
 let final_access_decision = complexPermissionCheck() && 
