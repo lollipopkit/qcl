@@ -154,6 +154,9 @@ impl QclLanguageServer {
             ("make_chan", "Concurrency function - create channel"),
             ("send", "Channel function - send value"),
             ("recv", "Channel function - receive value"),
+            ("print", "Global function - print without newline"),
+            ("println", "Global function - print with newline"),
+            ("panic", "Global function - raise runtime error"),
         ];
 
         for (func, desc) in stdlib_functions {

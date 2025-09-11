@@ -1,28 +1,20 @@
-#[cfg(feature = "stdlib-datetime")]
 use anyhow::Result;
-#[cfg(feature = "stdlib-datetime")]
 use chrono::Datelike;
-#[cfg(feature = "stdlib-datetime")]
 use qcl_core::module::Module;
-#[cfg(feature = "stdlib-datetime")]
 use qcl_core::val::Val;
-#[cfg(feature = "stdlib-datetime")]
 use std::collections::HashMap;
 
-#[cfg(feature = "stdlib-datetime")]
 #[derive(Debug)]
 pub struct DateTimeModule {
     functions: HashMap<String, Val>,
 }
 
-#[cfg(feature = "stdlib-datetime")]
 impl Default for DateTimeModule {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(feature = "stdlib-datetime")]
 impl DateTimeModule {
     pub fn new() -> Self {
         let mut functions = HashMap::new();
@@ -236,7 +228,6 @@ impl DateTimeModule {
     }
 }
 
-#[cfg(feature = "stdlib-datetime")]
 impl Module for DateTimeModule {
     fn name(&self) -> &str {
         "datetime"
@@ -313,3 +304,4 @@ mod tests {
         Ok(())
     }
 }
+

@@ -89,6 +89,11 @@ impl ModuleResolver {
         }
     }
 
+    /// Get a globally registered builtin function (if any)
+    pub fn get_builtin(&self, name: &str) -> Option<&Val> {
+        self.stdlib_registry.get_builtin(name)
+    }
+
     /// Add a search path for file resolution
     pub fn add_search_path(&mut self, path: impl Into<PathBuf>) {
         self.search_paths.push(path.into());

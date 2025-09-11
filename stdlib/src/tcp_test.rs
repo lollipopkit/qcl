@@ -1,5 +1,4 @@
 #[cfg(test)]
-#[cfg(feature = "stdlib-tcp")]
 mod tests {
     use crate::tcp::TcpModule;
     use qcl_core::{import::ModuleResolver, module::Module, stmt::Environment, val::Val};

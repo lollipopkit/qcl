@@ -3,20 +3,17 @@ use qcl_core::module::Module;
 use qcl_core::val::Val;
 use std::collections::HashMap;
 
-#[cfg(feature = "stdlib-math")]
 #[derive(Debug)]
 pub struct MathModule {
     functions: HashMap<String, Val>,
 }
 
-#[cfg(feature = "stdlib-math")]
 impl Default for MathModule {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(feature = "stdlib-math")]
 impl MathModule {
     pub fn new() -> Self {
         let mut functions = HashMap::new();
@@ -249,7 +246,7 @@ impl MathModule {
         Ok(Val::Float(x.log2()))
     }
 
-    /// Exponential function (e^x)
+    /// Exponential function
     fn exp(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("exp() takes exactly 1 argument"));
@@ -393,7 +390,6 @@ impl MathModule {
     }
 }
 
-#[cfg(feature = "stdlib-math")]
 impl Module for MathModule {
     fn name(&self) -> &str {
         "math"
@@ -516,3 +512,4 @@ mod tests {
         Ok(())
     }
 }
+

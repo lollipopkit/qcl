@@ -1,17 +1,11 @@
-#[cfg(feature = "stdlib-os")]
 use anyhow::Result;
-#[cfg(feature = "stdlib-os")]
 use qcl_core::{module::Module, val::Val};
-#[cfg(feature = "stdlib-os")]
 use std::collections::HashMap;
-#[cfg(feature = "stdlib-os")]
 use std::sync::Arc;
 
-#[cfg(feature = "stdlib-os")]
 #[derive(Debug, Clone)]
 struct EnvObject;
 
-#[cfg(feature = "stdlib-os")]
 impl EnvObject {
     fn create() -> Val {
         let mut methods = HashMap::new();
@@ -98,10 +92,8 @@ impl EnvObject {
     }
 }
 
-#[cfg(feature = "stdlib-os")]
 struct DirObject;
 
-#[cfg(feature = "stdlib-os")]
 impl DirObject {
     fn create() -> Val {
         let mut methods = HashMap::new();
@@ -128,7 +120,7 @@ impl DirObject {
                     match entry {
                         Ok(dir_entry) => {
                             if let Some(name) = dir_entry.file_name().to_str() {
-                                entries.push(Val::Str(name.into()));
+                                entries.push(Val::Str(name.into()))
                             }
                         }
                         Err(_) => continue,
@@ -158,20 +150,17 @@ impl DirObject {
     }
 }
 
-#[cfg(feature = "stdlib-os")]
 #[derive(Debug)]
 pub struct OsModule {
     functions: HashMap<String, Val>,
 }
 
-#[cfg(feature = "stdlib-os")]
 impl Default for OsModule {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(feature = "stdlib-os")]
 impl OsModule {
     pub fn new() -> Self {
         let mut functions = HashMap::new();
@@ -251,7 +240,6 @@ impl OsModule {
     }
 }
 
-#[cfg(feature = "stdlib-os")]
 impl Module for OsModule {
     fn name(&self) -> &str {
         "os"
@@ -269,3 +257,4 @@ impl Module for OsModule {
         self.functions.clone()
     }
 }
+

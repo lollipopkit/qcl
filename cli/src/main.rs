@@ -1,61 +1,12 @@
-use sanitize_filename::{Options, sanitize_with_options};
 use std::io::BufRead;
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use qcl_core::{
     de, expr::Expr, import, module::ModuleRegistry, stmt, stmt_parser::StmtParser,
     token::Tokenizer, val::Val,
 };
 
-fn is_safe_path(path: &str) -> bool {
-    let path = Path::new(path);
-
-    // Check for empty path
-    if path.as_os_str().is_empty() {
-        return false;
-    }
-
-    // Check for absolute paths (security measure)
-    if path.is_absolute() {
-        return false;
-    }
-
-    // Check for parent directory traversal attempts
-    if path
-        .components()
-        .any(|c| c == std::path::Component::ParentDir)
-    {
-        return false;
-    }
-
-    // Use sanitize-filename to validate path components
-    let path_str = path.to_string_lossy();
-    let options = Options {
-        truncate: true,
-        windows: true, // Enable Windows compatibility for cross-platform safety
-        replacement: "",
-    };
-
-    // Check if sanitization would change the path
-    let sanitized = sanitize_with_options(&path_str, options);
-    if sanitized != path_str {
-        return false;
-    }
-
-    // Additional check for suspicious characters
-    let suspicious_chars = ['\0', '\n', '\r', '\t'];
-    if path_str.chars().any(|c| suspicious_chars.contains(&c)) {
-        return false;
-    }
-
-    true
-}
-
 fn read_file_content(path: &str) -> anyhow::Result<String> {
-    if !is_safe_path(path) {
-        return Err(anyhow::anyhow!("Unsafe file path: {}", path));
-    }
-
     std::fs::read_to_string(path)
         .map_err(|e| anyhow::anyhow!("Failed to read file '{}': {}", path, e))
 }
@@ -160,8 +111,9 @@ fn main() -> anyhow::Result<()> {
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
 
-        // Create module registry and register stdlib modules
+        // Create module registry and register stdlib modules and globals
         let mut registry = ModuleRegistry::new();
+        qcl_stdlib::register_stdlib_globals(&mut registry);
         qcl_stdlib::register_stdlib_modules(&mut registry);
 
         // Create environment with stdlib modules

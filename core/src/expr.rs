@@ -201,45 +201,14 @@ impl Expr {
                 if let Some(env) = env {
                     // Look up the function in the environment
                     if let Some(func_val) = env.get(func_name) {
-                        match func_val {
-                            Val::Closure {
-                                params,
-                                body,
-                                env: _,
-                            } => {
-                                // Evaluate arguments
-                                let mut arg_values = Vec::new();
-                                for arg in args {
-                                    arg_values.push(arg.eval_with_env(ctx, Some(env))?);
-                                }
-
-                                // Check parameter count
-                                if arg_values.len() != params.len() {
-                                    return Err(anyhow!(
-                                        "Function {} expects {} arguments, got {}",
-                                        func_name,
-                                        params.len(),
-                                        arg_values.len()
-                                    ));
-                                }
-
-                                // Create new scope for function execution
-                                let mut func_env = env.clone();
-                                func_env.push_scope();
-
-                                // Bind parameters to arguments
-                                for (param, arg_val) in params.iter().zip(arg_values.iter()) {
-                                    func_env.define(param.clone(), arg_val.clone());
-                                }
-
-                                // Execute function body
-                                match body.execute(&mut func_env, ctx)? {
-                                    crate::stmt::ControlFlow::Return(val) => Ok(val),
-                                    _ => Ok(Val::Nil), // Functions return nil by default
-                                }
-                            }
-                            _ => Err(anyhow!("{} is not a function", func_name)),
+                        // Evaluate arguments
+                        let mut arg_values = Vec::new();
+                        for arg in args {
+                            arg_values.push(arg.eval_with_env(ctx, Some(env))?);
                         }
+
+                        // Delegate call to Val::call to support both closures and native functions
+                        func_val.call(&arg_values, env, ctx)
                     } else {
                         Err(anyhow!("Undefined function: {}", func_name))
                     }

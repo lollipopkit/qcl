@@ -1,85 +1,26 @@
 {
-  "user": {
-    "id": "user123",
-    "name": "Alice Johnson",
-    "firstName": "Alice",
-    "lastName": "Johnson",
-    "age": 28,
-    "email": "alice@example.com",
-    "email_verified": true,
-    "role": "manager",
-    "department": "engineering",
-    "team": "backend",
-    "tier": "premium",
-    "skills": ["Rust", "JavaScript", "Python"],
-    "location": {
-      "country": "US",
-      "city": "San Francisco",
-      "timezone": "PST"
-    },
-    "permissions": {
-      "documents.read": true,
-      "documents.write": true,
-      "users.read": false,
-      "users.write": false
-    },
-    "profile": {
-      "address": {
-        "street": "123 Tech Street",
-        "city": "San Francisco",
-        "zipcode": "94107"
-      }
-    }
-  },
-  "request": {
+  "req": {
     "user": {
-      "id": "user123",
-      "role": "manager",
-      "department": "engineering",
-      "team": "backend",
-      "location": {
-        "country": "US"
-      }
+      "id": 1001,
+      "name": "Alice Johnson",
+      "role": "admin",
+      "level": 85,
+      "request_count": 247,
+      "verified": true
     },
-    "action": "read",
-    "endpoint": "/api/documents",
-    "timestamp": "2024-03-15T14:30:00Z"
-  },
-  "resource": {
-    "document": {
-      "id": "doc456",
-      "title": "Technical Specifications",
-      "author_id": "user789",
-      "department": "engineering",
-      "visibility": "private",
-      "department_permissions": ["read", "write"]
+    "location": {
+      "x": 3.0,
+      "y": 4.0
     },
-    "department": "engineering",
-    "owner": "user789",
-    "allowed_teams": ["backend", "frontend", "devops"],
-    "allowed_users": ["user123", "user456"],
-    "team_permissions": {
-      "backend": ["read", "write", "delete"],
-      "frontend": ["read"],
-      "devops": ["read", "write"]
-    },
-    "user_permissions": {
-      "user123": ["read", "write"],
-      "user456": ["read"]
-    },
-    "geo_restrictions": {
-      "allowed_countries": ["US", "CA", "GB"],
-      "blocked_countries": []
+    "data": {
+      "size": 50000,
+      "type": "analysis"
     }
   },
-  "context": {
-    "timestamp": "2024-03-15T14:30:00Z",
-    "time_window": "hour",
-    "user_requests": {
-      "user123": {
-        "/api/documents": 45,
-        "/api/users": 5
-      }
-    }
+  "record": {
+    "id": "rec_123",
+    "allowed_users": [1001, 1002, 1005],
+    "min_level": 50,
+    "created_at": "2024-01-15T10:30:00Z"
   }
 }

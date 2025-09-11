@@ -193,7 +193,12 @@ impl Environment {
             }
         }
         // Check imported symbols
-        self.import_ctx.get_symbol(name)
+        if let Some(v) = self.import_ctx.get_symbol(name) {
+            return Some(v);
+        }
+
+        // Check globally registered builtin functions in the resolver's registry
+        self.resolver.get_builtin(name)
     }
 
     /// Execute import statement

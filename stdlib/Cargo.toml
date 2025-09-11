@@ -9,14 +9,9 @@ license = "Apache-2.0"
 [dependencies]
 qcl-core = { path = "../core" }
 anyhow = { workspace = true }
-chrono = { workspace = true, optional = true }
+chrono = { workspace = true }
 
 [features]
 default = ["all"]
-all = ["stdlib-string", "stdlib-math", "stdlib-datetime", "stdlib-os", "stdlib-tcp"]
-# Standard library modules
-stdlib-math = []
-stdlib-string = []
-stdlib-datetime = ["chrono"]
-stdlib-os = []
-stdlib-tcp = []
+# Keep a single umbrella feature for compatibility; all code is always built.
+all = []

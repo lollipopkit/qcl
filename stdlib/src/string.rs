@@ -4,20 +4,17 @@ use qcl_core::val::Val;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-#[cfg(feature = "stdlib-string")]
 #[derive(Debug)]
 pub struct StringModule {
     functions: HashMap<String, Val>,
 }
 
-#[cfg(feature = "stdlib-string")]
 impl Default for StringModule {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(feature = "stdlib-string")]
 impl StringModule {
     pub fn new() -> Self {
         let mut functions = HashMap::new();
@@ -312,7 +309,6 @@ impl StringModule {
     }
 }
 
-#[cfg(feature = "stdlib-string")]
 impl Module for StringModule {
     fn name(&self) -> &str {
         "string"
@@ -385,3 +381,4 @@ mod tests {
         Ok(())
     }
 }
+
