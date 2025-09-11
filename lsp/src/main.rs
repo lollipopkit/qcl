@@ -905,9 +905,18 @@ fn try_cli_analyze() -> anyhow::Result<Option<String>> {
 
     // Look for `--analyze <file>` anywhere in the args
     if let Some(i) = args.iter().position(|a| a == "--analyze") {
-        let path = args.get(i + 1).cloned().ok_or_else(|| {
-            anyhow::anyhow!("Usage: qcl-lsp --analyze <relative-file-path>")
+        // Find the file path (next non-flag argument after --analyze)
+        let mut path_index = i + 1;
+        while path_index < args.len() && args[path_index].starts_with("--") {
+            path_index += 1;
+        }
+        
+        let path = args.get(path_index).cloned().ok_or_else(|| {
+            anyhow::anyhow!("Usage: qcl-lsp --analyze [--errors-only] <relative-file-path>\n  --analyze <file>     : Full analysis with JSON output\n  --errors-only        : Show only errors in simple format")
         })?;
+
+        // Check if --errors-only flag is present
+        let errors_only = args.iter().any(|a| a == "--errors-only");
 
         // Read file content with safety checks
         let content = read_file_content(&path)?;
@@ -915,31 +924,54 @@ fn try_cli_analyze() -> anyhow::Result<Option<String>> {
         // Run analysis using the same analyzer used by the LSP
         let mut analyzer = QclAnalyzer::new();
         let analysis = analyzer.analyze(&content);
-        let tokens = analyzer.generate_semantic_tokens(&content);
+        
+        if errors_only {
+            // Only output errors in a simplified format
+            let errors: Vec<String> = analysis.diagnostics
+                .iter()
+                .filter(|d| d.severity == Some(tower_lsp::lsp_types::DiagnosticSeverity::ERROR))
+                .map(|d| {
+                    format!("Line {}:{}: {}", 
+                        d.range.start.line + 1,
+                        d.range.start.character + 1,
+                        d.message
+                    )
+                })
+                .collect();
+            
+            if errors.is_empty() {
+                return Ok(Some("No errors found".to_string()));
+            } else {
+                return Ok(Some(errors.join("\n")));
+            }
+        } else {
+            // Full analysis output
+            let tokens = analyzer.generate_semantic_tokens(&content);
 
-        // Convert HashSet to Vec for deterministic JSON output
-        let mut context_refs: Vec<String> = analysis.context_references.iter().cloned().collect();
-        context_refs.sort();
+            // Convert HashSet to Vec for deterministic JSON output
+            let mut context_refs: Vec<String> = analysis.context_references.iter().cloned().collect();
+            context_refs.sort();
 
-        // Map tokens to simple arrays to avoid requiring serde on LSP types
-        let tokens_simple: Vec<[u32; 5]> = tokens
-            .iter()
-            .map(|t| [
-                t.delta_line,
-                t.delta_start,
-                t.length,
-                t.token_type,
-                t.token_modifiers_bitset,
-            ])
-            .collect();
+            // Map tokens to simple arrays to avoid requiring serde on LSP types
+            let tokens_simple: Vec<[u32; 5]> = tokens
+                .iter()
+                .map(|t| [
+                    t.delta_line,
+                    t.delta_start,
+                    t.length,
+                    t.token_type,
+                    t.token_modifiers_bitset,
+                ])
+                .collect();
 
-        let output = serde_json::json!({
-            "diagnostics": analysis.diagnostics,
-            "symbols": analysis.symbols,
-            "context_references": context_refs,
-            "semantic_tokens": tokens_simple
-        });
-        return Ok(Some(serde_json::to_string_pretty(&output)?));
+            let output = serde_json::json!({
+                "diagnostics": analysis.diagnostics,
+                "symbols": analysis.symbols,
+                "context_references": context_refs,
+                "semantic_tokens": tokens_simple
+            });
+            return Ok(Some(serde_json::to_string_pretty(&output)?));
+        }
     }
 
     Ok(None)
