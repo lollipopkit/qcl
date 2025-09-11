@@ -659,4 +659,36 @@ mod tests {
         ];
         assert_eq!(t.unwrap(), e);
     }
+
+    #[test]
+    fn test_identifier_with_in_prefix() {
+        let tokens = Tokenizer::tokenize("in_business_hours").expect("Invalid tokens");
+        
+        // Should be a single identifier token, not 'In' + '_business_hours'
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0], Token::Id("in_business_hours".to_string()));
+    }
+
+    #[test]
+    fn test_standalone_in_keyword() {
+        let tokens = Tokenizer::tokenize("x in list").expect("Invalid tokens");
+        
+        // Should be 'x', 'In', 'list'
+        assert_eq!(tokens.len(), 3);
+        assert_eq!(tokens[0], Token::Id("x".to_string()));
+        assert_eq!(tokens[1], Token::In);
+        assert_eq!(tokens[2], Token::Id("list".to_string()));
+    }
+
+    #[test]
+    fn test_multiple_identifiers_with_in_prefix() {
+        let tokens = Tokenizer::tokenize("let in_value = in_other").expect("Invalid tokens");
+        
+        // Should be 'let', 'in_value', '=', 'in_other'
+        assert_eq!(tokens.len(), 4);
+        assert_eq!(tokens[0], Token::Let);
+        assert_eq!(tokens[1], Token::Id("in_value".to_string()));
+        assert_eq!(tokens[2], Token::Assign);
+        assert_eq!(tokens[3], Token::Id("in_other".to_string()));
+    }
 }

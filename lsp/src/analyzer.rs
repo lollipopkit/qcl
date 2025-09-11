@@ -918,6 +918,7 @@ impl QclAnalyzer {
         const STRING_IDX: u32 = 4;
         const NUMBER_IDX: u32 = 5;
         const OPERATOR_IDX: u32 = 6;
+        const PROPERTY_IDX: u32 = 8;
 
         let lines: Vec<&str> = content.lines().collect();
 
@@ -1130,8 +1131,15 @@ impl QclAnalyzer {
                     continue;
                 }
 
-                // Handle context access (@) - skip marking '@' to reduce token density
+                // Handle context access (@) - mark as property token
                 if c == '@' {
+                    tokens.push(self.create_token(
+                        line_number,
+                        char_index,
+                        1,
+                        PROPERTY_IDX,
+                        0,
+                    ));
                     char_index += 1;
                     continue;
                 }
@@ -1266,6 +1274,7 @@ impl QclAnalyzer {
         const STRING_IDX: u32 = 4;
         const NUMBER_IDX: u32 = 5;
         const OPERATOR_IDX: u32 = 6;
+        const PROPERTY_IDX: u32 = 8;
 
         let lines: Vec<&str> = content_slice.lines().collect();
         if lines.is_empty() {
@@ -1478,8 +1487,15 @@ impl QclAnalyzer {
                     continue;
                 }
 
-                // Context access '@' - skip marking '@' to reduce token density
+                // Context access '@' - mark as property token
                 if c == '@' {
+                    tokens.push(self.create_token(
+                        line_number,
+                        char_index,
+                        1,
+                        PROPERTY_IDX,
+                        0,
+                    ));
                     char_index += 1;
                     continue;
                 }

@@ -337,6 +337,18 @@ impl Tokenizer {
         fn match_kw(t: &mut Tokenizer, kw: &str) -> Option<crate::error::Span> {
             let start = t.current_position();
             if t.expect(kw) {
+                // Check if the next character is part of an identifier
+                // If so, this is not a keyword but part of an identifier
+                if !t.eof() {
+                    let next_char = t.chars[t.idx];
+                    if next_char.is_alphanumeric() || next_char == '_' || next_char == '-' {
+                        // Reset position since this is not a standalone keyword
+                        t.idx = start.offset;
+                        t.line = start.line;
+                        t.column = start.column;
+                        return None;
+                    }
+                }
                 let end = t.current_position();
                 Some(crate::error::Span::new(start, end))
             } else {
