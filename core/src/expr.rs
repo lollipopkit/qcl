@@ -85,6 +85,8 @@ pub enum Expr {
     Call(String, Vec<Box<Expr>>),
     /// Function call on expression: expr(arg1, arg2, ...)
     CallExpr(Box<Expr>, Vec<Box<Expr>>),
+    /// Channel receive as unary operator: <-expr
+    Recv(Box<Expr>),
     Val(Val),
 }
 
@@ -233,6 +235,18 @@ impl Expr {
                     Err(anyhow!("Function call requires environment"))
                 }
             }
+            Expr::Recv(expr) => {
+                // Evaluate the inner expression to get a channel and receive a value
+                let ch_val = expr.eval_with_env(ctx, env)?;
+                if let Val::Channel(ch) = ch_val {
+                    ch.recv()
+                } else {
+                    Err(anyhow!(
+                        "Expected channel for receive operation, got {}",
+                        ch_val.type_name()
+                    ))
+                }
+            }
             // Remove the problematic string-to-variable resolution
             // String literals should always be treated as string literals
             Expr::Val(val) => Ok(val.clone()), // Clone necessary as eval returns owned Val
@@ -317,6 +331,8 @@ impl Expr {
             }
             // Only collect string values when they are actual context names, not field names
             Expr::Val(_) => {}
+            // Receive operator: collect from inner expression
+            Expr::Recv(expr) => expr.collect_ctx_names(names),
         }
     }
 
@@ -509,6 +525,11 @@ impl Expr {
                     .collect();
                 Expr::CallExpr(folded_expr, folded_args)
             }
+            Expr::Recv(expr_box) => {
+                // Can't fold channel receive at compile time; but fold the inner expression
+                let inner = (*expr_box).fold_constants();
+                Expr::Recv(Box::new(inner))
+            }
         }
     }
 }
@@ -580,6 +601,7 @@ impl Display for Expr {
                 let args_str: Vec<String> = args.iter().map(|a| a.to_string()).collect();
                 write!(f, "{}({})", expr, args_str.join(", "))
             }
+            Expr::Recv(expr) => write!(f, "<-{}", expr),
             Expr::Val(val) => write!(f, "{}", val),
         }
     }

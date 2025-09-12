@@ -255,13 +255,25 @@ impl<'a> StmtParser<'a> {
             Token::Select => self.parse_select_stmt(),
             Token::Recv => self.parse_channel_recv_stmt(),
             Token::Id(id) => {
-                // 检查是否为标签 (id:) 或赋值语句 (id = expr;)
-                if self.peek_ahead(1) == Some(&Token::Colon) {
+                // 优先解析短声明 `id := expr` 以避免与标签 `id:` 冲突
+                if self.peek_ahead(1) == Some(&Token::Colon)
+                    && self.peek_ahead(2) == Some(&Token::Assign)
+                {
+                    self.parse_define_stmt_with_id(id.clone())
+                } else if self.peek_ahead(1) == Some(&Token::Colon) {
+                    // 标签 (id:)
                     self.parse_label_stmt_with_id(id.clone())
                 } else if self.peek_ahead(1) == Some(&Token::Assign) {
+                    // 赋值 (id = expr;)，也支持 id = <- ch;
                     self.parse_assign_stmt_with_id(id.clone())
                 } else {
-                    // 表达式语句
+                    // 可能是 channel 发送语句: expr <- expr;
+                    if let Some(recv_idx) = self.find_top_level_recv_in_stmt() {
+                        if recv_idx > self.pos {
+                            return self.parse_channel_send_stmt(recv_idx);
+                        }
+                    }
+                    // 否则作为表达式语句处理
                     self.parse_expr_stmt()
                 }
             }
@@ -338,6 +350,18 @@ impl<'a> StmtParser<'a> {
         };
 
         self.expect_token(Token::Assign)?;
+
+        // Special-case: support `let name = <- ch;`
+        if !self.eof() && self.tokens[self.pos] == Token::Recv {
+            self.pos += 1; // consume '<-'
+            let channel = Box::new(self.parse_expression()?);
+            self.expect_token(Token::Semicolon)?;
+            return Ok(Stmt::ChannelRecv {
+                variable: Some(name),
+                channel,
+            });
+        }
+
         let value = self.parse_expression()?;
         self.expect_token(Token::Semicolon)?;
 
@@ -353,6 +377,17 @@ impl<'a> StmtParser<'a> {
         // 我们已经在parse_statement中匹配了Id，现在跳过它并继续解析赋值
         self.pos += 1; // 跳过已匹配的 Id token
         self.expect_token(Token::Assign)?;
+        // Special-case: support `name = <- ch;`
+        if !self.eof() && self.tokens[self.pos] == Token::Recv {
+            self.pos += 1; // consume '<-'
+            let channel = Box::new(self.parse_expression()?);
+            self.expect_token(Token::Semicolon)?;
+            return Ok(Stmt::ChannelRecv {
+                variable: Some(name),
+                channel,
+            });
+        }
+
         let value = self.parse_expression()?;
         self.expect_token(Token::Semicolon)?;
 
@@ -360,6 +395,29 @@ impl<'a> StmtParser<'a> {
             name,
             value: Box::new(value),
         })
+    }
+
+    /// 解析短声明语句: id := expr; 支持 `id := <- ch;`
+    fn parse_define_stmt_with_id(&mut self, name: String) -> Result<Stmt> {
+        // consume Id (already peeked), ':' and '='
+        self.pos += 1; // Id
+        self.expect_token(Token::Colon)?;
+        self.expect_token(Token::Assign)?;
+
+        // Special-case: `id := <- ch;`
+        if !self.eof() && self.tokens[self.pos] == Token::Recv {
+            self.pos += 1; // consume '<-'
+            let channel = Box::new(self.parse_expression()?);
+            self.expect_token(Token::Semicolon)?;
+            return Ok(Stmt::ChannelRecv {
+                variable: Some(name),
+                channel,
+            });
+        }
+
+        let value = self.parse_expression()?;
+        self.expect_token(Token::Semicolon)?;
+        Ok(Stmt::Define { name, value: Box::new(value) })
     }
 
     /// 解析标签语句（已匹配标识符）
@@ -719,45 +777,97 @@ impl<'a> StmtParser<'a> {
                     self.pos += 1; // consume 'case'
 
                     // Check if this is a receive or send case
-                    if self.peek_ahead(1) == Some(&Token::Assign)
+                    // Support both `var = <- ch` and `var := <- ch` patterns
+                    if matches!(self.peek_ahead(0), Some(Token::Id(_)))
+                        && self.peek_ahead(1) == Some(&Token::Assign)
                         && self.peek_ahead(2) == Some(&Token::Recv)
                     {
-                        // case var := <-ch:
+                        // case var = <- ch:
                         let var_name = self.expect_id()?;
                         self.expect_token(Token::Assign)?;
                         self.expect_token(Token::Recv)?;
-                        let channel = Box::new(self.parse_expression()?);
+                        // Parse channel expr until ':'
+                        let chan_end = self
+                            .find_token_until_top_level(Token::Colon)
+                            .ok_or_else(|| anyhow!(self.err("Expected ':' after channel receive in select case")))?;
+                        let left_tokens = &self.tokens[self.pos..chan_end];
+                        let mut expr_parser = ExprParser::new(left_tokens);
+                        let channel_expr = expr_parser.parse()?;
+                        self.pos = chan_end;
                         self.expect_token(Token::Colon)?;
                         let body = Box::new(self.parse_statement()?);
 
                         cases.push(SelectCase::Recv {
                             variable: Some(var_name),
-                            channel,
+                            channel: Box::new(channel_expr),
+                            body,
+                        });
+                    } else if matches!(self.peek_ahead(0), Some(Token::Id(_)))
+                        && self.peek_ahead(1) == Some(&Token::Colon)
+                        && self.peek_ahead(2) == Some(&Token::Assign)
+                        && self.peek_ahead(3) == Some(&Token::Recv)
+                    {
+                        // case var := <- ch:
+                        let var_name = self.expect_id()?;
+                        self.expect_token(Token::Colon)?;
+                        self.expect_token(Token::Assign)?;
+                        self.expect_token(Token::Recv)?;
+                        // Parse channel expr until ':'
+                        let chan_end = self
+                            .find_token_until_top_level(Token::Colon)
+                            .ok_or_else(|| anyhow!(self.err("Expected ':' after channel receive in select case")))?;
+                        let left_tokens = &self.tokens[self.pos..chan_end];
+                        let mut expr_parser = ExprParser::new(left_tokens);
+                        let channel_expr = expr_parser.parse()?;
+                        self.pos = chan_end;
+                        self.expect_token(Token::Colon)?;
+                        let body = Box::new(self.parse_statement()?);
+
+                        cases.push(SelectCase::Recv {
+                            variable: Some(var_name),
+                            channel: Box::new(channel_expr),
                             body,
                         });
                     } else if self.peek_ahead(0) == Some(&Token::Recv) {
                         // case <-ch:
                         self.expect_token(Token::Recv)?;
-                        let channel = Box::new(self.parse_expression()?);
+                        let chan_end = self.find_token_until_top_level(Token::Colon)
+                            .ok_or_else(|| anyhow!(self.err("Expected ':' after channel receive in select case")))?;
+                        let left_tokens = &self.tokens[self.pos..chan_end];
+                        let mut expr_parser = ExprParser::new(left_tokens);
+                        let channel_expr = expr_parser.parse()?;
+                        self.pos = chan_end;
                         self.expect_token(Token::Colon)?;
                         let body = Box::new(self.parse_statement()?);
 
                         cases.push(SelectCase::Recv {
                             variable: None,
-                            channel,
+                            channel: Box::new(channel_expr),
                             body,
                         });
                     } else {
                         // case ch <- value:
-                        let channel = Box::new(self.parse_expression()?);
-                        self.expect_token(Token::Recv)?; // We use Recv token for <- in both directions
-                        let value = Box::new(self.parse_expression()?);
+                        // Parse channel expr until '<-'
+                        let recv_pos = self.find_top_level_recv_in_stmt()
+                            .ok_or_else(|| anyhow!(self.err("Expected '<-' in select send case")))?;
+                        let chan_tokens = &self.tokens[self.pos..recv_pos];
+                        let mut expr_parser = ExprParser::new(chan_tokens);
+                        let channel_expr = expr_parser.parse()?;
+                        self.pos = recv_pos + 1; // skip '<-'
+
+                        // Parse value expr until ':'
+                        let val_end = self.find_token_until_top_level(Token::Colon)
+                            .ok_or_else(|| anyhow!(self.err("Expected ':' after send value in select case")))?;
+                        let val_tokens = &self.tokens[self.pos..val_end];
+                        let mut val_parser = ExprParser::new(val_tokens);
+                        let value_expr = val_parser.parse()?;
+                        self.pos = val_end;
                         self.expect_token(Token::Colon)?;
                         let body = Box::new(self.parse_statement()?);
 
                         cases.push(SelectCase::Send {
-                            channel,
-                            value,
+                            channel: Box::new(channel_expr),
+                            value: Box::new(value_expr),
                             body,
                         });
                     }
@@ -787,5 +897,79 @@ impl<'a> StmtParser<'a> {
             variable: None,
             channel,
         })
+    }
+
+    /// Find the position of a target token (by discriminant) at top-level in the current statement.
+    fn find_token_until_top_level(&self, target: Token) -> Option<usize> {
+        let mut i = self.pos;
+        let mut paren = 0i32;
+        let mut bracket = 0i32;
+        let mut brace = 0i32;
+        while i < self.len {
+            match &self.tokens[i] {
+                Token::LParen => paren += 1,
+                Token::RParen => if paren > 0 { paren -= 1; },
+                Token::LBracket => bracket += 1,
+                Token::RBracket => if bracket > 0 { bracket -= 1; },
+                Token::LBrace => brace += 1,
+                Token::RBrace => if brace > 0 { brace -= 1; },
+                t if std::mem::discriminant(t) == std::mem::discriminant(&target)
+                    && paren == 0 && bracket == 0 && brace == 0 =>
+                {
+                    return Some(i);
+                }
+                Token::Semicolon if paren == 0 && bracket == 0 && brace == 0 => break,
+                _ => {}
+            }
+            i += 1;
+        }
+        None
+    }
+
+    /// 解析 channel send 语句: expr <- expr;
+    fn parse_channel_send_stmt(&mut self, recv_idx: usize) -> Result<Stmt> {
+        // 左侧 channel 表达式位于 [self.pos, recv_idx)
+        let left_tokens = &self.tokens[self.pos..recv_idx];
+        if left_tokens.is_empty() {
+            return Err(anyhow!(self.err("Expected channel expression before '<-'")));
+        }
+        let mut expr_parser = ExprParser::new(left_tokens);
+        let channel_expr = expr_parser.parse()?;
+
+        // 移动主解析器位置到 '<-' 之后
+        self.pos = recv_idx + 1;
+
+        // 解析右侧发送值表达式，直到分号
+        let value_expr = self.parse_expression()?;
+        self.expect_token(Token::Semicolon)?;
+
+        Ok(Stmt::ChannelSend {
+            channel: Box::new(channel_expr),
+            value: Box::new(value_expr),
+        })
+    }
+
+    /// 在当前语句（直到下一个分号或块结束）中寻找顶层 '<-'（Recv token）的位置。
+    /// 忽略括号/方括号/花括号内的 token。
+    fn find_top_level_recv_in_stmt(&self) -> Option<usize> {
+        let mut i = self.pos;
+        let mut paren = 0i32;
+        let mut bracket = 0i32;
+        let mut brace = 0i32;
+        while i < self.len {
+            match &self.tokens[i] {
+                Token::LParen => paren += 1,
+                Token::RParen => if paren > 0 { paren -= 1; },
+                Token::LBracket => bracket += 1,
+                Token::RBracket => if bracket > 0 { bracket -= 1; },
+                Token::LBrace => brace += 1,
+                Token::RBrace => if brace > 0 { brace -= 1; },
+                Token::Semicolon if paren == 0 && bracket == 0 && brace == 0 => break,
+                Token::Recv if paren == 0 && bracket == 0 && brace == 0 => return Some(i),
+                _ => {}
+            }
+            i += 1;
+        }
+        None
     }
 }

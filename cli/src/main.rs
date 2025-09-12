@@ -1,4 +1,4 @@
-use std::io::BufRead;
+use std::io::{BufRead, IsTerminal};
 use std::{collections::HashMap, sync::Arc};
 
 use qcl_core::{
@@ -33,14 +33,20 @@ fn main() -> anyhow::Result<()> {
         std::process::exit(1);
     }
 
-    let raw = std::io::stdin()
-        .lock()
-        .lines()
-        .collect::<Result<Vec<_>, _>>();
+    let raw = if std::io::stdin().is_terminal() {
+        // If stdin is a terminal (interactive mode), don't wait for input
+        String::new()
+    } else {
+        // If stdin is piped/redirected, read from it
+        let raw = std::io::stdin()
+            .lock()
+            .lines()
+            .collect::<Result<Vec<_>, _>>();
 
-    let raw = match raw {
-        Ok(lines) => lines.join("\n"),
-        Err(_) => String::new(),
+        match raw {
+            Ok(lines) => lines.join("\n"),
+            Err(_) => String::new(),
+        }
     };
 
     let mut arg_idx = 1;

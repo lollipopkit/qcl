@@ -1,0 +1,8 @@
+// 测试内置函数
+
+// 先测试基本语法
+let x = 42;
+let y = "hello";
+
+// 测试简单的 channel 发送语法（不使用 make_chan）
+x <- y;

@@ -48,6 +48,8 @@ pub enum Stmt {
     },
     /// name = value; (赋值语句)
     Assign { name: String, value: Box<Expr> },
+    /// name = value; (变量定义，类似 Go 的短声明)
+    Define { name: String, value: Box<Expr> },
     /// goto label;
     Goto { label: String },
     /// label:
@@ -279,6 +281,11 @@ impl Stmt {
                 env.assign(name, val)?;
                 Ok(ControlFlow::None)
             }
+            Stmt::Define { name, value } => {
+                let val = value.eval_with_env(ctx, Some(env))?;
+                env.define(name.clone(), val);
+                Ok(ControlFlow::None)
+            }
             Stmt::Goto { label } => Ok(ControlFlow::Goto(label.clone())),
             Stmt::Label { .. } => {
                 // 标签本身不执行任何操作
@@ -381,46 +388,101 @@ impl Stmt {
                 }
             }
             Stmt::Select { cases } => {
-                // For now, implement a simple select that tries each case in order
-                // A full implementation would require more sophisticated channel selection
+                // Evaluate channel expressions once; then repeatedly try until one is ready.
+                // Choose fairly by rotating start index across attempts.
+                #[derive(Clone)]
+                enum CaseExec<'a> {
+                    Recv { var: Option<&'a String>, ch: crate::concurrency::Channel, body: &'a Stmt },
+                    Send { ch: crate::concurrency::Channel, value_expr: &'a crate::expr::Expr, body: &'a Stmt },
+                    Default { body: &'a Stmt },
+                }
 
+                let mut exec_cases: Vec<CaseExec> = Vec::with_capacity(cases.len());
                 for case in cases {
                     match case {
-                        SelectCase::Recv {
-                            variable,
-                            channel,
-                            body,
-                        } => {
+                        SelectCase::Recv { variable, channel, body } => {
                             let ch_val = channel.eval_with_env(ctx, Some(env))?;
-                            if let Val::Channel(ch) = ch_val
-                                && let Ok(Some(received_val)) = ch.try_recv()
-                            {
-                                if let Some(var_name) = variable {
-                                    env.define(var_name.clone(), received_val);
-                                }
-                                return body.execute(env, ctx);
+                            if let Val::Channel(ch) = ch_val {
+                                exec_cases.push(CaseExec::Recv { var: variable.as_ref(), ch, body });
+                            } else {
+                                return Err(anyhow!(
+                                    "Expected channel in select recv case, got {}",
+                                    ch_val.type_name()
+                                ));
                             }
                         }
-                        SelectCase::Send {
-                            channel,
-                            value,
-                            body,
-                        } => {
+                        SelectCase::Send { channel, value, body } => {
                             let ch_val = channel.eval_with_env(ctx, Some(env))?;
-                            let send_val = value.eval_with_env(ctx, Some(env))?;
-                            if let Val::Channel(ch) = ch_val
-                                && let Ok(true) = ch.try_send(send_val)
-                            {
-                                return body.execute(env, ctx);
+                            if let Val::Channel(ch) = ch_val {
+                                exec_cases.push(CaseExec::Send { ch, value_expr: value, body });
+                            } else {
+                                return Err(anyhow!(
+                                    "Expected channel in select send case, got {}",
+                                    ch_val.type_name()
+                                ));
                             }
                         }
                         SelectCase::Default { body } => {
-                            return body.execute(env, ctx);
+                            exec_cases.push(CaseExec::Default { body });
                         }
                     }
                 }
 
-                // If no case was ready and no default, block (simplified implementation)
+                let has_default = exec_cases.iter().any(|c| matches!(c, CaseExec::Default { .. }));
+
+                // Fair rotation seed
+                static SELECT_TICK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                let mut start = (SELECT_TICK.fetch_add(1, std::sync::atomic::Ordering::Relaxed) as usize) % exec_cases.len().max(1);
+
+                loop {
+                    // First pass: check ready cases
+                    let performed = false;
+
+                    // Try in rotated order to approximate fairness
+                    for offset in 0..exec_cases.len() {
+                        let idx = (start + offset) % exec_cases.len();
+                        match &exec_cases[idx] {
+                            CaseExec::Recv { var, ch, body } => {
+                                if let Ok(Some(val)) = ch.try_recv() {
+                                    if let Some(name) = var {
+                                        env.define((**name).clone(), val);
+                                    }
+                                    // Execute selected body
+                                    return body.execute(env, ctx);
+                                }
+                            }
+                            CaseExec::Send { ch, value_expr, body } => {
+                                // Evaluate value lazily right before sending
+                                let send_val = value_expr.eval_with_env(ctx, Some(env))?;
+                                if let Ok(true) = ch.try_send(send_val) {
+                                    return body.execute(env, ctx);
+                                }
+                            }
+                            CaseExec::Default { body: _ } => {
+                                // Defer default until after probing all other cases
+                                if !has_default {
+                                    // Should not happen; handled below
+                                }
+                            }
+                        }
+                    }
+
+                    // If nothing ready, run default if present
+                    if let Some(CaseExec::Default { body }) = exec_cases.iter().find(|c| matches!(c, CaseExec::Default { .. })) {
+                        return body.execute(env, ctx);
+                    }
+
+                    // Block until something becomes ready: sleep briefly then retry
+                    // This avoids busy-spinning while still providing blocking semantics.
+                    std::thread::sleep(std::time::Duration::from_micros(50));
+                    // Rotate start to avoid starvation
+                    start = (start + 1) % exec_cases.len().max(1);
+
+                    if performed {
+                        break;
+                    }
+                }
+
                 Ok(ControlFlow::None)
             }
             Stmt::Empty => Ok(ControlFlow::None),
@@ -529,6 +591,9 @@ impl Display for Stmt {
                 }
             }
             Stmt::Assign { name, value } => {
+                write!(f, "{} = {};", name, value)
+            }
+            Stmt::Define { name, value } => {
                 write!(f, "{} = {};", name, value)
             }
             Stmt::Goto { label } => {

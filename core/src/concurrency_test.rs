@@ -69,6 +69,25 @@ mod tests {
             _ => panic!("Expected ChannelRecv statement"),
         }
 
+        // Test channel send parsing
+        let tokens = Tokenizer::tokenize("ch <- 42;")?;
+        let mut parser = StmtParser::new(&tokens);
+        let stmt = parser.parse_statement()?;
+
+        match stmt {
+            Stmt::ChannelSend { channel: _, value: _ } => {}
+            _ => panic!("Expected ChannelSend statement"),
+        }
+
+        // Test select parsing with :=
+        let tokens = Tokenizer::tokenize("select { case v := <- ch: {} }")?;
+        let mut parser = StmtParser::new(&tokens);
+        let stmt = parser.parse_statement()?;
+        match stmt {
+            Stmt::Select { .. } => {}
+            _ => panic!("Expected Select statement with := recv case"),
+        }
+
         Ok(())
     }
 
@@ -99,6 +118,181 @@ mod tests {
         // For unbuffered channels, try_send typically fails unless there's a concurrent receiver
         // So we just test that the operation doesn't panic
         let _ = ch.try_send(test_val.clone());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_channel_send_stmt_exec() -> Result<()> {
+        // Prepare channel in env
+        let ch = Channel::with_capacity(1);
+
+        // Parse send statement
+        let tokens = Tokenizer::tokenize("ch <- 7;")?;
+        let mut parser = StmtParser::new(&tokens);
+        let program = parser.parse_program()?;
+
+        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let mut env = crate::stmt::Environment::new();
+        env.define("ch".to_string(), Val::Channel(ch.clone()));
+
+        let _ = program.execute_with_env(&ctx, &mut env)?;
+
+        let received = ch.try_recv()?;
+        match received {
+            Some(Val::Int(i)) => assert_eq!(i, 7),
+            other => panic!("Unexpected recv value: {:?}", other),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_let_channel_recv_stmt_exec() -> Result<()> {
+        // Prepare channel with a value
+        let ch = Channel::with_capacity(1);
+        ch.send(Val::Int(21))?;
+
+        // Parse receive with let-binding
+        let tokens = Tokenizer::tokenize("let v = <- ch;")?;
+        let mut parser = StmtParser::new(&tokens);
+        let program = parser.parse_program()?;
+
+        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let mut env = crate::stmt::Environment::new();
+        env.define("ch".to_string(), Val::Channel(ch.clone()));
+
+        let _ = program.execute_with_env(&ctx, &mut env)?;
+
+        // v should be defined to 21
+        match env.get("v").cloned() {
+            Some(Val::Int(n)) => assert_eq!(n, 21),
+            other => panic!("Expected v == 21, got {:?}", other),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_assign_channel_recv_stmt_exec() -> Result<()> {
+        // Prepare channel with a value
+        let ch = Channel::with_capacity(1);
+        ch.send(Val::Int(33))?;
+
+        // Parse receive with assignment
+        let tokens = Tokenizer::tokenize("v = <- ch;")?;
+        let mut parser = StmtParser::new(&tokens);
+        let program = parser.parse_program()?;
+
+        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let mut env = crate::stmt::Environment::new();
+        env.define("ch".to_string(), Val::Channel(ch.clone()));
+
+        let _ = program.execute_with_env(&ctx, &mut env)?;
+
+        // v should be defined to 33
+        match env.get("v").cloned() {
+            Some(Val::Int(n)) => assert_eq!(n, 33),
+            other => panic!("Expected v == 33, got {:?}", other),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_define_short_assign_channel_recv_stmt_exec() -> Result<()> {
+        // Prepare channel with a value
+        let ch = Channel::with_capacity(1);
+        ch.send(Val::Int(44))?;
+
+        // Parse receive with short declaration
+        let tokens = Tokenizer::tokenize("v := <- ch;")?;
+        let mut parser = StmtParser::new(&tokens);
+        let program = parser.parse_program()?;
+
+        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let mut env = crate::stmt::Environment::new();
+        env.define("ch".to_string(), Val::Channel(ch.clone()));
+
+        let _ = program.execute_with_env(&ctx, &mut env)?;
+
+        // v should be defined to 44
+        match env.get("v").cloned() {
+            Some(Val::Int(n)) => assert_eq!(n, 44),
+            other => panic!("Expected v == 44, got {:?}", other),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_define_short_assign_regular_expr_exec() -> Result<()> {
+        let tokens = Tokenizer::tokenize("x := 1; y := x + 2;")?;
+        let mut parser = StmtParser::new(&tokens);
+        let program = parser.parse_program()?;
+
+        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let mut env = crate::stmt::Environment::new();
+
+        let _ = program.execute_with_env(&ctx, &mut env)?;
+
+        match env.get("y").cloned() {
+            Some(Val::Int(n)) => assert_eq!(n, 3),
+            other => panic!("Expected y == 3, got {:?}", other),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_unary_recv_in_expression() -> Result<()> {
+        // Prepare channel with a value 2
+        let ch = Channel::with_capacity(1);
+        ch.send(Val::Int(2))?;
+
+        // Use receive as part of an expression
+        let tokens = Tokenizer::tokenize("let v = 1 + (<- ch);")?;
+        let mut parser = StmtParser::new(&tokens);
+        let program = parser.parse_program()?;
+
+        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let mut env = crate::stmt::Environment::new();
+        env.define("ch".to_string(), Val::Channel(ch.clone()));
+
+        let _ = program.execute_with_env(&ctx, &mut env)?;
+
+        match env.get("v").cloned() {
+            Some(Val::Int(n)) => assert_eq!(n, 3),
+            other => panic!("Expected v == 3, got {:?}", other),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_select_blocks_until_ready() -> Result<()> {
+        let ch = Channel::new(); // unbuffered: send blocks until recv
+
+        // Spawn a sender after a small delay
+        let ch_sender = ch.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            let _ = ch_sender.send(Val::Int(99));
+        });
+
+        // select that receives from ch and stores into variable v
+        let program_text = "select { case v = <- ch: {} }";
+        let tokens = Tokenizer::tokenize(program_text)?;
+        let mut parser = StmtParser::new(&tokens);
+        let program = parser.parse_program()?;
+
+        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let mut env = crate::stmt::Environment::new();
+        env.define("ch".to_string(), Val::Channel(ch.clone()));
+
+        let _ = program.execute_with_env(&ctx, &mut env)?;
+
+        // v should be defined
+        let v = env.get("v").cloned();
+        match v {
+            Some(Val::Int(n)) => assert_eq!(n, 99),
+            other => panic!("Expected v == 99, got {:?}", other),
+        }
 
         Ok(())
     }

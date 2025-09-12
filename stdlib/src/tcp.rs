@@ -41,6 +41,9 @@ impl TcpModule {
     pub fn new() -> Self {
         let mut functions = HashMap::new();
 
+        // Channel creation functions
+        functions.insert("make_chan".to_string(), Val::RustFunction(crate::concurrency::make_chan));
+        
         // Connection management with channels
         functions.insert("connect".to_string(), Val::RustFunction(Self::connect));
         functions.insert(

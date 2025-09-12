@@ -739,8 +739,9 @@ impl Tokenizer {
                 '0'..='9' => {
                     self.parse_num()?;
                 }
-                // true false nil in if else while let break continue return goto fn
-                't' | 'f' | 'n' | 'i' | 'e' | 'w' | 'l' | 'b' | 'c' | 'r' | 'g' => {
+                // Keywords: true false nil if else while let break continue return goto fn
+                // Also: go, select/case/default
+                't' | 'f' | 'n' | 'i' | 'e' | 'w' | 'l' | 'b' | 'c' | 'r' | 'g' | 's' | 'd' => {
                     self.parse_keywords()?;
                 }
                 _ => {

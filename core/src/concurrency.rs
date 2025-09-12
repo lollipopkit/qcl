@@ -1,18 +1,17 @@
 use crate::val::Val;
 use anyhow::{Result, anyhow};
 use std::{
-    collections::VecDeque,
     sync::{Arc, Mutex, mpsc},
-    thread::{self, JoinHandle},
+    thread::JoinHandle,
     time::Duration,
 };
 
 /// Channel implementation using Arc<Mutex<>> for thread safety
 #[derive(Debug)]
 pub struct Channel {
-    sender: Arc<Mutex<mpsc::Sender<Val>>>,
+    sender: Arc<Mutex<mpsc::SyncSender<Val>>>,
     receiver: Arc<Mutex<mpsc::Receiver<Val>>>,
-    pub capacity: usize, // Make capacity public for testing
+    pub capacity: usize, // 0 = unbuffered
 }
 
 impl Default for Channel {
@@ -24,7 +23,8 @@ impl Default for Channel {
 impl Channel {
     /// Create a new unbuffered channel (capacity 0)
     pub fn new() -> Self {
-        let (tx, rx) = mpsc::channel();
+        // Unbuffered channel: sync_channel(0) blocks send until a receiver is ready.
+        let (tx, rx) = mpsc::sync_channel(0);
         Self {
             sender: Arc::new(Mutex::new(tx)),
             receiver: Arc::new(Mutex::new(rx)),
@@ -37,23 +37,11 @@ impl Channel {
         if capacity == 0 {
             return Self::new();
         }
-        let (_tx, _rx) = mpsc::sync_channel::<Val>(capacity);
-        // Convert sync_channel to regular channel for consistency
-        let (tx_regular, rx_regular) = mpsc::channel();
-
-        // Spawn a bridge thread to handle the buffering
-        let _tx_bridge = tx_regular.clone();
-        thread::spawn(move || {
-            let mut _buffer: VecDeque<Val> = VecDeque::with_capacity(capacity);
-
-            // This is a simplified bridge - in practice you'd want more sophisticated buffering
-            // TODO: Implement proper buffering logic
-            // For now, just return to avoid never loop
-        });
-
+        // Buffered channel: sync_channel(capacity) blocks when buffer is full
+        let (tx, rx) = mpsc::sync_channel::<Val>(capacity);
         Self {
-            sender: Arc::new(Mutex::new(tx_regular)),
-            receiver: Arc::new(Mutex::new(rx_regular)),
+            sender: Arc::new(Mutex::new(tx)),
+            receiver: Arc::new(Mutex::new(rx)),
             capacity,
         }
     }
@@ -74,9 +62,10 @@ impl Channel {
             .sender
             .lock()
             .map_err(|_| anyhow!("Channel sender poisoned"))?;
-        match sender.send(value) {
+        match sender.try_send(value) {
             Ok(()) => Ok(true),
-            Err(_) => Ok(false), // Channel is full or closed
+            Err(mpsc::TrySendError::Full(_)) => Ok(false),
+            Err(mpsc::TrySendError::Disconnected(_)) => Err(anyhow!("Channel closed")),
         }
     }
 

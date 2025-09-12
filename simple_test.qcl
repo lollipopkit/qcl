@@ -1,0 +1,18 @@
+// 简单的 Go 风格 channel 语法测试
+import tcp;
+
+// 创建 channel
+let ch = make_chan();
+
+// 基本的 channel 发送语法测试
+ch <- "test message";
+
+// 基本的 select 语法测试
+select {
+case msg = <-ch: {
+    print("Got message:", msg);
+}
+default: {
+    print("No message");
+}
+}
