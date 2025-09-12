@@ -233,18 +233,8 @@ impl Expr {
                     Err(anyhow!("Function call requires environment"))
                 }
             }
-            Expr::Val(Val::Str(s)) if env.is_some() => {
-                // 如果有变量环境，尝试查找变量
-                if let Some(env) = env {
-                    if let Some(var_val) = env.get(s.as_ref()) {
-                        Ok(var_val.clone())
-                    } else {
-                        Ok(Val::Str(s.clone())) // 如果不是变量，就作为字符串字面量
-                    }
-                } else {
-                    Ok(Val::Str(s.clone()))
-                }
-            }
+            // Remove the problematic string-to-variable resolution
+            // String literals should always be treated as string literals
             Expr::Val(val) => Ok(val.clone()), // Clone necessary as eval returns owned Val
         }
     }

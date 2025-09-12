@@ -410,15 +410,26 @@ impl TcpModule {
             _ => return Err(anyhow!("hostname must be a string")),
         };
 
-        match format!("{}:0", hostname).to_socket_addrs() {
-            Ok(mut addrs) => {
+        // Use a timeout for DNS resolution to avoid hanging
+        let hostname_owned = hostname.to_string();
+        let (sender, receiver) = std::sync::mpsc::channel();
+
+        thread::spawn(move || {
+            let result = format!("{}:0", hostname_owned).to_socket_addrs();
+            let _ = sender.send(result);
+        });
+
+        // Set a reasonable timeout (5 seconds)
+        match receiver.recv_timeout(Duration::from_secs(5)) {
+            Ok(Ok(mut addrs)) => {
                 if let Some(addr) = addrs.next() {
                     Ok(Val::Str(addr.ip().to_string().into()))
                 } else {
                     Ok(Val::Nil)
                 }
             }
-            Err(e) => Err(anyhow!("hostname resolution failed: {}", e)),
+            Ok(Err(e)) => Err(anyhow!("hostname resolution failed: {}", e)),
+            Err(_) => Err(anyhow!("hostname resolution timed out")),
         }
     }
 
