@@ -134,32 +134,8 @@ export function activate(context: vscode.ExtensionContext) {
   const semanticTokensEnabled = config.get<boolean>('semanticTokens.enabled', true);
   const throttleMs = Math.max(0, Number(config.get<number>('semanticTokens.throttleMs', 40)) || 0);
 
-  // Scroll detection and enhanced throttling
-  let isScrolling = false;
-  let scrollTimeout: NodeJS.Timeout | undefined;
-  let lastScrollTime = 0;
-  
-  // Track scroll events to detect when user is scrolling
-  const scrollDetection = vscode.window.onDidChangeTextEditorVisibleRanges(() => {
-    isScrolling = true;
-    lastScrollTime = Date.now();
-    
-    // Clear previous timeout
-    if (scrollTimeout) {
-      clearTimeout(scrollTimeout);
-    }
-    
-    // Set timeout to mark scrolling as finished
-    scrollTimeout = setTimeout(() => {
-      isScrolling = false;
-    }, 300); // Wait 300ms after last scroll event
-  });
-
-  context.subscriptions.push(scrollDetection);
-
-  // Enhanced semantic tokens middleware with scroll-aware throttling
+  // Lightweight, per-document throttle map (shared by full/range)
   const lastTokenReqAt = new Map<string, number>();
-  const rangeTokenReqAt = new Map<string, number>();
   const settings = { semanticTokensEnabled, throttleMs };
   
   const middleware: Middleware = {
@@ -168,15 +144,11 @@ export function activate(context: vscode.ExtensionContext) {
         if (isVerbose) console.log('Semantic tokens disabled (full)');
         return null;
       }
-      
-      // Apply stricter throttling during scrolling
-      const effectiveThrottleMs = isScrolling ? settings.throttleMs * 2 : settings.throttleMs;
-      
-      if (effectiveThrottleMs > 0) {
+      if (settings.throttleMs > 0) {
         const key = document.uri.toString();
         const now = Date.now();
         const last = lastTokenReqAt.get(key) || 0;
-        if (now - last < effectiveThrottleMs) {
+        if (now - last < settings.throttleMs) {
           if (isVerbose) console.log('Semantic tokens full throttled');
           return null;
         }
@@ -189,29 +161,16 @@ export function activate(context: vscode.ExtensionContext) {
         if (isVerbose) console.log('Semantic tokens disabled (range)');
         return null;
       }
-      
-      // Much stricter throttling for range requests during scrolling
-      const key = `${document.uri.toString()}-${range.start.line}-${range.end.line}`;
-      const now = Date.now();
-      const last = rangeTokenReqAt.get(key) || 0;
-      
-      // Skip range requests entirely during scrolling if requested recently
-      if (isScrolling && (now - lastScrollTime < 500)) {
-        if (now - last < settings.throttleMs * 3) {
-          if (isVerbose) console.log('Semantic tokens range skipped during scrolling');
-          return null;
-        }
-      }
-      
-      // Normal throttling for non-scrolling scenarios
       if (settings.throttleMs > 0) {
+        const key = document.uri.toString();
+        const now = Date.now();
+        const last = lastTokenReqAt.get(key) || 0;
         if (now - last < settings.throttleMs) {
           if (isVerbose) console.log('Semantic tokens range throttled');
           return null;
         }
+        lastTokenReqAt.set(key, now);
       }
-      
-      rangeTokenReqAt.set(key, now);
       return next(document, range, token);
     }
   };
@@ -266,22 +225,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
   
-  // Avoid heavy per-request logging of semantic tokens to prevent UI jank.
-  // If verbose trace is enabled, log lightweight summaries only.
-  if (isVerbose) {
-    client.onNotification('textDocument/semanticTokens', (params: any) => {
-      try {
-        const count = Array.isArray(params?.data) ? params.data.length : (params?.data?.length ?? 'n/a');
-        console.log('Semantic tokens notification (items):', count);
-      } catch {
-        console.log('Semantic tokens notification received');
-      }
-    });
-    client.onRequest('textDocument/semanticTokens', (params: any) => {
-      console.log('Semantic tokens request');
-      return params;
-    });
-  }
+  // Avoid extra semantic token logging to keep UI responsive
 
   // Start with a timeout and proper error handling
   const startPromise = autoStart ? client.start() : Promise.resolve();

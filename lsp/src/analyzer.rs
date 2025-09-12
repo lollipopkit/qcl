@@ -1,9 +1,10 @@
 use qcl_core::{
-    ast::Parser as ExprParser, expr::Expr, import::ImportStmt, stmt::Stmt, stmt_parser::StmtParser,
-    token::Tokenizer, val::Val, error::Span,
+    ast::Parser as ExprParser, expr::Expr, import::ImportStmt, module::ModuleRegistry,
+    stmt::Stmt, stmt_parser::StmtParser, token::Tokenizer, val::Val, error::Span,
 };
 use std::collections::{HashMap, HashSet};
 use tower_lsp::lsp_types::*;
+use std::path::{Path, PathBuf};
 
 // Soft limits to keep LSP responsive on large/broken files
 const MAX_SCAN_LINES: usize = 400; // max lines to line-scan
@@ -28,18 +29,283 @@ pub struct QclAnalyzer {
     token_cache: HashMap<String, (Vec<qcl_core::token::Token>, Vec<Span>)>,
     // Cache for completion items that don't change
     completion_cache: Option<Vec<CompletionItem>>,
+    // Registered stdlib modules for resolution/completions
+    registry: ModuleRegistry,
+    // Base directory for resolving relative file imports
+    base_dir: Option<PathBuf>,
 }
 
 impl QclAnalyzer {
     /// Create a new QCL analyzer
     pub fn new() -> Self {
-        Self::default()
+        // Initialize a registry preloaded with stdlib modules and globals
+        let mut registry = ModuleRegistry::new();
+        // Register stdlib globals and modules so LSP can recognize them
+        qcl_stdlib::register_stdlib_globals(&mut registry);
+        qcl_stdlib::register_stdlib_modules(&mut registry);
+
+        Self {
+            token_cache: HashMap::new(),
+            completion_cache: None,
+            registry,
+            base_dir: None,
+        }
     }
 
     /// Clear caches - useful when memory usage becomes high
     pub fn clear_caches(&mut self) {
         self.token_cache.clear();
         self.completion_cache = None;
+    }
+
+    /// Set the base directory used for resolving file imports
+    pub fn set_base_dir(&mut self, base: PathBuf) {
+        self.base_dir = Some(base);
+    }
+
+    /// Scan tokens to add diagnostics for unknown stdlib modules and unknown exports with precise spans
+    fn add_import_diagnostics(
+        &self,
+        tokens: &[qcl_core::token::Token],
+        spans: &[Span],
+        result: &mut AnalysisResult,
+    ) {
+        use qcl_core::token::Token as T;
+
+        let mut i = 0usize;
+        while i < tokens.len() {
+            match &tokens[i] {
+                T::Import => {
+                    let mut j = i + 1;
+                    match tokens.get(j) {
+                        Some(T::Str(path)) => {
+                            // import "file"; -> check existence
+                            let exists = self.file_exists(path);
+                            if !exists {
+                                // Diagnostic on the string span (includes quotes)
+                                if j < spans.len() {
+                                    let sp = &spans[j];
+                                    let range = Range::new(
+                                        Position::new(sp.start.line - 1, sp.start.column.saturating_sub(1)),
+                                        Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1)),
+                                    );
+                                    let mut d = Diagnostic::new(
+                                        range,
+                                        Some(DiagnosticSeverity::ERROR),
+                                        None,
+                                        Some("qcl".to_string()),
+                                        format!("File not found: {}", path),
+                                        None,
+                                        None,
+                                    );
+                                    d.code = Some(NumberOrString::String("qcl_file_not_found".to_string()));
+                                    result.diagnostics.push(d);
+                                }
+                            }
+                            // advance to ';'
+                            while j < tokens.len() && !matches!(tokens[j], T::Semicolon) {
+                                j += 1;
+                            }
+                            i = j + 1;
+                            continue;
+                        }
+                        Some(T::LBrace) => {
+                            // import { a, b as c } from module;
+                            j += 1; // after '{'
+                            let mut item_indices: Vec<usize> = Vec::new();
+                            while j < tokens.len() {
+                                match &tokens[j] {
+                                    T::RBrace => {
+                                        j += 1;
+                                        break;
+                                    }
+                                    T::Id(_) => {
+                                        // record the exported name id position (before any 'as')
+                                        let id_idx = j;
+                                        item_indices.push(id_idx);
+                                        j += 1;
+                                        // Skip optional 'as alias'
+                                        if matches!(tokens.get(j), Some(T::As)) {
+                                            j += 1;
+                                            if matches!(tokens.get(j), Some(T::Id(_))) {
+                                                j += 1;
+                                            }
+                                        }
+                                    }
+                                    T::Comma => j += 1,
+                                    _ => j += 1,
+                                }
+                            }
+                            // Expect 'from' then module id
+                            while j < tokens.len() && !matches!(tokens[j], T::From) {
+                                j += 1;
+                            }
+                            if j + 1 < tokens.len() {
+                                j += 1; // move to module id
+                                if let T::Id(mod_name) = &tokens[j] {
+                                    if self.registry.get_module(mod_name).is_ok() {
+                                        // Validate each item against module exports
+                                        if let Ok(m) = self.registry.get_module(mod_name) {
+                                            let exports = m.exports();
+                                            for idx in item_indices {
+                                                if let T::Id(item_name) = &tokens[idx] {
+                                                    if !exports.contains_key(item_name) {
+                                                        if idx < spans.len() {
+                                                            let sp = &spans[idx];
+                                                            let range = Range::new(
+                                                                Position::new(sp.start.line - 1, sp.start.column.saturating_sub(1)),
+                                                                Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1)),
+                                                            );
+                                                            result.diagnostics.push(Diagnostic::new(
+                                                                range,
+                                                                Some(DiagnosticSeverity::ERROR),
+                                                                None,
+                                                                Some("qcl".to_string()),
+                                                                format!(
+                                                                    "Unknown export '{}' from module '{}'",
+                                                                    item_name, mod_name
+                                                                ),
+                                                                None,
+                                                                None,
+                                                            ));
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        if j < spans.len() {
+                                            let sp = &spans[j];
+                                            let range = Range::new(
+                                                Position::new(sp.start.line - 1, sp.start.column.saturating_sub(1)),
+                                                Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1)),
+                                            );
+                                            result.diagnostics.push(Diagnostic::new(
+                                                range,
+                                                Some(DiagnosticSeverity::ERROR),
+                                                None,
+                                                Some("qcl".to_string()),
+                                                format!("Unknown module: {}", mod_name),
+                                                None,
+                                                None,
+                                            ));
+                                        }
+                                    }
+                                }
+                            }
+                            // advance to semicolon
+                            while j < tokens.len() && !matches!(tokens[j], T::Semicolon) {
+                                j += 1;
+                            }
+                            i = j + 1;
+                            continue;
+                        }
+                        Some(T::Mul) => {
+                            // import * as alias from module;
+                            // seek 'from' then module id
+                            while j < tokens.len() && !matches!(tokens[j], T::From) {
+                                j += 1;
+                            }
+                            if j + 1 < tokens.len() {
+                                j += 1;
+                                if let T::Id(mod_name) = &tokens[j] {
+                                    if self.registry.get_module(mod_name).is_err() {
+                                        if j < spans.len() {
+                                            let sp = &spans[j];
+                                            let range = Range::new(
+                                                Position::new(sp.start.line - 1, sp.start.column.saturating_sub(1)),
+                                                Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1)),
+                                            );
+                                            result.diagnostics.push(Diagnostic::new(
+                                                range,
+                                                Some(DiagnosticSeverity::ERROR),
+                                                None,
+                                                Some("qcl".to_string()),
+                                                format!("Unknown module: {}", mod_name),
+                                                None,
+                                                None,
+                                            ));
+                                        }
+                                    }
+                                }
+                            }
+                            // advance to semicolon
+                            while j < tokens.len() && !matches!(tokens[j], T::Semicolon) {
+                                j += 1;
+                            }
+                            i = j + 1;
+                            continue;
+                        }
+                        Some(T::Id(mod_name)) => {
+                            // import module [as alias]?;
+                            let mod_idx = j;
+                            if self.registry.get_module(mod_name).is_err() {
+                                if mod_idx < spans.len() {
+                                    let sp = &spans[mod_idx];
+                                    let range = Range::new(
+                                        Position::new(sp.start.line - 1, sp.start.column.saturating_sub(1)),
+                                        Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1)),
+                                    );
+                                    result.diagnostics.push(Diagnostic::new(
+                                        range,
+                                        Some(DiagnosticSeverity::ERROR),
+                                        None,
+                                        Some("qcl".to_string()),
+                                        format!("Unknown module: {}", mod_name),
+                                        None,
+                                        None,
+                                    ));
+                                }
+                            }
+                            // move to ';'
+                            while j < tokens.len() && !matches!(tokens[j], T::Semicolon) {
+                                j += 1;
+                            }
+                            i = j + 1;
+                            continue;
+                        }
+                        _ => {}
+                    }
+
+                    i = j + 1;
+                }
+                _ => {
+                    i += 1;
+                }
+            }
+        }
+    }
+
+    fn file_exists(&self, rel: &str) -> bool {
+        // Absolute path: use as-is
+        let path = Path::new(rel);
+        if path.is_absolute() {
+            return path.exists();
+        }
+        let base = self
+            .base_dir
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| PathBuf::from("."));
+        let candidates = [
+            base.clone(),
+            base.join("lib"),
+            base.join("modules"),
+        ];
+        for dir in candidates.iter() {
+            let p = dir.join(rel);
+            if p.exists() {
+                return true;
+            }
+            // Try with .qcl appended if missing extension
+            if p.extension().is_none() {
+                let with_ext = p.with_extension("qcl");
+                if with_ext.exists() {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// Tokenize with spans, using an internal cache keyed by full content string.
@@ -149,6 +415,9 @@ impl QclAnalyzer {
                 let expr_result = Ok(expr);
                 let context_diagnostics = self.validate_context_access(&expr_result, None);
                 result.diagnostics.extend(context_diagnostics);
+
+                // Even for expressions, scan for import diagnostics (typically none)
+                self.add_import_diagnostics(&tokens, &spans, &mut result);
             }
             Err(expr_err) => {
                 // Attempt expression-level recovery to surface multiple errors for pure expressions
@@ -160,6 +429,8 @@ impl QclAnalyzer {
                     Ok(program) => {
                         // Analyze statements for symbols and context references
                         self.analyze_statements(&program.statements, &mut result);
+                        // Add precise import diagnostics using tokens/spans
+                        self.add_import_diagnostics(&tokens, &spans, &mut result);
                     }
                     Err(stmt_err) => {
                         // If we found expression-level errors and the content doesn't look like statements,
@@ -226,9 +497,11 @@ impl QclAnalyzer {
                                     None,
                                 ));
                             }
-                            // Even with errors, analyze statements to surface symbols and context refs
-                            self.analyze_statements(&stmts, &mut result);
-                        }
+                        // Even with errors, analyze statements to surface symbols and context refs
+                        self.analyze_statements(&stmts, &mut result);
+                        // And add precise import diagnostics using tokens/spans
+                        self.add_import_diagnostics(&tokens, &spans, &mut result);
+                    }
 
                         // If recovery yielded nothing (e.g., single token), try chunk-based scan then line-wise
                         if collected.is_empty() {
@@ -279,6 +552,8 @@ impl QclAnalyzer {
                         }
 
                         result.diagnostics.extend(collected);
+                        // Also attempt import diagnostics if tokens parsed
+                        self.add_import_diagnostics(&tokens, &spans, &mut result);
                     }
                 }
             }
@@ -288,6 +563,87 @@ impl QclAnalyzer {
         self.dedup_diagnostics(&mut result.diagnostics);
 
         result
+    }
+
+    /// List available stdlib module names
+    pub fn list_stdlib_modules(&self) -> Vec<String> {
+        self.registry.get_module_names()
+    }
+
+    /// List exports for a given stdlib module name
+    pub fn list_module_exports(&self, module: &str) -> Option<Vec<String>> {
+        match self.registry.get_module(module) {
+            Ok(m) => {
+                let exports = m.exports();
+                let mut keys: Vec<String> = exports.keys().cloned().collect();
+                keys.sort();
+                Some(keys)
+            }
+            Err(_) => None,
+        }
+    }
+
+    /// Collect imported module aliases from the given content.
+    /// Returns mapping alias -> module_name (e.g., "m" -> "math").
+    pub fn collect_import_aliases(
+        &mut self,
+        content: &str,
+    ) -> HashMap<String, String> {
+        let mut map = HashMap::new();
+        // Tokenize using cached path to be consistent with analysis
+        let (tokens, spans) = match self.tokenize_with_spans_cached(content) {
+            Ok(p) => p,
+            Err(_) => return map,
+        };
+
+        // Prefer full parse; fall back to recovering parse to extract as many imports as possible
+        let mut stmts_acc: Vec<Box<Stmt>> = Vec::new();
+        {
+            let mut parser = StmtParser::new_with_spans(&tokens, &spans);
+            if let Ok(program) = parser.parse_program_with_enhanced_errors(content) {
+                stmts_acc.extend(program.statements.into_iter());
+            }
+        }
+        // Recover for any missed imports (e.g., partial files)
+        {
+            let mut recover_parser = StmtParser::new_with_spans(&tokens, &spans);
+            let (more, _errs) =
+                recover_parser.parse_program_recovering_with_enhanced_errors(content);
+            for s in more { stmts_acc.push(s); }
+        }
+
+        for stmt in &stmts_acc {
+            if let Stmt::Import(import_stmt) = stmt.as_ref() {
+                match import_stmt {
+                    ImportStmt::Module { module } => {
+                        // import math; -> alias is module name
+                        map.insert(module.clone(), module.clone());
+                    }
+                    ImportStmt::ModuleAlias { module, alias } => {
+                        // import math as m; -> alias maps to module
+                        map.insert(alias.clone(), module.clone());
+                    }
+                    ImportStmt::Namespace { alias, source } => {
+                        if let qcl_core::import::ImportSource::Module(name) = source {
+                            // import * as m from math; -> alias maps to module
+                            map.insert(alias.clone(), name.clone());
+                        }
+                    }
+                    ImportStmt::Items { source, .. } => {
+                        // import { sqrt } from math; -> does not create a module alias
+                        // We could track individual items in the future
+                        if let qcl_core::import::ImportSource::Module(_name) = source {
+                            // no alias to insert
+                        }
+                    }
+                    ImportStmt::File { .. } => {
+                        // File imports are not stdlib modules; ignore here
+                    }
+                }
+            }
+        }
+
+        map
     }
 
     /// Segment the document into logical chunks using a lightweight state machine:

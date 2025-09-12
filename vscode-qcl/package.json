@@ -251,9 +251,9 @@
         },
         "qcl.lsp.semanticTokens.throttleMs": {
           "type": "number",
-          "default": 100,
+          "default": 25,
           "minimum": 0,
-          "description": "Throttle consecutive semantic token requests for the same document (ms)"
+          "description": "Throttle consecutive semantic token requests per document (ms). Set 0 to disable."
         }
       }
     }

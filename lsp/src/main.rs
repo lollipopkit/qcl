@@ -9,10 +9,15 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 use tracing::info;
 use twox_hash::XxHash64;
+use regex::Regex;
 
 mod analyzer;
 use analyzer::{AnalysisResult, QclAnalyzer};
 use qcl_core::{error::Span as CoreSpan, token::Token as CoreToken};
+
+// Hard cap on number of semantic tokens sent to the client to avoid
+// excessive payloads and UI work on very large files.
+const MAX_SEMANTIC_TOKENS: usize = 12000;
 
 #[cfg(test)]
 mod bench_test;
@@ -230,19 +235,18 @@ impl LanguageServer for QclLanguageServer {
                                     SemanticTokenModifier::STATIC,
                                 ],
                             },
-                            // Disable range-based semantic tokens to reduce UI churn during scroll
-                            range: Some(false),
+                            // Enable range-based semantic tokens so the editor can request
+                            // only the visible region while typing for better responsiveness
+                            range: Some(true),
                             // Enable delta to reduce payloads and UI work
                             full: Some(SemanticTokensFullOptions::Delta { delta: Some(true) }),
                         },
                     ),
                 ),
+                code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                 ..Default::default()
             },
-            server_info: Some(ServerInfo {
-                name: "QCL Language Server".to_string(),
-                version: Some("0.1.0".to_string()),
-            }),
+            server_info: Some(ServerInfo { name: "QCL Language Server".to_string(), version: Some("0.1.0".to_string()) }),
         })
     }
 
@@ -317,8 +321,8 @@ impl LanguageServer for QclLanguageServer {
             }
         }
 
-        // Debounced diagnostics + cache warmup
-        self.schedule_diagnostics_and_warmup(uri, version, 150)
+        // Debounced diagnostics (no token prewarm to keep edits snappy)
+        self.schedule_diagnostics_and_warmup(uri, version, 250)
             .await;
     }
 
@@ -332,17 +336,234 @@ impl LanguageServer for QclLanguageServer {
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let mut items = self.get_completions();
 
-        // Add context-specific completions if triggered by '@'
+        // Add context-specific and stdlib-aware completions based on current line
         let uri = &params.text_document_position.text_document.uri;
-        if self.documents.get(uri).is_some() {
-            // Get current line context for better completions
-            if let Ok(mut analyzer) = self.analyzer.lock() {
-                let context_items = analyzer.get_context_completions("@");
-                items.extend(context_items);
+        let position = params.text_document_position.position;
+
+        if let Some(doc) = self.documents.get(uri) {
+            let line_idx = position.line as usize;
+            if line_idx < doc.content.len_lines() {
+                let line = doc.content.line(line_idx).to_string();
+                let line_start_char = doc.content.line_to_char(line_idx);
+                let abs_char = position_to_char_idx(&doc.content, position);
+                let within_line = abs_char.saturating_sub(line_start_char).min(line.chars().count());
+                let line_prefix: String = line.chars().take(within_line).collect();
+                let line_suffix: String = line.chars().skip(within_line).collect();
+
+                // Provide '@' context completions
+                if let Ok(mut analyzer) = self.analyzer.lock() {
+                    let context_items = analyzer.get_context_completions("@");
+                    items.extend(context_items);
+                }
+
+                // Regexes for import/from and module dot access
+                let import_re = Regex::new(r"(?:^|\s)import\s+([A-Za-z_]\w*)?$").ok();
+                let from_re = Regex::new(r"(?:^|\s)from\s+([A-Za-z_]\w*)?$").ok();
+                let moddot_re = Regex::new(r"([A-Za-z_]\w*)\.$").ok();
+                // import { ... } cursor inside braces; capture content before cursor
+                let import_brace_re = Regex::new(r"(?:^|\s)import\s*\{([^}]*)$").ok();
+                // In the suffix, look for '} from <module>' after the cursor
+                let suffix_from_re = Regex::new(r"^\s*\}?\s*from\s+([A-Za-z_]\w*)").ok();
+                // import "<path> cursor inside quotes
+                let import_path_re = Regex::new(r#"(?:^|\s)import\s+\"([^\"]*)$"#).ok();
+
+                if let Ok(mut analyzer) = self.analyzer.lock() {
+                    // Suggest module names after `import` or `from`
+                    if let Some(re) = &import_re {
+                        if let Some(caps) = re.captures(&line_prefix) {
+                            let typed = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                            let modules = analyzer.list_stdlib_modules();
+                            for m in modules.into_iter().filter(|m| m.starts_with(typed)) {
+                                items.push(CompletionItem {
+                                    label: m,
+                                    kind: Some(CompletionItemKind::MODULE),
+                                    detail: Some("QCL stdlib module".to_string()),
+                                    ..Default::default()
+                                });
+                            }
+                        }
+                    }
+                    if let Some(re) = &from_re {
+                        if let Some(caps) = re.captures(&line_prefix) {
+                            let typed = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                            let modules = analyzer.list_stdlib_modules();
+                            for m in modules.into_iter().filter(|m| m.starts_with(typed)) {
+                                items.push(CompletionItem {
+                                    label: m,
+                                    kind: Some(CompletionItemKind::MODULE),
+                                    detail: Some("QCL stdlib module".to_string()),
+                                    ..Default::default()
+                                });
+                            }
+                        }
+                    }
+
+                    // Suggest exports after `alias.` where alias is an imported module
+                    if let Some(re) = &moddot_re {
+                        if let Some(caps) = re.captures(&line_prefix) {
+                            let alias = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                            let full_content = doc.content.to_string();
+                            let alias_map = analyzer.collect_import_aliases(&full_content);
+                            if let Some(module_name) = alias_map.get(alias) {
+                                if let Some(exports) = analyzer.list_module_exports(module_name) {
+                                    for e in exports {
+                                        items.push(CompletionItem {
+                                            label: e,
+                                            kind: Some(CompletionItemKind::FUNCTION),
+                                            detail: Some(format!("{}.{}", module_name, alias)),
+                                            ..Default::default()
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Suggest exports inside `import { … } from <module>`
+                    if let (Some(br_re), Some(sf_re)) = (&import_brace_re, &suffix_from_re) {
+                        if let Some(br_caps) = br_re.captures(&line_prefix) {
+                            if let Some(sf_caps) = sf_re.captures(&line_suffix) {
+                                let module_name = sf_caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                                if let Some(mut exports) = analyzer.list_module_exports(module_name) {
+                                    // Determine typed prefix within braces
+                                    let raw = br_caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                                    let last = raw.split(',').last().unwrap_or("").trim();
+                                    let typed = last
+                                        .split_whitespace()
+                                        .last()
+                                        .unwrap_or("");
+                                    if !typed.is_empty() {
+                                        exports.retain(|e| e.starts_with(typed));
+                                    }
+                                    for e in exports {
+                                        items.push(CompletionItem {
+                                            label: e,
+                                            kind: Some(CompletionItemKind::FUNCTION),
+                                            detail: Some(format!("from {}", module_name)),
+                                            ..Default::default()
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Suggest file paths inside import "..."
+                    if let Some(re) = &import_path_re {
+                        if let Some(caps) = re.captures(&line_prefix) {
+                            let typed = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                            // Determine base directories
+                            let mut base_dirs = Vec::new();
+                            if let Ok(mut p) = uri.to_file_path() {
+                                if p.pop() {
+                                    base_dirs.push(p.clone());
+                                    base_dirs.push(p.join("lib"));
+                                    base_dirs.push(p.join("modules"));
+                                }
+                            }
+                            // Split typed into dir and file prefix
+                            let (dir_part, file_prefix) = if let Some(pos) = typed.rfind('/') {
+                                (&typed[..pos], &typed[pos + 1..])
+                            } else {
+                                ("", typed)
+                            };
+                            for base in base_dirs {
+                                let root = if dir_part.is_empty() { base.clone() } else { base.join(dir_part) };
+                                if let Ok(entries) = std::fs::read_dir(&root) {
+                                    for e in entries.flatten() {
+                                        if let Ok(ft) = e.file_type() {
+                                            let name = e.file_name().to_string_lossy().to_string();
+                                            if name.starts_with(file_prefix) {
+                                                let rel = if dir_part.is_empty() { name.clone() } else { format!("{}/{}", dir_part, name) };
+                                                let (label, kind) = if ft.is_dir() {
+                                                    (format!("{}/", rel), CompletionItemKind::FOLDER)
+                                                } else {
+                                                    (rel, CompletionItemKind::FILE)
+                                                };
+                                                items.push(CompletionItem {
+                                                    label,
+                                                    kind: Some(kind),
+                                                    detail: Some("File path".to_string()),
+                                                    ..Default::default()
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
         Ok(Some(CompletionResponse::Array(items)))
+    }
+
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+        let uri = &params.text_document.uri;
+        let mut actions: Vec<CodeActionOrCommand> = Vec::new();
+
+        // Snapshot document content for textual replacements
+        let content = if let Some(doc) = self.documents.get(uri) {
+            doc.content.to_string()
+        } else {
+            String::new()
+        };
+
+        let rope = ropey::Rope::from_str(&content);
+        for diag in &params.context.diagnostics {
+            let code = diag.code.as_ref().and_then(|c| match c {
+                NumberOrString::String(s) => Some(s.as_str()),
+                _ => None,
+            });
+            if code == Some("qcl_file_not_found") || diag.message.starts_with("File not found:") {
+                // Extract quoted string at diagnostic range
+                let start = position_to_char_idx(&rope, diag.range.start);
+                let end = position_to_char_idx(&rope, diag.range.end);
+                let slice: String = if start < end && end <= rope.len_chars() {
+                    rope.slice(start..end).to_string()
+                } else {
+                    String::new()
+                };
+                let current = slice.trim_matches('"');
+
+                let mut candidates: Vec<String> = Vec::new();
+                if !current.ends_with(".qcl") {
+                    candidates.push(format!("{}.qcl", current));
+                }
+                if !current.starts_with("./") && !current.starts_with('/') {
+                    candidates.push(format!("./{}", current));
+                }
+                for prefix in ["lib/", "modules/"] {
+                    if !current.starts_with(prefix) {
+                        candidates.push(format!("{}{}", prefix, current));
+                        if !current.ends_with(".qcl") {
+                            candidates.push(format!("{}{}.qcl", prefix, current));
+                        }
+                    }
+                }
+
+                for cand in candidates {
+                    let new_text = format!("\"{}\"", cand);
+                    let edit = TextEdit { range: diag.range, new_text };
+                    let mut we = WorkspaceEdit::default();
+                    we.changes = Some(std::collections::HashMap::from([(uri.clone(), vec![edit]) ]));
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: format!("Use path: {}", cand),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        diagnostics: Some(vec![diag.clone()]),
+                        edit: Some(we),
+                        command: None,
+                        is_preferred: None,
+                        disabled: None,
+                        data: None,
+                    }));
+                }
+            }
+        }
+
+        if actions.is_empty() { Ok(None) } else { Ok(Some(actions)) }
     }
 
     async fn diagnostic(
@@ -439,12 +660,20 @@ impl LanguageServer for QclLanguageServer {
             None => return Ok(None),
         };
 
+        // Clamp payload size for responsiveness and store the clamped baseline
+        let clamped: Vec<SemanticToken> = (*tokens_arc)
+            .iter()
+            .take(MAX_SEMANTIC_TOKENS)
+            .cloned()
+            .collect();
+        let clamped_arc = Arc::new(clamped.clone());
+
         // Produce a fresh result_id tied to current version/counter
         let result_id = {
             if let Some(mut doc) = self.documents.get_mut(uri) {
                 doc.tokens_result_counter = doc.tokens_result_counter.wrapping_add(1);
                 let id = format!("v{}-g{}", doc.version, doc.tokens_result_counter);
-                doc.last_sent_semantic_tokens = Some(tokens_arc.clone());
+                doc.last_sent_semantic_tokens = Some(clamped_arc);
                 doc.last_sent_result_id = Some(id.clone());
                 Some(id)
             } else {
@@ -454,7 +683,7 @@ impl LanguageServer for QclLanguageServer {
 
         Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
             result_id,
-            data: (*tokens_arc).clone(),
+            data: clamped,
         })))
     }
 
@@ -497,10 +726,16 @@ impl LanguageServer for QclLanguageServer {
         let uri = &params.text_document.uri;
 
         // Compute fresh tokens for current doc state
-        let new_tokens = match self.get_or_generate_semantic_tokens(uri).await {
+        let new_tokens_full = match self.get_or_generate_semantic_tokens(uri).await {
             Some(t) => t,
             None => return Ok(None),
         };
+        // Clamp to match what we send to clients
+        let new_tokens: Vec<SemanticToken> = (*new_tokens_full)
+            .iter()
+            .take(MAX_SEMANTIC_TOKENS)
+            .cloned()
+            .collect();
 
         // Read previous baseline (last sent) and id
         let (prev_tokens_opt, prev_id_opt) = if let Some(doc) = self.documents.get(uri) {
@@ -516,11 +751,11 @@ impl LanguageServer for QclLanguageServer {
             false
         };
 
-        // Compute new result_id and update last_sent baseline
+        // Compute new result_id and update last_sent baseline (store clamped)
         let new_result_id = if let Some(mut doc) = self.documents.get_mut(uri) {
             doc.tokens_result_counter = doc.tokens_result_counter.wrapping_add(1);
             let id = format!("v{}-g{}", doc.version, doc.tokens_result_counter);
-            doc.last_sent_semantic_tokens = Some(new_tokens.clone());
+            doc.last_sent_semantic_tokens = Some(Arc::new(new_tokens.clone()));
             doc.last_sent_result_id = Some(id.clone());
             Some(id)
         } else {
@@ -531,7 +766,7 @@ impl LanguageServer for QclLanguageServer {
             // Resync: send full tokens
             return Ok(Some(SemanticTokensFullDeltaResult::Tokens(SemanticTokens {
                 result_id: new_result_id,
-                data: (*new_tokens).clone(),
+                data: new_tokens.clone(),
             })));
         }
 
@@ -541,12 +776,13 @@ impl LanguageServer for QclLanguageServer {
             None => {
                 return Ok(Some(SemanticTokensFullDeltaResult::Tokens(SemanticTokens {
                     result_id: new_result_id,
-                    data: (*new_tokens).clone(),
+                    data: new_tokens,
                 })));
             }
         };
 
-        let (cp, cs, delete_count) = common_prefix_suffix_delete_count(&prev_tokens, &new_tokens);
+        let prev_vec: Vec<SemanticToken> = (*prev_tokens).clone();
+        let (cp, cs, delete_count) = common_prefix_suffix_delete_count(&prev_vec, &new_tokens);
         if delete_count == 0 {
             // No structural change; in theory could return empty edits
             return Ok(Some(SemanticTokensFullDeltaResult::TokensDelta(SemanticTokensDelta {
@@ -592,8 +828,14 @@ impl QclLanguageServer {
 
         // Compute analysis off the async runtime to avoid blocking
         let content_for_compute = content_snapshot.clone();
+        // Compute base_dir from URI for file import resolution
+        let base_dir = uri
+            .to_file_path()
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.to_path_buf()));
         let computed_result = tokio::task::spawn_blocking(move || {
             let mut analyzer = QclAnalyzer::new();
+            if let Some(b) = base_dir { analyzer.set_base_dir(b); }
             analyzer.analyze(&content_for_compute)
         })
         .await
@@ -624,8 +866,13 @@ impl QclLanguageServer {
 
         // Generate tokens off the async runtime to avoid blocking
         let content_for_tokens = content_snapshot.clone();
+        let base_dir = uri
+            .to_file_path()
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.to_path_buf()));
         let generated_result = tokio::task::spawn_blocking(move || {
-            let analyzer = QclAnalyzer::new();
+            let mut analyzer = QclAnalyzer::new();
+            if let Some(b) = base_dir { analyzer.set_base_dir(b); }
             analyzer.generate_semantic_tokens(&content_for_tokens)
         })
         .await
@@ -658,13 +905,18 @@ impl QclLanguageServer {
                     return;
                 };
 
-            // Compute analysis and tokens on snapshot off the runtime thread
+            // Compute analysis on snapshot off the runtime thread.
+            // Avoid generating full semantic tokens here; that is computed lazily
+            // when the editor explicitly asks for tokens, which keeps edits responsive.
             let content_for_compute = content_snapshot.clone();
-            let (analysis, tokens) = match tokio::task::spawn_blocking(move || {
+            let base_dir = uri
+                .to_file_path()
+                .ok()
+                .and_then(|p| p.parent().map(|p| p.to_path_buf()));
+            let analysis = match tokio::task::spawn_blocking(move || {
                 let mut analyzer = QclAnalyzer::new();
-                let analysis = analyzer.analyze(&content_for_compute);
-                let tokens = analyzer.generate_semantic_tokens(&content_for_compute);
-                (analysis, tokens)
+                if let Some(b) = base_dir { analyzer.set_base_dir(b); }
+                analyzer.analyze(&content_for_compute)
             })
             .await
             {
@@ -679,7 +931,8 @@ impl QclLanguageServer {
                     && doc.version == version_snapshot
                 {
                     doc.cached_analysis = Some(Arc::new(analysis));
-                    doc.cached_semantic_tokens = Some(Arc::new(tokens));
+                    // Do not precompute tokens here to avoid heavy work after each edit.
+                    // Tokens will be generated on demand by semanticTokens requests.
                 }
             }
         });
@@ -915,6 +1168,15 @@ fn position_to_char_idx(text: &Rope, pos: Position) -> usize {
     let line_start_char = text.line_to_char(line_idx);
     let line_slice = text.line(line_idx);
     let target_utf16 = pos.character as usize;
+
+    // Fast path: ASCII-only line where UTF-16 units == chars
+    if let Some(s) = line_slice.as_str() {
+        if s.is_ascii() {
+            let len_chars = s.len(); // bytes == chars for ASCII
+            let clamped = target_utf16.min(len_chars);
+            return line_start_char + clamped;
+        }
+    }
     let mut seen_utf16 = 0usize;
     let mut chars_in_line = 0usize;
     for ch in line_slice.chars() {
