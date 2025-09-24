@@ -196,12 +196,6 @@ impl<'a> Parser<'a> {
                 let expr = self.parse_unary()?;
                 Ok(Expr::Unary(UnaryOp::Not, Box::new(expr)))
             }
-            Token::Recv => {
-                // Channel receive as a unary operator: <-expr
-                self.pos += 1;
-                let expr = self.parse_unary()?;
-                Ok(Expr::Recv(Box::new(expr)))
-            }
             _ => self.parse_postfix(),
         }
     }
@@ -331,11 +325,6 @@ impl<'a> Parser<'a> {
                     let expr = Expr::Var(id.clone());
                     self.pos += 1;
                     Ok(expr)
-                }
-                Token::MakeChan => {
-                    // Treat 'make_chan' keyword as identifier for function calls
-                    self.pos += 1;
-                    Ok(Expr::Var("make_chan".to_string()))
                 }
                 _ => {
                     let msg = format!("Unexpected token: {:?}", self.tokens[self.pos]);
@@ -659,13 +648,11 @@ impl<'a> Parser<'a> {
                 | Token::Float(_)
                 | Token::Str(_)
                 | Token::Id(_)
-                | Token::MakeChan
                 | Token::At
                 | Token::LBracket
                 | Token::LBrace
                 | Token::LParen
                 | Token::Not
-                | Token::Recv
         )
     }
 

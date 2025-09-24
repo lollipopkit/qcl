@@ -1,5 +1,4 @@
 pub mod ast;
-pub mod concurrency;
 pub mod de;
 pub mod error;
 pub mod expr;
@@ -12,7 +11,6 @@ pub mod token;
 pub mod val;
 
 mod ast_test;
-mod concurrency_test;
 mod de_test;
 mod expr_recover_test;
 mod expr_test;

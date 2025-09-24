@@ -4,7 +4,6 @@ pub mod math;
 pub mod os;
 pub mod string;
 pub mod tcp;
-pub mod concurrency;
 
 #[cfg(test)]
 mod tcp_test;
@@ -112,11 +111,4 @@ pub fn register_stdlib_globals(registry: &mut ModuleRegistry) {
     registry.register_builtin("println", Val::RustFunction(println_fn));
     registry.register_builtin("panic", Val::RustFunction(panic_fn));
 
-    // Concurrency helpers available globally
-    registry.register_builtin("make_chan", Val::RustFunction(crate::concurrency::make_chan));
-    registry.register_builtin("send", Val::RustFunction(crate::concurrency::send));
-    registry.register_builtin("recv", Val::RustFunction(crate::concurrency::recv));
-    registry.register_builtin("try_send", Val::RustFunction(crate::concurrency::try_send));
-    registry.register_builtin("try_recv", Val::RustFunction(crate::concurrency::try_recv));
-    registry.register_builtin("close", Val::RustFunction(crate::concurrency::close));
 }

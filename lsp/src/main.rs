@@ -1279,12 +1279,6 @@ fn describe_token_hover(tokens: &[CoreToken], _spans: &[CoreSpan], idx: usize) -
         T::Import => "Keyword: import".to_string(),
         T::From => "Keyword: from".to_string(),
         T::As => "Keyword: as".to_string(),
-        T::Go => "Keyword: go".to_string(),
-        T::Chan => "Keyword: chan".to_string(),
-        T::Select => "Keyword: select".to_string(),
-        T::Case => "Keyword: case".to_string(),
-        T::Default => "Keyword: default".to_string(),
-        T::MakeChan => "Function: make_chan".to_string(),
 
         // Operators and punctuation
         T::Eq => "Operator: ==".to_string(),
@@ -1303,8 +1297,6 @@ fn describe_token_hover(tokens: &[CoreToken], _spans: &[CoreSpan], idx: usize) -
         T::Mul => "Operator: *".to_string(),
         T::Div => "Operator: /".to_string(),
         T::Mod => "Operator: %".to_string(),
-        T::Send => "Channel op: <- (send)".to_string(),
-        T::Recv => "Channel op: <- (recv)".to_string(),
         T::Dot => "Accessor: .".to_string(),
         T::Colon => "Symbol: :".to_string(),
         T::Comma => "Symbol: ,".to_string(),

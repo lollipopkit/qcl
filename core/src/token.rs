@@ -46,16 +46,6 @@ pub enum Token {
     Import, // import
     From,   // from
     As,     // as
-    // Concurrency keywords
-    Go,      // go
-    Chan,    // chan
-    Select,  // select
-    Case,    // case
-    Default, // default
-    // Channel operations
-    Send,        // <- (for channel send)
-    Recv,        // <- (for channel receive)
-    MakeChan,    // make_chan
     Str(String), // "abc"
     Int(i64),    // 1
     Float(f64),  // 1.1
@@ -420,30 +410,6 @@ impl Tokenizer {
             self.push_span_only(Token::As, sp);
             return Ok(());
         }
-        if let Some(sp) = match_kw(self, "make_chan") {
-            self.push_span_only(Token::MakeChan, sp);
-            return Ok(());
-        }
-        if let Some(sp) = match_kw(self, "go") {
-            self.push_span_only(Token::Go, sp);
-            return Ok(());
-        }
-        if let Some(sp) = match_kw(self, "chan") {
-            self.push_span_only(Token::Chan, sp);
-            return Ok(());
-        }
-        if let Some(sp) = match_kw(self, "select") {
-            self.push_span_only(Token::Select, sp);
-            return Ok(());
-        }
-        if let Some(sp) = match_kw(self, "case") {
-            self.push_span_only(Token::Case, sp);
-            return Ok(());
-        }
-        if let Some(sp) = match_kw(self, "default") {
-            self.push_span_only(Token::Default, sp);
-            return Ok(());
-        }
 
         self.parse_id()
     }
@@ -709,10 +675,6 @@ impl Tokenizer {
                 if self.expect("<=") {
                     let end = self.current_position();
                     self.push_with_span(Token::Le, start, end);
-                    Ok(())
-                } else if self.expect("<-") {
-                    let end = self.current_position();
-                    self.push_with_span(Token::Recv, start, end);
                     Ok(())
                 } else {
                     self.advance_char();

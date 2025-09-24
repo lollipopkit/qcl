@@ -1,29 +1,35 @@
 use anyhow::{Result, anyhow};
-use qcl_core::{concurrency::Channel, module::Module, stmt::Environment, val::Val};
+use qcl_core::{module::Module, stmt::Environment, val::Val};
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpListener as StdTcpListener, TcpStream, ToSocketAddrs};
+use std::net::{TcpListener as StdTcpListener, TcpStream};
 use std::sync::OnceLock;
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
 
-static CONNECTION_STORE: OnceLock<Mutex<HashMap<String, Arc<Mutex<TcpStream>>>>> = OnceLock::new();
-static LISTENER_STORE: OnceLock<Mutex<HashMap<String, Arc<Mutex<StdTcpListener>>>>> =
-    OnceLock::new();
+/// Global registry to keep track of TCP connections and listeners by ID
+static TCP_REGISTRY: OnceLock<Arc<Mutex<TcpRegistry>>> = OnceLock::new();
 
-fn get_connection_store() -> &'static Mutex<HashMap<String, Arc<Mutex<TcpStream>>>> {
-    CONNECTION_STORE.get_or_init(|| Mutex::new(HashMap::new()))
+#[derive(Debug)]
+struct TcpRegistry {
+    connections: HashMap<u64, TcpStream>,
+    listeners: HashMap<u64, StdTcpListener>,
+    next_id: u64,
 }
 
-fn get_listener_store() -> &'static Mutex<HashMap<String, Arc<Mutex<StdTcpListener>>>> {
-    LISTENER_STORE.get_or_init(|| Mutex::new(HashMap::new()))
-}
+impl TcpRegistry {
+    fn new() -> Self {
+        Self {
+            connections: HashMap::new(),
+            listeners: HashMap::new(),
+            next_id: 1,
+        }
+    }
 
-fn generate_connection_id() -> String {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    format!("tcp_conn_{}", COUNTER.fetch_add(1, Ordering::SeqCst))
+    fn get_global() -> Arc<Mutex<TcpRegistry>> {
+        TCP_REGISTRY
+            .get_or_init(|| Arc::new(Mutex::new(TcpRegistry::new())))
+            .clone()
+    }
 }
 
 #[derive(Debug)]
@@ -31,725 +37,194 @@ pub struct TcpModule {
     functions: HashMap<String, Val>,
 }
 
-impl Default for TcpModule {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl TcpModule {
     pub fn new() -> Self {
         let mut functions = HashMap::new();
 
-        // Channel creation functions
-        functions.insert("make_chan".to_string(), Val::RustFunction(crate::concurrency::make_chan));
-        
-        // Connection management with channels
+        // Connection management
         functions.insert("connect".to_string(), Val::RustFunction(Self::connect));
-        functions.insert(
-            "connect_async".to_string(),
-            Val::RustFunction(Self::connect_async),
-        );
-        functions.insert("send".to_string(), Val::RustFunction(Self::send));
-        functions.insert("recv".to_string(), Val::RustFunction(Self::recv));
-        functions.insert(
-            "send_async".to_string(),
-            Val::RustFunction(Self::send_async),
-        );
-        functions.insert(
-            "recv_async".to_string(),
-            Val::RustFunction(Self::recv_async),
-        );
-        functions.insert("close".to_string(), Val::RustFunction(Self::close));
-        functions.insert(
-            "set_timeout".to_string(),
-            Val::RustFunction(Self::set_timeout),
-        );
-
-        // Server management with channels
         functions.insert("bind".to_string(), Val::RustFunction(Self::bind));
+        functions.insert("close".to_string(), Val::RustFunction(Self::close));
+        functions.insert("read".to_string(), Val::RustFunction(Self::read));
+        functions.insert("write".to_string(), Val::RustFunction(Self::write));
         functions.insert("accept".to_string(), Val::RustFunction(Self::accept));
-        functions.insert(
-            "accept_async".to_string(),
-            Val::RustFunction(Self::accept_async),
-        );
-        functions.insert(
-            "close_listener".to_string(),
-            Val::RustFunction(Self::close_listener),
-        );
 
-        // Stream handling
-        functions.insert(
-            "read_stream".to_string(),
-            Val::RustFunction(Self::read_stream),
-        );
-        functions.insert(
-            "write_stream".to_string(),
-            Val::RustFunction(Self::write_stream),
-        );
-
-        // Utility functions
-        functions.insert("resolve".to_string(), Val::RustFunction(Self::resolve));
-
-        Self { functions }
+        TcpModule { functions }
     }
 
-    /// Connect to a remote TCP server
-    /// Usage: tcp.connect("127.0.0.1:8080") or tcp.connect("127.0.0.1", 8080)
-    /// Returns: connection_id string for use with other functions
+    /// Connect to a TCP server: tcp.connect(host, port) -> connection_id
     fn connect(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
-        if args.is_empty() || args.len() > 2 {
-            return Err(anyhow!(
-                "connect() takes 1 or 2 arguments: address [, port]"
-            ));
-        }
-
-        let address = match &args[0] {
-            Val::Str(addr) => &**addr,
-            _ => return Err(anyhow!("address must be a string")),
-        };
-
-        let socket_addr = if args.len() == 2 {
-            let port = match &args[1] {
-                Val::Int(p) => *p as u16,
-                _ => return Err(anyhow!("port must be an integer")),
-            };
-            format!("{}:{}", address, port)
-        } else {
-            address.to_string()
-        };
-
-        let addr: SocketAddr = socket_addr
-            .parse()
-            .map_err(|e| anyhow!("invalid socket address: {}", e))?;
-
-        match TcpStream::connect(addr) {
-            Ok(stream) => {
-                let conn_id = generate_connection_id();
-                let store = get_connection_store();
-                match store.lock() {
-                    Ok(mut connections) => {
-                        connections.insert(conn_id.clone(), Arc::new(Mutex::new(stream)));
-                        Ok(Val::Str(conn_id.into()))
-                    }
-                    Err(e) => Err(anyhow!("failed to acquire connection store lock: {}", e)),
-                }
-            }
-            Err(e) => Err(anyhow!("connection failed: {}", e)),
-        }
-    }
-
-    /// Send data to a TCP connection
-    /// Usage: tcp.send(connection_id, data)
-    /// Returns: number of bytes sent
-    fn send(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 2 {
-            return Err(anyhow!(
-                "send() takes exactly 2 arguments: connection_id, data"
-            ));
+            return Err(anyhow!("connect requires 2 arguments: host, port"));
         }
 
-        let conn_id = match &args[0] {
-            Val::Str(id) => &**id,
-            _ => return Err(anyhow!("connection_id must be a string")),
+        let host = match &args[0] {
+            Val::Str(s) => s.as_ref(),
+            _ => return Err(anyhow!("Host must be a string")),
         };
 
-        let data = match &args[1] {
-            Val::Str(s) => s.as_bytes(),
-            _ => return Err(anyhow!("data must be a string")),
+        let port = match &args[1] {
+            Val::Int(i) if *i > 0 && *i <= 65535 => *i as u16,
+            _ => return Err(anyhow!("Port must be a valid integer between 1 and 65535")),
         };
 
-        let store = get_connection_store();
-        match store.lock() {
-            Ok(connections) => match connections.get(conn_id) {
-                Some(stream_arc) => match stream_arc.lock() {
-                    Ok(mut stream) => match stream.write_all(data) {
-                        Ok(_) => Ok(Val::Int(data.len() as i64)),
-                        Err(e) => Err(anyhow!("send failed: {}", e)),
-                    },
-                    Err(e) => Err(anyhow!("failed to acquire stream lock: {}", e)),
-                },
-                None => Err(anyhow!("connection not found: {}", conn_id)),
-            },
-            Err(e) => Err(anyhow!("failed to acquire connection store lock: {}", e)),
-        }
+        let addr = format!("{}:{}", host, port);
+        let stream = TcpStream::connect(&addr)
+            .map_err(|e| anyhow!("Failed to connect to {}: {}", addr, e))?;
+
+        let registry = TcpRegistry::get_global();
+        let mut registry = registry.lock().unwrap();
+        let id = registry.next_id;
+        registry.next_id += 1;
+        registry.connections.insert(id, stream);
+
+        Ok(Val::Int(id as i64))
     }
 
-    /// Receive data from a TCP connection
-    /// Usage: tcp.recv(connection_id [, buffer_size])
-    /// Returns: received data as string
-    fn recv(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
-        if args.is_empty() || args.len() > 2 {
-            return Err(anyhow!(
-                "recv() takes 1 or 2 arguments: connection_id [, buffer_size]"
-            ));
-        }
-
-        let conn_id = match &args[0] {
-            Val::Str(id) => &**id,
-            _ => return Err(anyhow!("connection_id must be a string")),
-        };
-
-        let buffer_size = if args.len() == 2 {
-            match &args[1] {
-                Val::Int(size) => *size as usize,
-                _ => return Err(anyhow!("buffer_size must be an integer")),
-            }
-        } else {
-            1024
-        };
-
-        let store = get_connection_store();
-        match store.lock() {
-            Ok(connections) => match connections.get(conn_id) {
-                Some(stream_arc) => match stream_arc.lock() {
-                    Ok(mut stream) => {
-                        let mut buffer = vec![0u8; buffer_size];
-                        match stream.read(&mut buffer) {
-                            Ok(bytes_read) => {
-                                buffer.truncate(bytes_read);
-                                match String::from_utf8(buffer) {
-                                    Ok(data) => Ok(Val::Str(data.into())),
-                                    Err(_) => Ok(Val::Nil),
-                                }
-                            }
-                            Err(e) => Err(anyhow!("recv failed: {}", e)),
-                        }
-                    }
-                    Err(e) => Err(anyhow!("failed to acquire stream lock: {}", e)),
-                },
-                None => Err(anyhow!("connection not found: {}", conn_id)),
-            },
-            Err(e) => Err(anyhow!("failed to acquire connection store lock: {}", e)),
-        }
-    }
-
-    /// Close a TCP connection
-    /// Usage: tcp.close(connection_id)
-    /// Returns: true on success
-    fn close(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
-        if args.len() != 1 {
-            return Err(anyhow!("close() takes exactly 1 argument: connection_id"));
-        }
-
-        let conn_id = match &args[0] {
-            Val::Str(id) => &**id,
-            _ => return Err(anyhow!("connection_id must be a string")),
-        };
-
-        let store = get_connection_store();
-        match store.lock() {
-            Ok(mut connections) => match connections.remove(conn_id) {
-                Some(_) => Ok(Val::Bool(true)),
-                None => Err(anyhow!("connection not found: {}", conn_id)),
-            },
-            Err(e) => Err(anyhow!("failed to acquire connection store lock: {}", e)),
-        }
-    }
-
-    /// Set timeout for a TCP connection
-    /// Usage: tcp.set_timeout(connection_id, timeout_ms)
-    /// Returns: true on success
-    fn set_timeout(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
-        if args.len() != 2 {
-            return Err(anyhow!(
-                "set_timeout() takes exactly 2 arguments: connection_id, timeout_ms"
-            ));
-        }
-
-        let conn_id = match &args[0] {
-            Val::Str(id) => &**id,
-            _ => return Err(anyhow!("connection_id must be a string")),
-        };
-
-        let timeout_ms = match &args[1] {
-            Val::Int(ms) => *ms as u64,
-            _ => {
-                return Err(anyhow!("timeout must be an integer in milliseconds"));
-            }
-        };
-
-        let store = get_connection_store();
-        match store.lock() {
-            Ok(connections) => match connections.get(conn_id) {
-                Some(stream_arc) => match stream_arc.lock() {
-                    Ok(stream) => {
-                        let dur = Duration::from_millis(timeout_ms);
-                        if stream.set_read_timeout(Some(dur)).is_err()
-                            || stream.set_write_timeout(Some(dur)).is_err()
-                        {
-                            return Err(anyhow!("failed to set timeout"));
-                        }
-                        Ok(Val::Bool(true))
-                    }
-                    Err(e) => Err(anyhow!("failed to acquire stream lock: {}", e)),
-                },
-                None => Err(anyhow!("connection not found: {}", conn_id)),
-            },
-            Err(e) => Err(anyhow!("failed to acquire connection store lock: {}", e)),
-        }
-    }
-
-    /// Bind a TCP listener
-    /// Usage: tcp.bind("0.0.0.0:8080") or tcp.bind("0.0.0.0", 8080)
-    /// Returns: listener_id string
+    /// Bind a TCP listener: tcp.bind(host, port) -> listener_id
     fn bind(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
-        if args.is_empty() || args.len() > 2 {
-            return Err(anyhow!("bind() takes 1 or 2 arguments: address [, port]"));
+        if args.len() != 2 {
+            return Err(anyhow!("bind requires 2 arguments: host, port"));
         }
 
-        let address = match &args[0] {
-            Val::Str(addr) => &**addr,
-            _ => return Err(anyhow!("address must be a string")),
+        let host = match &args[0] {
+            Val::Str(s) => s.as_ref(),
+            _ => return Err(anyhow!("Host must be a string")),
         };
 
-        let socket_addr = if args.len() == 2 {
-            let port = match &args[1] {
-                Val::Int(p) => *p as u16,
-                _ => return Err(anyhow!("port must be an integer")),
-            };
-            format!("{}:{}", address, port)
-        } else {
-            address.to_string()
+        let port = match &args[1] {
+            Val::Int(i) if *i > 0 && *i <= 65535 => *i as u16,
+            _ => return Err(anyhow!("Port must be a valid integer between 1 and 65535")),
         };
 
-        match StdTcpListener::bind(socket_addr) {
-            Ok(listener) => {
-                let listener_id = {
-                    use std::sync::atomic::{AtomicU64, Ordering};
-                    static COUNTER: AtomicU64 = AtomicU64::new(0);
-                    format!("tcp_listener_{}", COUNTER.fetch_add(1, Ordering::SeqCst))
-                };
-                let store = get_listener_store();
-                match store.lock() {
-                    Ok(mut listeners) => {
-                        listeners.insert(listener_id.clone(), Arc::new(Mutex::new(listener)));
-                        Ok(Val::Str(listener_id.into()))
-                    }
-                    Err(e) => Err(anyhow!("failed to acquire listener store lock: {}", e)),
-                }
-            }
-            Err(e) => Err(anyhow!("bind failed: {}", e)),
-        }
+        let addr = format!("{}:{}", host, port);
+        let listener = StdTcpListener::bind(&addr)
+            .map_err(|e| anyhow!("Failed to bind to {}: {}", addr, e))?;
+
+        let registry = TcpRegistry::get_global();
+        let mut registry = registry.lock().unwrap();
+        let id = registry.next_id;
+        registry.next_id += 1;
+        registry.listeners.insert(id, listener);
+
+        Ok(Val::Int(id as i64))
     }
 
-    /// Accept a connection
-    /// Usage: tcp.accept(listener_id)
-    /// Returns: connection_id string
+    /// Accept a connection from a listener: tcp.accept(listener_id) -> connection_id
     fn accept(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
-            return Err(anyhow!("accept() takes exactly 1 argument: listener_id"));
+            return Err(anyhow!("accept requires 1 argument: listener_id"));
         }
 
         let listener_id = match &args[0] {
-            Val::Str(id) => &**id,
-            _ => return Err(anyhow!("listener_id must be a string")),
+            Val::Int(i) if *i > 0 => *i as u64,
+            _ => return Err(anyhow!("Listener ID must be a positive integer")),
         };
 
-        let store = get_listener_store();
-        match store.lock() {
-            Ok(listeners) => match listeners.get(listener_id) {
-                Some(listener_arc) => match listener_arc.lock() {
-                    Ok(listener) => match listener.accept() {
-                        Ok((stream, _)) => {
-                            let conn_id = generate_connection_id();
-                            let conn_store = get_connection_store();
-                            match conn_store.lock() {
-                                Ok(mut connections) => {
-                                    connections
-                                        .insert(conn_id.clone(), Arc::new(Mutex::new(stream)));
-                                    Ok(Val::Str(conn_id.into()))
-                                }
-                                Err(e) => {
-                                    Err(anyhow!("failed to acquire connection store lock: {}", e))
-                                }
-                            }
-                        }
-                        Err(e) => Err(anyhow!("accept failed: {}", e)),
-                    },
-                    Err(e) => Err(anyhow!("failed to acquire listener lock: {}", e)),
-                },
-                None => Err(anyhow!("listener not found: {}", listener_id)),
-            },
-            Err(e) => Err(anyhow!("failed to acquire listener store lock: {}", e)),
-        }
+        let registry = TcpRegistry::get_global();
+        let mut registry = registry.lock().unwrap();
+        
+        let listener = registry.listeners.get(&listener_id)
+            .ok_or_else(|| anyhow!("Invalid listener ID: {}", listener_id))?;
+
+        // This is a blocking accept - in a real implementation you might want to make this configurable
+        let (stream, _) = listener.accept()
+            .map_err(|e| anyhow!("Failed to accept connection: {}", e))?;
+
+        let id = registry.next_id;
+        registry.next_id += 1;
+        registry.connections.insert(id, stream);
+
+        Ok(Val::Int(id as i64))
     }
 
-    /// Close a TCP listener
-    /// Usage: tcp.close_listener(listener_id)
-    /// Returns: true on success
-    fn close_listener(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
-        if args.len() != 1 {
-            return Err(anyhow!(
-                "close_listener() takes exactly 1 argument: listener_id"
-            ));
-        }
-
-        let listener_id = match &args[0] {
-            Val::Str(id) => &**id,
-            _ => return Err(anyhow!("listener_id must be a string")),
-        };
-
-        let store = get_listener_store();
-        match store.lock() {
-            Ok(mut listeners) => match listeners.remove(listener_id) {
-                Some(_) => Ok(Val::Bool(true)),
-                None => Err(anyhow!("listener not found: {}", listener_id)),
-            },
-            Err(e) => Err(anyhow!("failed to acquire listener store lock: {}", e)),
-        }
-    }
-
-    /// Resolve hostname to IP address
-    /// Usage: tcp.resolve("example.com")
-    /// Returns: IP address string
-    fn resolve(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
-        if args.len() != 1 {
-            return Err(anyhow!("resolve() takes exactly 1 argument: hostname"));
-        }
-
-        let hostname = match &args[0] {
-            Val::Str(name) => &**name,
-            _ => return Err(anyhow!("hostname must be a string")),
-        };
-
-        // Use a timeout for DNS resolution to avoid hanging
-        let hostname_owned = hostname.to_string();
-        let (sender, receiver) = std::sync::mpsc::channel();
-
-        thread::spawn(move || {
-            let result = format!("{}:0", hostname_owned).to_socket_addrs();
-            let _ = sender.send(result);
-        });
-
-        // Set a reasonable timeout (5 seconds)
-        match receiver.recv_timeout(Duration::from_secs(5)) {
-            Ok(Ok(mut addrs)) => {
-                if let Some(addr) = addrs.next() {
-                    Ok(Val::Str(addr.ip().to_string().into()))
-                } else {
-                    Ok(Val::Nil)
-                }
-            }
-            Ok(Err(e)) => Err(anyhow!("hostname resolution failed: {}", e)),
-            Err(_) => Err(anyhow!("hostname resolution timed out")),
-        }
-    }
-
-    /// Connect to a remote TCP server asynchronously using channels
-    /// Usage: tcp.connect_async("127.0.0.1:8080") or tcp.connect_async("127.0.0.1", 8080)
-    /// Returns: channel that will receive connection_id when ready
-    fn connect_async(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
+    /// Read data from a connection: tcp.read(connection_id, [max_bytes]) -> string
+    fn read(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
         if args.is_empty() || args.len() > 2 {
-            return Err(anyhow!(
-                "connect_async() takes 1 or 2 arguments: address [, port]"
-            ));
+            return Err(anyhow!("read requires 1-2 arguments: connection_id, [max_bytes]"));
         }
 
-        let address = match &args[0] {
-            Val::Str(addr) => addr.to_string(),
-            _ => return Err(anyhow!("address must be a string")),
+        let conn_id = match &args[0] {
+            Val::Int(i) if *i > 0 => *i as u64,
+            _ => return Err(anyhow!("Connection ID must be a positive integer")),
         };
 
-        let socket_addr = if args.len() == 2 {
-            let port = match &args[1] {
-                Val::Int(p) => *p as u16,
-                _ => return Err(anyhow!("port must be an integer")),
-            };
-            format!("{}:{}", address, port)
-        } else {
-            address
-        };
-
-        let result_channel = Channel::new();
-        let result_ch_clone = result_channel.clone();
-
-        thread::spawn(move || {
-            let addr_result: Result<SocketAddr> = socket_addr
-                .parse()
-                .map_err(|e| anyhow!("invalid socket address: {}", e));
-
-            match addr_result {
-                Ok(addr) => match TcpStream::connect(addr) {
-                    Ok(stream) => {
-                        let conn_id = generate_connection_id();
-                        let store = get_connection_store();
-                        match store.lock() {
-                            Ok(mut connections) => {
-                                connections.insert(conn_id.clone(), Arc::new(Mutex::new(stream)));
-                                let _ = result_ch_clone.send(Val::Str(conn_id.into()));
-                            }
-                            Err(_) => {
-                                let _ = result_ch_clone.send(Val::Nil);
-                            }
-                        }
-                    }
-                    Err(_) => {
-                        let _ = result_ch_clone.send(Val::Nil);
-                    }
-                },
-                Err(_) => {
-                    let _ = result_ch_clone.send(Val::Nil);
-                }
+        let max_bytes = if args.len() > 1 {
+            match &args[1] {
+                Val::Int(i) if *i > 0 => *i as usize,
+                _ => return Err(anyhow!("max_bytes must be a positive integer")),
             }
-        });
+        } else {
+            4096
+        };
 
-        Ok(Val::Channel(result_channel))
+        let registry = TcpRegistry::get_global();
+        let mut registry = registry.lock().unwrap();
+        
+        let stream = registry.connections.get_mut(&conn_id)
+            .ok_or_else(|| anyhow!("Invalid connection ID: {}", conn_id))?;
+
+        let mut buffer = vec![0u8; max_bytes];
+        let bytes_read = stream.read(&mut buffer)
+            .map_err(|e| anyhow!("Failed to read from connection: {}", e))?;
+
+        buffer.truncate(bytes_read);
+        let data = String::from_utf8(buffer)
+            .map_err(|_| anyhow!("Data is not valid UTF-8"))?;
+
+        Ok(Val::Str(data.into()))
     }
 
-    /// Send data to a TCP connection asynchronously using channels
-    /// Usage: tcp.send_async(connection_id, data)
-    /// Returns: channel that will receive number of bytes sent when complete
-    fn send_async(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
+    /// Write data to a connection: tcp.write(connection_id, data) -> bytes_written
+    fn write(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 2 {
-            return Err(anyhow!(
-                "send_async() takes exactly 2 arguments: connection_id, data"
-            ));
+            return Err(anyhow!("write requires 2 arguments: connection_id, data"));
         }
 
         let conn_id = match &args[0] {
-            Val::Str(id) => id.to_string(),
-            _ => return Err(anyhow!("connection_id must be a string")),
+            Val::Int(i) if *i > 0 => *i as u64,
+            _ => return Err(anyhow!("Connection ID must be a positive integer")),
         };
 
+        let data_string;
         let data = match &args[1] {
-            Val::Str(s) => s.as_bytes().to_vec(),
-            _ => return Err(anyhow!("data must be a string")),
-        };
-
-        let result_channel = Channel::new();
-        let result_ch_clone = result_channel.clone();
-
-        thread::spawn(move || {
-            let store = get_connection_store();
-            let result = match store.lock() {
-                Ok(connections) => match connections.get(&conn_id) {
-                    Some(stream_arc) => match stream_arc.lock() {
-                        Ok(mut stream) => match stream.write_all(&data) {
-                            Ok(_) => Val::Int(data.len() as i64),
-                            Err(_) => Val::Nil,
-                        },
-                        Err(_) => Val::Nil,
-                    },
-                    None => Val::Nil,
-                },
-                Err(_) => Val::Nil,
-            };
-
-            let _ = result_ch_clone.send(result);
-        });
-
-        Ok(Val::Channel(result_channel))
-    }
-
-    /// Receive data from a TCP connection asynchronously using channels
-    /// Usage: tcp.recv_async(connection_id [, buffer_size])
-    /// Returns: channel that will receive data when available
-    fn recv_async(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
-        if args.is_empty() || args.len() > 2 {
-            return Err(anyhow!(
-                "recv_async() takes 1 or 2 arguments: connection_id [, buffer_size]"
-            ));
-        }
-
-        let conn_id = match &args[0] {
-            Val::Str(id) => id.to_string(),
-            _ => return Err(anyhow!("connection_id must be a string")),
-        };
-
-        let buffer_size = if args.len() == 2 {
-            match &args[1] {
-                Val::Int(size) => *size as usize,
-                _ => return Err(anyhow!("buffer_size must be an integer")),
+            Val::Str(s) => s.as_bytes(),
+            v => {
+                data_string = v.to_string();
+                data_string.as_bytes()
             }
-        } else {
-            1024
         };
 
-        let result_channel = Channel::new();
-        let result_ch_clone = result_channel.clone();
+        let registry = TcpRegistry::get_global();
+        let mut registry = registry.lock().unwrap();
+        
+        let stream = registry.connections.get_mut(&conn_id)
+            .ok_or_else(|| anyhow!("Invalid connection ID: {}", conn_id))?;
 
-        thread::spawn(move || {
-            let store = get_connection_store();
-            let result = match store.lock() {
-                Ok(connections) => match connections.get(&conn_id) {
-                    Some(stream_arc) => match stream_arc.lock() {
-                        Ok(mut stream) => {
-                            let mut buffer = vec![0u8; buffer_size];
-                            match stream.read(&mut buffer) {
-                                Ok(bytes_read) => {
-                                    buffer.truncate(bytes_read);
-                                    match String::from_utf8(buffer) {
-                                        Ok(data) => Val::Str(data.into()),
-                                        Err(_) => Val::Nil,
-                                    }
-                                }
-                                Err(_) => Val::Nil,
-                            }
-                        }
-                        Err(_) => Val::Nil,
-                    },
-                    None => Val::Nil,
-                },
-                Err(_) => Val::Nil,
-            };
+        let bytes_written = stream.write(data)
+            .map_err(|e| anyhow!("Failed to write to connection: {}", e))?;
 
-            let _ = result_ch_clone.send(result);
-        });
-
-        Ok(Val::Channel(result_channel))
+        Ok(Val::Int(bytes_written as i64))
     }
 
-    /// Accept connections asynchronously using channels
-    /// Usage: tcp.accept_async(listener_id)
-    /// Returns: channel that will receive connection_id when a connection is accepted
-    fn accept_async(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
+    /// Close a connection or listener: tcp.close(id) -> bool
+    fn close(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 1 {
-            return Err(anyhow!(
-                "accept_async() takes exactly 1 argument: listener_id"
-            ));
+            return Err(anyhow!("close requires 1 argument: id"));
         }
 
-        let listener_id = match &args[0] {
-            Val::Str(id) => id.to_string(),
-            _ => return Err(anyhow!("listener_id must be a string")),
+        let id = match &args[0] {
+            Val::Int(i) if *i > 0 => *i as u64,
+            _ => return Err(anyhow!("ID must be a positive integer")),
         };
 
-        let result_channel = Channel::new();
-        let result_ch_clone = result_channel.clone();
+        let registry = TcpRegistry::get_global();
+        let mut registry = registry.lock().unwrap();
+        
+        let closed = registry.connections.remove(&id).is_some() || 
+                    registry.listeners.remove(&id).is_some();
 
-        thread::spawn(move || {
-            let store = get_listener_store();
-            let result = match store.lock() {
-                Ok(listeners) => match listeners.get(&listener_id) {
-                    Some(listener_arc) => match listener_arc.lock() {
-                        Ok(listener) => match listener.accept() {
-                            Ok((stream, _)) => {
-                                let conn_id = generate_connection_id();
-                                let conn_store = get_connection_store();
-
-                                match conn_store.lock() {
-                                    Ok(mut connections) => {
-                                        connections
-                                            .insert(conn_id.clone(), Arc::new(Mutex::new(stream)));
-                                        Val::Str(conn_id.into())
-                                    }
-                                    Err(_) => Val::Nil,
-                                }
-                            }
-                            Err(_) => Val::Nil,
-                        },
-                        Err(_) => Val::Nil,
-                    },
-                    None => Val::Nil,
-                },
-                Err(_) => Val::Nil,
-            };
-
-            let _ = result_ch_clone.send(result);
-        });
-
-        Ok(Val::Channel(result_channel))
-    }
-
-    /// Create a continuous stream reader using channels
-    /// Usage: tcp.read_stream(connection_id [, buffer_size])
-    /// Returns: channel that continuously receives data
-    fn read_stream(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
-        if args.is_empty() || args.len() > 2 {
-            return Err(anyhow!(
-                "read_stream() takes 1 or 2 arguments: connection_id [, buffer_size]"
-            ));
-        }
-
-        let conn_id = match &args[0] {
-            Val::Str(id) => id.to_string(),
-            _ => return Err(anyhow!("connection_id must be a string")),
-        };
-
-        let buffer_size = if args.len() == 2 {
-            match &args[1] {
-                Val::Int(size) => *size as usize,
-                _ => return Err(anyhow!("buffer_size must be an integer")),
-            }
-        } else {
-            1024
-        };
-
-        let stream_channel = Channel::new();
-        let stream_ch_clone = stream_channel.clone();
-
-        thread::spawn(move || {
-            let store = get_connection_store();
-            if let Ok(connections) = store.lock()
-                && let Some(stream_arc) = connections.get(&conn_id)
-                && let Ok(mut stream) = stream_arc.lock()
-            {
-                loop {
-                    let mut buffer = vec![0u8; buffer_size];
-                    match stream.read(&mut buffer) {
-                        Ok(0) => break, // EOF
-                        Ok(bytes_read) => {
-                            buffer.truncate(bytes_read);
-                            match String::from_utf8(buffer) {
-                                Ok(data) => {
-                                    if stream_ch_clone.send(Val::Str(data.into())).is_err() {
-                                        break;
-                                    }
-                                }
-                                Err(_) => break,
-                            }
-                        }
-                        Err(_) => break,
-                    }
-                }
-            }
-
-            // Signal end of stream with nil
-            let _ = stream_ch_clone.send(Val::Nil);
-        });
-
-        Ok(Val::Channel(stream_channel))
-    }
-
-    /// Create a continuous stream writer using channels
-    /// Usage: tcp.write_stream(connection_id)
-    /// Returns: channel to send data to the connection
-    fn write_stream(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
-        if args.len() != 1 {
-            return Err(anyhow!(
-                "write_stream() takes exactly 1 argument: connection_id"
-            ));
-        }
-
-        let conn_id = match &args[0] {
-            Val::Str(id) => id.to_string(),
-            _ => return Err(anyhow!("connection_id must be a string")),
-        };
-
-        let write_channel = Channel::new();
-        let write_ch_clone = write_channel.clone();
-
-        thread::spawn(move || {
-            let store = get_connection_store();
-            if let Ok(connections) = store.lock()
-                && let Some(stream_arc) = connections.get(&conn_id)
-                && let Ok(mut stream) = stream_arc.lock()
-            {
-                while let Ok(val) = write_ch_clone.recv() {
-                    if val == Val::Nil {
-                        break; // Signal to close
-                    }
-                    if let Val::Str(data) = val
-                        && stream.write_all(data.as_bytes()).is_err()
-                    {
-                        break;
-                    }
-                }
-            }
-        });
-
-        Ok(Val::Channel(write_channel))
+        Ok(Val::Bool(closed))
     }
 }
 
@@ -758,15 +233,29 @@ impl Module for TcpModule {
         "tcp"
     }
 
-    fn description(&self) -> &str {
-        "TCP networking interface with concurrency support"
-    }
-
     fn register(&self, _registry: &mut qcl_core::module::ModuleRegistry) -> Result<()> {
+        // Don't register functions globally - they should be accessed via module.function()
         Ok(())
     }
 
     fn exports(&self) -> HashMap<String, Val> {
         self.functions.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tcp_module_functions() {
+        let module = TcpModule::new();
+        let exports = module.exports();
+        assert!(exports.contains_key("connect"));
+        assert!(exports.contains_key("bind"));
+        assert!(exports.contains_key("close"));
+        assert!(exports.contains_key("read"));
+        assert!(exports.contains_key("write"));
+        assert!(exports.contains_key("accept"));
     }
 }
