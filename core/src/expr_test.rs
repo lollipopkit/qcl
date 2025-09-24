@@ -299,6 +299,101 @@ mod test {
         expect(r#"@'special-chars'"#, "test-value");
     }
 
+    #[test]
+    #[cfg(feature = "json")]
+    fn optional_chaining() {
+        // Test basic optional chaining - should return "lk" when user exists
+        expect("@req?.user?.name", "lk");
+        
+        // Test optional chaining with nil - should return nil when intermediate is nil
+        let ctx: Val = json!({
+            "req": null
+        }).into();
+        let expr = Expr::try_from("@req?.user?.name").unwrap();
+        let result = expr.eval(&ctx).unwrap();
+        assert_eq!(result, Val::Nil);
+
+        // Test optional chaining mixed with regular access
+        expect("@req?.user.name", "lk");
+        
+        // Test optional chaining where intermediate field doesn't exist - should return nil
+        let ctx: Val = json!({
+            "req": {}
+        }).into();
+        let expr = Expr::try_from("@req?.user?.name").unwrap();
+        let result = expr.eval(&ctx).unwrap();
+        assert_eq!(result, Val::Nil);
+        
+        // Test optional chaining on nested structures
+        let ctx: Val = json!({
+            "data": {
+                "user": {
+                    "profile": {
+                        "email": "test@example.com"
+                    }
+                }
+            }
+        }).into();
+        let expr = Expr::try_from("@data?.user?.profile?.email").unwrap();
+        let result = expr.eval(&ctx).unwrap();
+        assert_eq!(result, Val::from("test@example.com"));
+        
+        // Test optional chaining where deeply nested field is nil
+        let ctx: Val = json!({
+            "data": {
+                "user": {
+                    "profile": null
+                }
+            }
+        }).into();
+        let expr = Expr::try_from("@data?.user?.profile?.email").unwrap();
+        let result = expr.eval(&ctx).unwrap();
+        assert_eq!(result, Val::Nil);
+
+        // Test optional chaining with list access
+        let ctx: Val = json!({
+            "data": {
+                "items": [
+                    {"name": "first"},
+                    {"name": "second"}
+                ]
+            }
+        }).into();
+        let expr = Expr::try_from("@data?.items?.0?.name").unwrap();
+        let result = expr.eval(&ctx).unwrap();
+        assert_eq!(result, Val::from("first"));
+
+        // Test optional chaining with expression evaluation mixed in
+        let ctx: Val = json!({
+            "data": {
+                "user": {
+                    "age": 25
+                }
+            }
+        }).into();
+        let expr = Expr::try_from("@data?.user?.age + 5").unwrap();
+        let result = expr.eval(&ctx).unwrap();
+        assert_eq!(result, Val::from(30));
+        
+        // Test optional chaining in boolean expression
+        let ctx: Val = json!({
+            "data": {
+                "user": {
+                    "age": 25
+                }
+            }
+        }).into();
+        let expr = Expr::try_from("@data?.user?.age > 20").unwrap();
+        let result = expr.eval(&ctx).unwrap();
+        assert_eq!(result, Val::from(true));
+
+        // Test optional chaining where context root is nil
+        let ctx: Val = json!(null).into();
+        let expr = Expr::try_from("@data?.user?.name").unwrap();
+        let result = expr.eval(&ctx).unwrap();
+        assert_eq!(result, Val::Nil);
+    }
+
     #[cfg(feature = "json")]
     fn with_ctx(rule: &str) -> Result<Val> {
         let ctx: Val = json!({

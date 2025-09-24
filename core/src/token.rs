@@ -11,6 +11,7 @@ pub enum Token {
     LBracket,  // [
     RBracket,  // ]
     Dot,       // .
+    OptionalDot, // ?.
     Colon,     // :
     Comma,     // ,
     Semicolon, // ;
@@ -635,6 +636,20 @@ impl Tokenizer {
                 self.push_with_span(Token::Dot, start, end);
                 Ok(())
             }
+            '?' => {
+                let next = self.chars.get(self.idx + 1);
+                if let Some(&'.') = next {
+                    // Optional chaining operator ?.
+                    let start = self.current_position();
+                    self.advance_char(); // consume ?
+                    self.advance_char(); // consume .
+                    let end = self.current_position();
+                    self.push_with_span(Token::OptionalDot, start, end);
+                    Ok(())
+                } else {
+                    Err(anyhow!(self.err("Unexpected character '?'")))
+                }
+            }
             '&' => {
                 let start = self.current_position();
                 if self.expect("&&") {
@@ -815,6 +830,7 @@ impl Tokenizer {
                 | '['
                 | ']'
                 | '.'
+                | '?'
                 | ':'
                 | ','
                 | ';'

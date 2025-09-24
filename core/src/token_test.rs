@@ -758,4 +758,48 @@ mod tests {
         assert_eq!(tokens[2], Token::Assign);
         assert_eq!(tokens[3], Token::Id("in_other".to_string()));
     }
+
+    #[test]
+    fn test_optional_chaining_operator() {
+        let tokens = Tokenizer::tokenize("@req.user?.profile?.name").expect("Invalid tokens");
+        
+        let expected = vec![
+            Token::At,
+            Token::Id("req".to_string()),
+            Token::Dot,
+            Token::Id("user".to_string()),
+            Token::OptionalDot,
+            Token::Id("profile".to_string()),
+            Token::OptionalDot,
+            Token::Id("name".to_string()),
+        ];
+        assert_eq!(tokens, expected);
+    }
+
+    #[test]
+    fn test_optional_chaining_mixed_with_regular() {
+        let tokens = Tokenizer::tokenize("@req.user?.profile.name").expect("Invalid tokens");
+        
+        let expected = vec![
+            Token::At,
+            Token::Id("req".to_string()),
+            Token::Dot,
+            Token::Id("user".to_string()),
+            Token::OptionalDot,
+            Token::Id("profile".to_string()),
+            Token::Dot,
+            Token::Id("name".to_string()),
+        ];
+        assert_eq!(tokens, expected);
+    }
+
+    #[test]
+    fn test_invalid_question_mark() {
+        // Single question mark without dot should error
+        let result = Tokenizer::tokenize("@req?user");
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(e.to_string().contains("Unexpected character '?'"));
+        }
+    }
 }

@@ -1383,6 +1383,7 @@ fn describe_token_hover(tokens: &[CoreToken], _spans: &[CoreSpan], idx: usize) -
         T::Default => "Concurrency: default".to_string(),
         T::Arrow => "Symbol: =>".to_string(),
         T::LeftArrow => "Symbol: <=".to_string(),
+        T::OptionalDot => "Operator: ?.".to_string(),
     }
 }
 

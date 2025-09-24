@@ -96,6 +96,8 @@ pub enum Expr {
     At(Vec<Box<Expr>>),
     /// expr.field
     Access(Box<Expr>, Box<Expr>),
+    /// expr?.field (optional chaining)
+    OptionalAccess(Box<Expr>, Box<Expr>),
     // (expr)
     Paren(Box<Expr>),
     /// [expr, expr, ...]
@@ -195,6 +197,18 @@ impl Expr {
             }
             Expr::Access(expr, field) => {
                 let val = expr.eval_with_env(ctx, env)?;
+                let field_val = field.eval_with_env(ctx, env)?;
+                match val.access(&field_val) {
+                    Some(v) => Ok(v),
+                    None => Ok(Val::Nil),
+                }
+            }
+            Expr::OptionalAccess(expr, field) => {
+                let val = expr.eval_with_env(ctx, env)?;
+                // Short-circuit if the left side is nil
+                if val == Val::Nil {
+                    return Ok(Val::Nil);
+                }
                 let field_val = field.eval_with_env(ctx, env)?;
                 match val.access(&field_val) {
                     Some(v) => Ok(v),
@@ -600,6 +614,10 @@ impl Expr {
                 expr.collect_ctx_names(names);
                 field.collect_ctx_names(names);
             }
+            Expr::OptionalAccess(expr, field) => {
+                expr.collect_ctx_names(names);
+                field.collect_ctx_names(names);
+            }
             Expr::Bin(l, _, r) => {
                 l.collect_ctx_names(names);
                 r.collect_ctx_names(names);
@@ -809,6 +827,22 @@ impl Expr {
                 }
                 Expr::Access(Box::new(base), Box::new(field))
             }
+            Expr::OptionalAccess(base_box, field_box) => {
+                let base = (*base_box).fold_constants();
+                let field = (*field_box).fold_constants();
+                if let (Expr::Val(base_val), Expr::Val(field_val)) = (&base, &field) {
+                    // Direct access to constant structure with optional chaining
+                    if base_val == &Val::Nil {
+                        return Expr::Val(Val::Nil);
+                    }
+                    if let Some(res_val) = base_val.access(field_val) {
+                        return Expr::Val(res_val);
+                    } else {
+                        return Expr::Val(Val::Nil);
+                    }
+                }
+                Expr::OptionalAccess(Box::new(base), Box::new(field))
+            }
             Expr::List(exprs) => {
                 // List constant folding: if all elements are constants then fold to one Val::List
                 let folded_elems: Vec<Expr> =
@@ -995,6 +1029,7 @@ impl Display for Expr {
                 write!(f, "@{}", paths.join("."))
             }
             Expr::Access(expr, field) => write!(f, "{}.{}", expr, field),
+            Expr::OptionalAccess(expr, field) => write!(f, "{}?.{}", expr, field),
             Expr::List(exprs) => {
                 let exprs: Vec<String> = exprs.iter().map(|e| e.to_string()).collect();
                 write!(f, "[{}]", exprs.join(", "))

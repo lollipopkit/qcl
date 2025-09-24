@@ -346,6 +346,7 @@ impl TestLanguageServer {
             T::Default => "Keyword: default".to_string(),
             T::Arrow => "Operator: =>".to_string(),
             T::LeftArrow => "Operator: <=".to_string(),
+            T::OptionalDot => "Operator: ?.".to_string(),
         }
     }
 

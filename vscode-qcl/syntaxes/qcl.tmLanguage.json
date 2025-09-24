@@ -48,6 +48,10 @@
         {
           "name": "keyword.operator.channel.qcl",
           "match": "<-"
+        },
+        {
+          "name": "keyword.operator.optional-chaining.qcl",
+          "match": "\\?\\."
         }
       ]
     },
@@ -120,7 +124,7 @@
       "patterns": [
         {
           "name": "variable.other.context.qcl",
-          "match": "@[a-zA-Z_][a-zA-Z0-9_.]*"
+          "match": "@[a-zA-Z_][a-zA-Z0-9_.]*(\\?\\.[a-zA-Z0-9_.]*)*"
         }
       ]
     },

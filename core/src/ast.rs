@@ -299,6 +299,15 @@ impl<'a> Parser<'a> {
                         expr = Expr::Access(Box::new(expr), Box::new(field));
                     }
                 }
+            } else if !self.eof() && self.tokens[self.pos] == Token::OptionalDot {
+                // Optional dot access (?.)
+                self.pos += 1;
+                if self.eof() {
+                    return Err(anyhow!(self.err("Expecting field after '?.'")));
+                }
+                let field = self.parse_field_accessor()?;
+                // Optional access is only supported on regular expressions, not @ expressions
+                expr = Expr::OptionalAccess(Box::new(expr), Box::new(field));
             } else {
                 break; // No more postfix operations
             }
