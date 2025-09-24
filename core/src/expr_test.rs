@@ -78,6 +78,37 @@ mod test {
 
     #[test]
     #[cfg(feature = "json")]
+    fn nullish_coalescing_operations() {
+        // Basic nullish coalescing with nil values
+        expect("@nonexistent.field ?? 'default'", "default");
+        expect("@user.name ?? 'default'", "lk");
+        expect("nil ?? 'fallback'", "fallback");
+        expect("'actual' ?? 'fallback'", "actual");
+        
+        // Numeric nullish coalescing
+        expect("@nonexistent.age ?? 18", 18);
+        expect("@user.age ?? 100", 18);
+        
+        // Boolean nullish coalescing
+        expect("@nonexistent.active ?? true", true);
+        expect("@pub ?? false", true);
+        
+        // Complex expressions with nullish coalescing
+        expect("@user.nonexistent ?? @user.name ?? 'unknown'", "lk");
+        expect("@user.name ?? @user.age ?? 'fallback'", "lk");
+        
+        // Nested nullish coalescing with other operators
+        expect("(@nonexistent.value ?? 5) + 10", 15);
+        expect("(@user.name ?? 'guest') == 'lk'", true);
+        expect("@user.name ?? ('guest' == 'lk')", "lk");
+        
+        // Constant folding
+        expect("'hello' ?? 'world'", "hello");
+        expect("nil ?? 'constant'", "constant");
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
     fn unary_operations() {
         // Logical NOT
         expect("!@pub", false);
@@ -259,6 +290,16 @@ mod test {
         let mut expected = HashSet::new();
         expected.insert("user".to_string());
         expected.insert("list".to_string());
+
+        assert_eq!(names, expected);
+
+        // Test nullish coalescing context collection
+        let expr = Expr::try_from("@user.name ?? @person.name ?? 'default'").unwrap();
+        let names = expr.requested_ctx();
+
+        let mut expected = HashSet::new();
+        expected.insert("user".to_string());
+        expected.insert("person".to_string());
 
         assert_eq!(names, expected);
     }

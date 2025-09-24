@@ -1384,6 +1384,7 @@ fn describe_token_hover(tokens: &[CoreToken], _spans: &[CoreSpan], idx: usize) -
         T::Arrow => "Symbol: =>".to_string(),
         T::LeftArrow => "Symbol: <=".to_string(),
         T::OptionalDot => "Operator: ?.".to_string(),
+        T::NullishCoalescing => "Operator: ??".to_string(),
     }
 }
 

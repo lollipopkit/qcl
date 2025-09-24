@@ -52,8 +52,9 @@ pub enum Token {
     Select,    // select
     Case,      // case
     Default,   // default
-    Arrow,     // =>
-    LeftArrow, // <-
+    Arrow,         // =>
+    LeftArrow,     // <-
+    NullishCoalescing, // ??
     // Import keywords
     Import,      // import
     From,        // from
@@ -645,6 +646,14 @@ impl Tokenizer {
                     self.advance_char(); // consume .
                     let end = self.current_position();
                     self.push_with_span(Token::OptionalDot, start, end);
+                    Ok(())
+                } else if let Some(&'?') = next {
+                    // Nullish coalescing operator ??
+                    let start = self.current_position();
+                    self.advance_char(); // consume first ?
+                    self.advance_char(); // consume second ?
+                    let end = self.current_position();
+                    self.push_with_span(Token::NullishCoalescing, start, end);
                     Ok(())
                 } else {
                     Err(anyhow!(self.err("Unexpected character '?'")))

@@ -94,7 +94,23 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr(&mut self) -> Result<Expr> {
-        self.parse_or()
+        self.parse_nullish_coalescing()
+    }
+
+    /// - `expr ?? expr` (nullish coalescing)
+    fn parse_nullish_coalescing(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_or()?;
+        while !self.eof() {
+            match self.tokens[self.pos] {
+                Token::NullishCoalescing => {
+                    self.pos += 1;
+                    let right = self.parse_or()?;
+                    expr = Expr::NullishCoalescing(Box::new(expr), Box::new(right));
+                }
+                _ => break,
+            }
+        }
+        Ok(expr)
     }
 
     /// - `expr || expr`

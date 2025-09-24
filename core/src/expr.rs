@@ -91,6 +91,8 @@ pub enum Expr {
     And(Box<Expr>, Box<Expr>),
     /// expr || expr
     Or(Box<Expr>, Box<Expr>),
+    /// expr ?? expr (nullish coalescing)
+    NullishCoalescing(Box<Expr>, Box<Expr>),
     /// @field.field...
     /// field can be string or int
     At(Vec<Box<Expr>>),
@@ -179,6 +181,15 @@ impl Expr {
                     (Val::Bool(_), Val::Bool(true)) => Ok(Val::Bool(true)),
                     (Val::Bool(_), Val::Bool(_)) => Ok(Val::Bool(false)),
                     _ => err_op(&l, "||", &r),
+                }
+            }
+            Expr::NullishCoalescing(e1, e2) => {
+                let l = e1.eval_with_env(ctx, env)?;
+                // If left side is nil, return right side; otherwise return left side
+                if l == Val::Nil {
+                    e2.eval_with_env(ctx, env)
+                } else {
+                    Ok(l)
                 }
             }
             Expr::At(paths) => {
@@ -625,7 +636,7 @@ impl Expr {
             Expr::Unary(_, expr) => {
                 expr.collect_ctx_names(names);
             }
-            Expr::And(l, r) | Expr::Or(l, r) => {
+            Expr::And(l, r) | Expr::Or(l, r) | Expr::NullishCoalescing(l, r) => {
                 l.collect_ctx_names(names);
                 r.collect_ctx_names(names);
             }
@@ -805,6 +816,19 @@ impl Expr {
                     return Expr::Val(Val::Bool(*b1 || *b2));
                 }
                 Expr::Or(Box::new(e1), Box::new(e2))
+            }
+            Expr::NullishCoalescing(e1_box, e2_box) => {
+                let e1 = (*e1_box).fold_constants();
+                // If left side is constant not nil, return it
+                if let Expr::Val(v) = &e1 && *v != Val::Nil {
+                    return e1;
+                }
+                let e2 = (*e2_box).fold_constants();
+                // If left side is constant nil, return right side
+                if let Expr::Val(Val::Nil) = e1 {
+                    return e2;
+                }
+                Expr::NullishCoalescing(Box::new(e1), Box::new(e2))
             }
             Expr::At(paths) => {
                 // @path expressions depend on context, don't fold
@@ -1024,6 +1048,7 @@ impl Display for Expr {
             Expr::Unary(op, expr) => write!(f, "{op:?}{expr}"),
             Expr::And(left, right) => write!(f, "{left} && {right}"),
             Expr::Or(left, right) => write!(f, "{left} || {right}"),
+            Expr::NullishCoalescing(left, right) => write!(f, "{left} ?? {right}"),
             Expr::At(paths) => {
                 let paths: Vec<String> = paths.iter().map(|p| p.to_string()).collect();
                 write!(f, "@{}", paths.join("."))
