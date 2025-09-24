@@ -1,18 +1,18 @@
 use qcl_core::{
-    ast::Parser as ExprParser, expr::Expr, import::ImportStmt, module::ModuleRegistry,
-    stmt::Stmt, stmt_parser::StmtParser, token::Tokenizer, val::Val, error::Span,
+    ast::Parser as ExprParser, error::Span, expr::Expr, import::ImportStmt, module::ModuleRegistry,
+    stmt::Stmt, stmt_parser::StmtParser, token::Tokenizer, val::Val,
 };
 use std::collections::{HashMap, HashSet};
-use tower_lsp::lsp_types::*;
 use std::path::{Path, PathBuf};
+use tower_lsp::lsp_types::*;
 
 // Soft limits to keep LSP responsive on large/broken files
 const MAX_SCAN_LINES: usize = 400; // max lines to line-scan
 const MAX_SCAN_CHUNKS: usize = 300; // max logical chunks to scan
 const MAX_DIAGNOSTICS: usize = 200; // cap diagnostics volume
-// Caps to avoid overwhelming the editor with semantic tokens
-const MAX_TOKENS_PER_DOC: usize = 20_000;   // hard ceiling for full-document tokens
-const MAX_TOKENS_PER_RANGE: usize = 8_000;  // hard ceiling for range tokens
+                                    // Caps to avoid overwhelming the editor with semantic tokens
+const MAX_TOKENS_PER_DOC: usize = 20_000; // hard ceiling for full-document tokens
+const MAX_TOKENS_PER_RANGE: usize = 8_000; // hard ceiling for range tokens
 
 /// Result of analyzing QCL code, containing diagnostics, symbols, and context references
 #[derive(Debug, Clone)]
@@ -86,8 +86,14 @@ impl QclAnalyzer {
                                 if j < spans.len() {
                                     let sp = &spans[j];
                                     let range = Range::new(
-                                        Position::new(sp.start.line - 1, sp.start.column.saturating_sub(1)),
-                                        Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1)),
+                                        Position::new(
+                                            sp.start.line - 1,
+                                            sp.start.column.saturating_sub(1),
+                                        ),
+                                        Position::new(
+                                            sp.end.line - 1,
+                                            sp.end.column.saturating_sub(1),
+                                        ),
                                     );
                                     let mut d = Diagnostic::new(
                                         range,
@@ -98,7 +104,9 @@ impl QclAnalyzer {
                                         None,
                                         None,
                                     );
-                                    d.code = Some(NumberOrString::String("qcl_file_not_found".to_string()));
+                                    d.code = Some(NumberOrString::String(
+                                        "qcl_file_not_found".to_string(),
+                                    ));
                                     result.diagnostics.push(d);
                                 }
                             }
@@ -149,12 +157,20 @@ impl QclAnalyzer {
                                             let exports = m.exports();
                                             for idx in item_indices {
                                                 if let T::Id(item_name) = &tokens[idx] {
-                                                    if !exports.contains_key(item_name) {
-                                                        if idx < spans.len() {
+                                                    if !exports.contains_key(item_name)
+                                                        && idx < spans.len() {
                                                             let sp = &spans[idx];
                                                             let range = Range::new(
-                                                                Position::new(sp.start.line - 1, sp.start.column.saturating_sub(1)),
-                                                                Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1)),
+                                                                Position::new(
+                                                                    sp.start.line - 1,
+                                                                    sp.start
+                                                                        .column
+                                                                        .saturating_sub(1),
+                                                                ),
+                                                                Position::new(
+                                                                    sp.end.line - 1,
+                                                                    sp.end.column.saturating_sub(1),
+                                                                ),
                                                             );
                                                             result.diagnostics.push(Diagnostic::new(
                                                                 range,
@@ -169,27 +185,30 @@ impl QclAnalyzer {
                                                                 None,
                                                             ));
                                                         }
-                                                    }
                                                 }
                                             }
                                         }
-                                    } else {
-                                        if j < spans.len() {
-                                            let sp = &spans[j];
-                                            let range = Range::new(
-                                                Position::new(sp.start.line - 1, sp.start.column.saturating_sub(1)),
-                                                Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1)),
-                                            );
-                                            result.diagnostics.push(Diagnostic::new(
-                                                range,
-                                                Some(DiagnosticSeverity::ERROR),
-                                                None,
-                                                Some("qcl".to_string()),
-                                                format!("Unknown module: {}", mod_name),
-                                                None,
-                                                None,
-                                            ));
-                                        }
+                                    } else if j < spans.len() {
+                                        let sp = &spans[j];
+                                        let range = Range::new(
+                                            Position::new(
+                                                sp.start.line - 1,
+                                                sp.start.column.saturating_sub(1),
+                                            ),
+                                            Position::new(
+                                                sp.end.line - 1,
+                                                sp.end.column.saturating_sub(1),
+                                            ),
+                                        );
+                                        result.diagnostics.push(Diagnostic::new(
+                                            range,
+                                            Some(DiagnosticSeverity::ERROR),
+                                            None,
+                                            Some("qcl".to_string()),
+                                            format!("Unknown module: {}", mod_name),
+                                            None,
+                                            None,
+                                        ));
                                     }
                                 }
                             }
@@ -209,12 +228,18 @@ impl QclAnalyzer {
                             if j + 1 < tokens.len() {
                                 j += 1;
                                 if let T::Id(mod_name) = &tokens[j] {
-                                    if self.registry.get_module(mod_name).is_err() {
-                                        if j < spans.len() {
+                                    if self.registry.get_module(mod_name).is_err()
+                                        && j < spans.len() {
                                             let sp = &spans[j];
                                             let range = Range::new(
-                                                Position::new(sp.start.line - 1, sp.start.column.saturating_sub(1)),
-                                                Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1)),
+                                                Position::new(
+                                                    sp.start.line - 1,
+                                                    sp.start.column.saturating_sub(1),
+                                                ),
+                                                Position::new(
+                                                    sp.end.line - 1,
+                                                    sp.end.column.saturating_sub(1),
+                                                ),
                                             );
                                             result.diagnostics.push(Diagnostic::new(
                                                 range,
@@ -226,7 +251,6 @@ impl QclAnalyzer {
                                                 None,
                                             ));
                                         }
-                                    }
                                 }
                             }
                             // advance to semicolon
@@ -239,12 +263,18 @@ impl QclAnalyzer {
                         Some(T::Id(mod_name)) => {
                             // import module [as alias]?;
                             let mod_idx = j;
-                            if self.registry.get_module(mod_name).is_err() {
-                                if mod_idx < spans.len() {
+                            if self.registry.get_module(mod_name).is_err()
+                                && mod_idx < spans.len() {
                                     let sp = &spans[mod_idx];
                                     let range = Range::new(
-                                        Position::new(sp.start.line - 1, sp.start.column.saturating_sub(1)),
-                                        Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1)),
+                                        Position::new(
+                                            sp.start.line - 1,
+                                            sp.start.column.saturating_sub(1),
+                                        ),
+                                        Position::new(
+                                            sp.end.line - 1,
+                                            sp.end.column.saturating_sub(1),
+                                        ),
                                     );
                                     result.diagnostics.push(Diagnostic::new(
                                         range,
@@ -256,7 +286,6 @@ impl QclAnalyzer {
                                         None,
                                     ));
                                 }
-                            }
                             // move to ';'
                             while j < tokens.len() && !matches!(tokens[j], T::Semicolon) {
                                 j += 1;
@@ -287,11 +316,7 @@ impl QclAnalyzer {
             .as_ref()
             .cloned()
             .unwrap_or_else(|| PathBuf::from("."));
-        let candidates = [
-            base.clone(),
-            base.join("lib"),
-            base.join("modules"),
-        ];
+        let candidates = [base.clone(), base.join("lib"), base.join("modules")];
         for dir in candidates.iter() {
             let p = dir.join(rel);
             if p.exists() {
@@ -344,48 +369,49 @@ impl QclAnalyzer {
             cached.clone()
         } else {
             match Tokenizer::tokenize_enhanced_with_spans(content) {
-            Ok(pair) => {
-                // Cache the successful tokenization result
-                if content.len() < 10_000 { // Only cache reasonably sized content
-                    // Limit cache size to prevent memory issues
-                    if self.token_cache.len() >= 100 {
-                        self.token_cache.clear();
+                Ok(pair) => {
+                    // Cache the successful tokenization result
+                    if content.len() < 10_000 {
+                        // Only cache reasonably sized content
+                        // Limit cache size to prevent memory issues
+                        if self.token_cache.len() >= 100 {
+                            self.token_cache.clear();
+                        }
+                        self.token_cache.insert(content.to_string(), pair.clone());
                     }
-                    self.token_cache.insert(content.to_string(), pair.clone());
+                    pair
                 }
-                pair
-            },
-            Err(parse_err) => {
-                // If multi-line, try line-wise scanning to surface multiple errors
-                if content.lines().count() > 1 {
-                    let diags = self.scan_lines_for_diagnostics(content);
-                    if !diags.is_empty() {
-                        result.diagnostics = diags;
-                        return result;
+                Err(parse_err) => {
+                    // If multi-line, try line-wise scanning to surface multiple errors
+                    if content.lines().count() > 1 {
+                        let diags = self.scan_lines_for_diagnostics(content);
+                        if !diags.is_empty() {
+                            result.diagnostics = diags;
+                            return result;
+                        }
                     }
+
+                    // Fallback: report the single tokenization error for the whole document
+                    let range = if let Some(span) = &parse_err.span {
+                        let start_pos = Position::new(span.start.line - 1, span.start.column - 1);
+                        let end_pos = Position::new(span.end.line - 1, span.end.column - 1);
+                        Range::new(start_pos, end_pos)
+                    } else {
+                        Range::new(Position::new(0, 0), Position::new(0, content.len() as u32))
+                    };
+
+                    result.diagnostics.push(Diagnostic::new(
+                        range,
+                        Some(DiagnosticSeverity::ERROR),
+                        None,
+                        Some("qcl".to_string()),
+                        format!("Tokenization error: {}", parse_err.message),
+                        None,
+                        None,
+                    ));
+                    return result;
                 }
-
-                // Fallback: report the single tokenization error for the whole document
-                let range = if let Some(span) = &parse_err.span {
-                    let start_pos = Position::new(span.start.line - 1, span.start.column - 1);
-                    let end_pos = Position::new(span.end.line - 1, span.end.column - 1);
-                    Range::new(start_pos, end_pos)
-                } else {
-                    Range::new(Position::new(0, 0), Position::new(0, content.len() as u32))
-                };
-
-                result.diagnostics.push(Diagnostic::new(
-                    range,
-                    Some(DiagnosticSeverity::ERROR),
-                    None,
-                    Some("qcl".to_string()),
-                    format!("Tokenization error: {}", parse_err.message),
-                    None,
-                    None,
-                ));
-                return result;
             }
-        }
         };
 
         let mut expr_parser = ExprParser::new_with_spans(&tokens, &spans);
@@ -440,7 +466,7 @@ impl QclAnalyzer {
                             || content.contains("if ")
                             || content.contains("while ")
                             || content.contains("return ")
-                                                        || content.contains("break")
+                            || content.contains("break")
                             || content.contains("continue");
                         if !expr_recover_errors.is_empty() && !has_statement_keywords {
                             for e in expr_recover_errors {
@@ -496,11 +522,11 @@ impl QclAnalyzer {
                                     None,
                                 ));
                             }
-                        // Even with errors, analyze statements to surface symbols and context refs
-                        self.analyze_statements(&stmts, &mut result);
-                        // And add precise import diagnostics using tokens/spans
-                        self.add_import_diagnostics(&tokens, &spans, &mut result);
-                    }
+                            // Even with errors, analyze statements to surface symbols and context refs
+                            self.analyze_statements(&stmts, &mut result);
+                            // And add precise import diagnostics using tokens/spans
+                            self.add_import_diagnostics(&tokens, &spans, &mut result);
+                        }
 
                         // If recovery yielded nothing (e.g., single token), try chunk-based scan then line-wise
                         if collected.is_empty() {
@@ -518,7 +544,7 @@ impl QclAnalyzer {
                                 || content.contains("if ")
                                 || content.contains("while ")
                                 || content.contains("return ")
-                                                                || content.contains("break")
+                                || content.contains("break")
                                 || content.contains("continue");
                             let parse_err = if has_statement_keywords {
                                 &stmt_err
@@ -583,10 +609,7 @@ impl QclAnalyzer {
 
     /// Collect imported module aliases from the given content.
     /// Returns mapping alias -> module_name (e.g., "m" -> "math").
-    pub fn collect_import_aliases(
-        &mut self,
-        content: &str,
-    ) -> HashMap<String, String> {
+    pub fn collect_import_aliases(&mut self, content: &str) -> HashMap<String, String> {
         let mut map = HashMap::new();
         // Tokenize using cached path to be consistent with analysis
         let (tokens, spans) = match self.tokenize_with_spans_cached(content) {
@@ -599,7 +622,7 @@ impl QclAnalyzer {
         {
             let mut parser = StmtParser::new_with_spans(&tokens, &spans);
             if let Ok(program) = parser.parse_program_with_enhanced_errors(content) {
-                stmts_acc.extend(program.statements.into_iter());
+                stmts_acc.extend(program.statements);
             }
         }
         // Recover for any missed imports (e.g., partial files)
@@ -607,7 +630,9 @@ impl QclAnalyzer {
             let mut recover_parser = StmtParser::new_with_spans(&tokens, &spans);
             let (more, _errs) =
                 recover_parser.parse_program_recovering_with_enhanced_errors(content);
-            for s in more { stmts_acc.push(s); }
+            for s in more {
+                stmts_acc.push(s);
+            }
         }
 
         for stmt in &stmts_acc {
@@ -855,7 +880,7 @@ impl QclAnalyzer {
                                 &chunk_spans,
                                 chunk,
                             );
-                            
+
                             if !expr_errs.is_empty() {
                                 // Use expression errors if available (more specific)
                                 for ee in expr_errs {
@@ -875,7 +900,10 @@ impl QclAnalyzer {
                                     } else {
                                         Range::new(
                                             Position::new(start_line as u32, 0),
-                                            Position::new(start_line as u32, chunk.chars().count() as u32),
+                                            Position::new(
+                                                start_line as u32,
+                                                chunk.chars().count() as u32,
+                                            ),
                                         )
                                     };
                                     diags.push(Diagnostic::new(
@@ -903,7 +931,10 @@ impl QclAnalyzer {
                                 } else {
                                     Range::new(
                                         Position::new(start_line as u32, 0),
-                                        Position::new(start_line as u32, chunk.chars().count() as u32),
+                                        Position::new(
+                                            start_line as u32,
+                                            chunk.chars().count() as u32,
+                                        ),
                                     )
                                 };
 
@@ -988,7 +1019,7 @@ impl QclAnalyzer {
                                 &line_spans,
                                 line,
                             );
-                            
+
                             if !expr_errs.is_empty() {
                                 // Use expression errors if available (more specific)
                                 for ee in expr_errs {
@@ -1008,7 +1039,10 @@ impl QclAnalyzer {
                                     } else {
                                         Range::new(
                                             Position::new(line_idx as u32, 0),
-                                            Position::new(line_idx as u32, line.chars().count() as u32),
+                                            Position::new(
+                                                line_idx as u32,
+                                                line.chars().count() as u32,
+                                            ),
                                         )
                                     };
                                     diags.push(Diagnostic::new(
@@ -1139,7 +1173,7 @@ impl QclAnalyzer {
             cached.clone()
         } else {
             let mut items = Vec::new();
-            
+
             // Common context patterns
             let common_contexts = [
                 ("@req", "Request object"),
@@ -1163,14 +1197,15 @@ impl QclAnalyzer {
                     ..Default::default()
                 });
             }
-            
+
             // Cache the items for future use
             self.completion_cache = Some(items.clone());
             items
         };
 
         // Filter by prefix
-        all_items.into_iter()
+        all_items
+            .into_iter()
             .filter(|item| item.label.starts_with(prefix))
             .collect()
     }
@@ -1445,15 +1480,18 @@ impl QclAnalyzer {
                     // Check for keywords
                     let mut token_idx = match identifier.as_str() {
                         "if" | "else" | "while" | "let" | "fn" | "return" | "break"
-                        | "continue" | "import" | "from" | "as" | "go" | "select"
-                        | "case" | "default" | "true" | "false" | "nil" => KEYWORD_IDX,
+                        | "continue" | "import" | "from" | "as" | "go" | "select" | "case"
+                        | "default" | "true" | "false" | "nil" | "spawn" | "chan" | "send"
+                        | "recv" => KEYWORD_IDX,
                         _ => VARIABLE_IDX,
                     };
 
                     // If next non-whitespace char is '(', treat as function identifier
                     if token_idx == VARIABLE_IDX {
                         let mut j = char_index;
-                        while j < len && chars[j].is_whitespace() { j += 1; }
+                        while j < len && chars[j].is_whitespace() {
+                            j += 1;
+                        }
                         if j < len && chars[j] == '(' {
                             token_idx = FUNCTION_IDX;
                         }
@@ -1471,13 +1509,7 @@ impl QclAnalyzer {
 
                 // Handle context access (@) - mark as property token
                 if c == '@' {
-                    tokens.push(self.create_token(
-                        line_number,
-                        char_index,
-                        1,
-                        PROPERTY_IDX,
-                        0,
-                    ));
+                    tokens.push(self.create_token(line_number, char_index, 1, PROPERTY_IDX, 0));
                     char_index += 1;
                     continue;
                 }
@@ -1797,21 +1829,27 @@ impl QclAnalyzer {
                     let slice: &str = &line[ident_start..j];
                     let mut token_idx = match slice {
                         "if" | "else" | "while" | "let" | "fn" | "return" | "break"
-                        | "continue" | "import" | "from" | "as" | "go" | "select"
-                        | "case" | "default" | "true" | "false" | "nil" => KEYWORD_IDX,
+                        | "continue" | "import" | "from" | "as" | "go" | "select" | "case"
+                        | "default" | "true" | "false" | "nil" | "spawn" | "chan" | "send"
+                        | "recv" => KEYWORD_IDX,
                         _ => VARIABLE_IDX,
                     };
                     // Detect function call by peeking next non-whitespace char
                     if token_idx == VARIABLE_IDX {
                         let mut k = j;
-                        while k < len && chars[k].is_whitespace() { k += 1; }
-                        if k < len && chars[k] == '(' { token_idx = FUNCTION_IDX; }
+                        while k < len && chars[k].is_whitespace() {
+                            k += 1;
+                        }
+                        if k < len && chars[k] == '(' {
+                            token_idx = FUNCTION_IDX;
+                        }
                     }
                     let start = ident_start.max(start_char_bound);
                     if start < end_char_bound {
                         let capped_len_total = j.saturating_sub(start);
                         if capped_len_total > 0 {
-                            let capped_len = capped_len_total.min(end_char_bound.saturating_sub(start));
+                            let capped_len =
+                                capped_len_total.min(end_char_bound.saturating_sub(start));
                             tokens.push(self.create_token(
                                 line_number,
                                 start,
@@ -1827,13 +1865,7 @@ impl QclAnalyzer {
 
                 // Context access '@' - mark as property token
                 if c == '@' {
-                    tokens.push(self.create_token(
-                        line_number,
-                        char_index,
-                        1,
-                        PROPERTY_IDX,
-                        0,
-                    ));
+                    tokens.push(self.create_token(line_number, char_index, 1, PROPERTY_IDX, 0));
                     char_index += 1;
                     continue;
                 }
@@ -2240,6 +2272,9 @@ mod tests {
 
         const FUNCTION_IDX: u32 = 3;
 
-        assert!(tokens.iter().any(|t| t.token_type == FUNCTION_IDX), "Should classify function identifiers as FUNCTION");
+        assert!(
+            tokens.iter().any(|t| t.token_type == FUNCTION_IDX),
+            "Should classify function identifiers as FUNCTION"
+        );
     }
 }

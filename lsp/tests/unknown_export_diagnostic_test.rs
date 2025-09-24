@@ -24,4 +24,3 @@ fn test_unknown_export_import_diagnostic() {
         .iter()
         .any(|m| m.contains("Unknown export 'bogus' from module 'string'")));
 }
-

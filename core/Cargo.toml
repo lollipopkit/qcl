@@ -14,6 +14,9 @@ serde_yaml = { workspace = true, optional = true }
 toml = { workspace = true, optional = true }
 once_cell = { workspace = true }
 chrono = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+crossbeam = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
 
 [features]
 default = ["all"]
@@ -25,7 +28,11 @@ adv_arith = []
 json = ["serde_json"]
 yaml = ["serde_yaml"]
 toml = ["dep:toml"]
-all = ["sem_arith", "adv_arith", "json", "yaml", "toml"]
+# Concurrency features
+concurrency = ["tokio", "crossbeam", "futures"]
+tokio-rt-multi-thread = ["concurrency", "tokio/rt-multi-thread"]
+tokio-rt-current-thread = ["concurrency", "tokio/rt"]
+all = ["sem_arith", "adv_arith", "json", "yaml", "toml", "concurrency"]
 
 [dev-dependencies]
 criterion = "0.3"

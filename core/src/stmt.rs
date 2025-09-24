@@ -102,7 +102,6 @@ pub enum ControlFlow {
     Return(Val),
 }
 
-
 /// 变量作用域管理
 #[derive(Debug, Clone, PartialEq)]
 pub struct Environment {
@@ -241,28 +240,32 @@ impl Stmt {
                 }
                 Ok(ControlFlow::None)
             }
-            Stmt::For { pattern, iterable, body } => {
+            Stmt::For {
+                pattern,
+                iterable,
+                body,
+            } => {
                 // 求值可迭代表达式
                 let iter_val = iterable.eval_with_env(ctx, Some(env))?;
-                
+
                 // 获取迭代器
                 let iterator = create_iterator(&iter_val)?;
-                
+
                 // 执行循环
                 for item in iterator {
                     // 进入新作用域用于模式绑定
                     env.push_scope();
-                    
+
                     // 根据模式绑定变量 (类似 Rust 的模式匹配)
                     if let Err(e) = bind_pattern(pattern, &item, env) {
                         env.pop_scope(); // 清理作用域
                         return Err(e);
                     }
-                    
+
                     // 执行循环体
                     let result = body.execute(env, ctx);
                     env.pop_scope(); // 清理循环变量作用域
-                    
+
                     match result? {
                         ControlFlow::Break => break,
                         ControlFlow::Continue => continue,
@@ -270,7 +273,7 @@ impl Stmt {
                         ControlFlow::None => {}
                     }
                 }
-                
+
                 Ok(ControlFlow::None)
             }
             Stmt::Let {
@@ -407,10 +410,7 @@ fn create_iterator(val: &Val) -> Result<Vec<Val>> {
         }
         Val::Str(s) => {
             // 按字符迭代
-            let chars: Vec<Val> = s
-                .chars()
-                .map(|c| Val::Str(c.to_string().into()))
-                .collect();
+            let chars: Vec<Val> = s.chars().map(|c| Val::Str(c.to_string().into())).collect();
             Ok(chars)
         }
         _ => Err(anyhow!("Value is not iterable: {:?}", val)),
@@ -499,8 +499,18 @@ impl Display for Stmt {
             Stmt::While { condition, body } => {
                 write!(f, "while ({}) {}", condition, body)
             }
-            Stmt::For { pattern, iterable, body } => {
-                write!(f, "for {} in {} {}", format_pattern(pattern), iterable, body)
+            Stmt::For {
+                pattern,
+                iterable,
+                body,
+            } => {
+                write!(
+                    f,
+                    "for {} in {} {}",
+                    format_pattern(pattern),
+                    iterable,
+                    body
+                )
             }
             Stmt::Let {
                 name,

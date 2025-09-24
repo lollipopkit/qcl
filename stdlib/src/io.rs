@@ -78,11 +78,7 @@ fn stdin_read(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> R
     }
 }
 
-fn stdin_read_line(
-    args: &[Val],
-    _env: &qcl_core::stmt::Environment,
-    _ctx: &Val,
-) -> Result<Val> {
+fn stdin_read_line(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
     if !args.is_empty() {
         return Err(anyhow::anyhow!("stdin.read_line() takes no arguments"));
     }
@@ -94,11 +90,7 @@ fn stdin_flush(_args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) ->
     Ok(Val::Bool(true))
 }
 
-fn stdin_read_all(
-    args: &[Val],
-    _env: &qcl_core::stmt::Environment,
-    _ctx: &Val,
-) -> Result<Val> {
+fn stdin_read_all(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
     if !args.is_empty() {
         return Err(anyhow::anyhow!("stdin.read_all() takes no arguments"));
     }
@@ -110,11 +102,7 @@ fn stdin_read_all(
     }
 }
 
-fn stdout_write(
-    args: &[Val],
-    _env: &qcl_core::stmt::Environment,
-    _ctx: &Val,
-) -> Result<Val> {
+fn stdout_write(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow::anyhow!("stdout.write() requires 1 argument: data"));
     }
@@ -128,13 +116,11 @@ fn stdout_write(
     }
 }
 
-fn stdout_writeln(
-    args: &[Val],
-    _env: &qcl_core::stmt::Environment,
-    _ctx: &Val,
-) -> Result<Val> {
+fn stdout_writeln(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
     if args.len() != 1 {
-        return Err(anyhow::anyhow!("stdout.writeln() requires 1 argument: data"));
+        return Err(anyhow::anyhow!(
+            "stdout.writeln() requires 1 argument: data"
+        ));
     }
     let data = match &args[0] {
         Val::Str(s) => s.as_ref(),
@@ -146,22 +132,14 @@ fn stdout_writeln(
     }
 }
 
-fn stdout_flush(
-    _args: &[Val],
-    _env: &qcl_core::stmt::Environment,
-    _ctx: &Val,
-) -> Result<Val> {
+fn stdout_flush(_args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
     match std::io::stdout().flush() {
         Ok(()) => Ok(Val::Bool(true)),
         Err(e) => Err(anyhow::anyhow!("stdout flush error: {}", e)),
     }
 }
 
-fn stderr_write(
-    args: &[Val],
-    _env: &qcl_core::stmt::Environment,
-    _ctx: &Val,
-) -> Result<Val> {
+fn stderr_write(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow::anyhow!("stderr.write() requires 1 argument: data"));
     }
@@ -175,13 +153,11 @@ fn stderr_write(
     }
 }
 
-fn stderr_writeln(
-    args: &[Val],
-    _env: &qcl_core::stmt::Environment,
-    _ctx: &Val,
-) -> Result<Val> {
+fn stderr_writeln(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
     if args.len() != 1 {
-        return Err(anyhow::anyhow!("stderr.writeln() requires 1 argument: data"));
+        return Err(anyhow::anyhow!(
+            "stderr.writeln() requires 1 argument: data"
+        ));
     }
     let data = match &args[0] {
         Val::Str(s) => s.as_ref(),
@@ -193,11 +169,7 @@ fn stderr_writeln(
     }
 }
 
-fn stderr_flush(
-    _args: &[Val],
-    _env: &qcl_core::stmt::Environment,
-    _ctx: &Val,
-) -> Result<Val> {
+fn stderr_flush(_args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
     match std::io::stderr().flush() {
         Ok(()) => Ok(Val::Bool(true)),
         Err(e) => Err(anyhow::anyhow!("stderr flush error: {}", e)),
@@ -209,15 +181,21 @@ pub struct IoModule {
     functions: HashMap<String, Val>,
 }
 
+impl Default for IoModule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl IoModule {
     pub fn new() -> Self {
         let mut functions = HashMap::new();
-        
+
         // Create objects for stdin, stdout, stderr
         functions.insert("stdin".to_string(), make_stdin_object());
         functions.insert("stdout".to_string(), make_stdout_object());
         functions.insert("stderr".to_string(), make_stderr_object());
-        
+
         IoModule { functions }
     }
 }

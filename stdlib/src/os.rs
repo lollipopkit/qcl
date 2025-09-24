@@ -257,4 +257,3 @@ impl Module for OsModule {
         self.functions.clone()
     }
 }
-

@@ -6,23 +6,26 @@ mod bench_tests {
     #[test]
     fn bench_analyzer_performance() {
         let mut analyzer = QclAnalyzer::new();
-        
+
         // Test expression analysis
         let expr = "@req.user.role == 'admin' && @req.user.level > 5";
         let start = Instant::now();
-        
+
         // First run - no cache
         let _result1 = analyzer.analyze(expr);
         let first_run = start.elapsed();
-        
+
         let start = Instant::now();
         // Second run - with cache
         let _result2 = analyzer.analyze(expr);
         let second_run = start.elapsed();
-        
+
         println!("First run: {:?}, Second run: {:?}", first_run, second_run);
-        println!("Speedup: {:.2}x", first_run.as_nanos() as f64 / second_run.as_nanos() as f64);
-        
+        println!(
+            "Speedup: {:.2}x",
+            first_run.as_nanos() as f64 / second_run.as_nanos() as f64
+        );
+
         // Test statement analysis
         let program = r#"
             import math;
@@ -45,34 +48,40 @@ mod bench_tests {
                 return false;
             }
         "#;
-        
+
         let start = Instant::now();
         let _result3 = analyzer.analyze(program);
         let program_time = start.elapsed();
-        
+
         println!("Program analysis: {:?}", program_time);
-        
+
         // Test semantic tokens
         let start = Instant::now();
         let _tokens = analyzer.generate_semantic_tokens(program);
         let token_time = start.elapsed();
-        
+
         println!("Semantic tokens: {:?}", token_time);
     }
-    
+
     #[test]
     fn bench_completion_caching() {
         let mut analyzer = QclAnalyzer::new();
-        
+
         let start = Instant::now();
         let _completions1 = analyzer.get_context_completions("@req");
         let first_completion = start.elapsed();
-        
+
         let start = Instant::now();
         let _completions2 = analyzer.get_context_completions("@req");
         let second_completion = start.elapsed();
-        
-        println!("First completion: {:?}, Second completion: {:?}", first_completion, second_completion);
-        println!("Completion speedup: {:.2}x", first_completion.as_nanos() as f64 / second_completion.as_nanos() as f64);
+
+        println!(
+            "First completion: {:?}, Second completion: {:?}",
+            first_completion, second_completion
+        );
+        println!(
+            "Completion speedup: {:.2}x",
+            first_completion.as_nanos() as f64 / second_completion.as_nanos() as f64
+        );
     }
 }

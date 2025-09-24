@@ -25,11 +25,7 @@ mod tests {
     #[test]
     fn test_range_token() {
         let tokens = Tokenizer::tokenize("0..5").unwrap();
-        let expected = vec![
-            Token::Int(0),
-            Token::Range,
-            Token::Int(5),
-        ];
+        let expected = vec![Token::Int(0), Token::Range, Token::Int(5)];
         assert_eq!(tokens, expected);
     }
 
@@ -99,6 +95,46 @@ mod tests {
     fn unclosed_str() {
         let t = Tokenizer::tokenize(r#""str"#);
         assert!(t.is_err());
+    }
+
+    #[test]
+    fn string_escape_sequences() {
+        // Test basic escape sequences
+        let t = Tokenizer::tokenize(r#""Hello\nWorld""#).unwrap();
+        assert_eq!(t, vec![Token::Str("Hello\nWorld".to_string())]);
+
+        let t = Tokenizer::tokenize(r#""Tab\tTest""#).unwrap();
+        assert_eq!(t, vec![Token::Str("Tab\tTest".to_string())]);
+
+        let t = Tokenizer::tokenize(r#""Quote\"Test""#).unwrap();
+        assert_eq!(t, vec![Token::Str("Quote\"Test".to_string())]);
+
+        let t = Tokenizer::tokenize(r#"'Apostrophe\'Test'"#).unwrap();
+        assert_eq!(t, vec![Token::Str("Apostrophe'Test".to_string())]);
+
+        let t = Tokenizer::tokenize(r#""Backslash\\Test""#).unwrap();
+        assert_eq!(t, vec![Token::Str("Backslash\\Test".to_string())]);
+
+        let t = Tokenizer::tokenize(r#""Carriage\rReturn""#).unwrap();
+        assert_eq!(t, vec![Token::Str("Carriage\rReturn".to_string())]);
+
+        let t = Tokenizer::tokenize(r#""Null\0Character""#).unwrap();
+        assert_eq!(t, vec![Token::Str("Null\0Character".to_string())]);
+
+        // Test unknown escape sequence (should keep both backslash and character)
+        let t = Tokenizer::tokenize(r#""Unknown\xEscape""#).unwrap();
+        assert_eq!(t, vec![Token::Str("Unknown\\xEscape".to_string())]);
+    }
+
+    #[test]
+    fn string_escape_incomplete() {
+        // Test incomplete escape sequence at end of string
+        let t = Tokenizer::tokenize(r#""test\"#);
+        assert!(t.is_err());
+        if let Err(e) = t {
+            println!("Error message: {}", e.to_string());
+            assert!(e.to_string().contains("String not closed") || e.to_string().contains("Incomplete escape sequence"));
+        }
     }
 
     #[test]
@@ -694,7 +730,7 @@ mod tests {
     #[test]
     fn test_identifier_with_in_prefix() {
         let tokens = Tokenizer::tokenize("in_business_hours").expect("Invalid tokens");
-        
+
         // Should be a single identifier token, not 'In' + '_business_hours'
         assert_eq!(tokens.len(), 1);
         assert_eq!(tokens[0], Token::Id("in_business_hours".to_string()));
@@ -703,7 +739,7 @@ mod tests {
     #[test]
     fn test_standalone_in_keyword() {
         let tokens = Tokenizer::tokenize("x in list").expect("Invalid tokens");
-        
+
         // Should be 'x', 'In', 'list'
         assert_eq!(tokens.len(), 3);
         assert_eq!(tokens[0], Token::Id("x".to_string()));
@@ -714,7 +750,7 @@ mod tests {
     #[test]
     fn test_multiple_identifiers_with_in_prefix() {
         let tokens = Tokenizer::tokenize("let in_value = in_other").expect("Invalid tokens");
-        
+
         // Should be 'let', 'in_value', '=', 'in_other'
         assert_eq!(tokens.len(), 4);
         assert_eq!(tokens[0], Token::Let);

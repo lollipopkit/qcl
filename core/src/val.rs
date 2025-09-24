@@ -6,8 +6,8 @@ use std::{
     sync::Arc,
 };
 
-
 use anyhow::{Result, anyhow};
+use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
 use crate::op::{BinOp, err_op};
@@ -15,7 +15,7 @@ use crate::op::{BinOp, err_op};
 /// Type for Rust functions that can be called from QCL
 pub type RustFunction = fn(args: &[Val], env: &crate::stmt::Environment, ctx: &Val) -> Result<Val>;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub enum Val {
     /// String type, wrapped in Arc<str> for efficient cloning
     Str(Arc<str>),
@@ -35,8 +35,56 @@ pub enum Val {
     },
     /// Rust function - contains a function pointer that can be called
     RustFunction(RustFunction),
+    /// Task - represents a concurrent task
+    Task {
+        id: u64,
+        /// The result value if task is completed (for non-concurrent mode)
+        value: Option<Box<Val>>,
+    },
+    /// Channel - represents a communication channel
+    Channel {
+        id: u64,
+        capacity: Option<i64>,
+        inner_type: Box<Type>,
+    },
     #[default]
     Nil,
+}
+
+impl Clone for Val {
+    fn clone(&self) -> Self {
+        match self {
+            Val::Str(s) => Val::Str(s.clone()),
+            Val::Int(i) => Val::Int(*i),
+            Val::Float(f) => Val::Float(*f),
+            Val::Bool(b) => Val::Bool(*b),
+            Val::Map(m) => Val::Map(m.clone()),
+            Val::List(l) => Val::List(l.clone()),
+            Val::Closure { params, body, env } => Val::Closure {
+                params: params.clone(),
+                body: body.clone(),
+                env: env.clone(),
+            },
+            Val::RustFunction(f) => Val::RustFunction(*f),
+            Val::Task { id, value } => {
+                // For tasks, we clone the ID and value
+                Val::Task {
+                    id: *id,
+                    value: value.clone(),
+                }
+            }
+            Val::Channel {
+                id,
+                capacity,
+                inner_type,
+            } => Val::Channel {
+                id: *id,
+                capacity: *capacity,
+                inner_type: inner_type.clone(),
+            },
+            Val::Nil => Val::Nil,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -49,6 +97,8 @@ pub enum Type {
     Map,
     Function,
     Nil,
+    Task(Box<Type>),
+    Channel(Box<Type>),
 }
 
 impl Type {
@@ -62,7 +112,18 @@ impl Type {
             "Map" => Some(Type::Map),
             "Function" => Some(Type::Function),
             "Nil" => Some(Type::Nil),
-            _ => None,
+            _ => {
+                // Handle generic types like Task<T> and Channel<T>
+                if s.starts_with("Task<") && s.ends_with('>') {
+                    let inner = &s[5..s.len() - 1];
+                    Type::parse(inner).map(|t| Type::Task(Box::new(t)))
+                } else if s.starts_with("Channel<") && s.ends_with('>') {
+                    let inner = &s[8..s.len() - 1];
+                    Type::parse(inner).map(|t| Type::Channel(Box::new(t)))
+                } else {
+                    None
+                }
+            }
         }
     }
 
@@ -77,6 +138,8 @@ impl Type {
                 | (Type::Map, Val::Map(_))
                 | (Type::Function, Val::Closure { .. } | Val::RustFunction(_))
                 | (Type::Nil, Val::Nil)
+                | (Type::Task(_), Val::Task { .. })
+                | (Type::Channel(_), Val::Channel { .. })
         );
 
         if matches {
@@ -102,6 +165,8 @@ impl Val {
             Val::List(_) => "List",
             Val::Closure { .. } => "Function",
             Val::RustFunction(_) => "Function",
+            Val::Task { .. } => "Task",
+            Val::Channel { .. } => "Channel",
             Val::Nil => "Nil",
         }
     }
@@ -145,15 +210,31 @@ impl Val {
             _ => Err(anyhow!("{} is not a function", self.type_name())),
         }
     }
-    pub(crate) fn access(&self, field: &Val) -> Option<&Val> {
+    pub(crate) fn access(&self, field: &Val) -> Option<Val> {
         match (self, field) {
-            (Val::Map(m), Val::Str(s)) => m.get(s.as_ref()),
+            (Val::Map(m), Val::Str(s)) => m.get(s.as_ref()).cloned(),
             (Val::List(l), Val::Int(i)) => {
                 if *i < 0 {
                     return None;
                 }
-                l.get(*i as usize)
+                l.get(*i as usize).cloned()
             }
+            (Val::Task { value, .. }, Val::Str(s)) if s.as_ref() == "value" => match value {
+                Some(v) => Some((**v).clone()),
+                None => Some(Val::Nil),
+            },
+            (
+                Val::Channel {
+                    capacity,
+                    inner_type,
+                    ..
+                },
+                Val::Str(s),
+            ) => match s.as_ref() {
+                "capacity" => Some(Val::Int(capacity.unwrap_or(0))),
+                "type" => Some(Val::Str(format!("{:?}", inner_type).into())),
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -443,6 +524,25 @@ impl From<()> for Val {
     }
 }
 
+impl From<(u64, Val)> for Val {
+    fn from((id, value): (u64, Val)) -> Self {
+        Val::Task {
+            id,
+            value: Some(Box::new(value)),
+        }
+    }
+}
+
+impl From<(u64, i64, Type)> for Val {
+    fn from((id, capacity, inner_type): (u64, i64, Type)) -> Self {
+        Val::Channel {
+            id,
+            capacity: Some(capacity),
+            inner_type: Box::new(inner_type),
+        }
+    }
+}
+
 // Clone is derived for Val enum
 
 #[cfg(feature = "json")]
@@ -546,6 +646,28 @@ impl PartialEq for Val {
                 // Use fn_addr_eq for meaningful function pointer comparison
                 std::ptr::fn_addr_eq(*a, *b)
             }
+            (
+                Val::Task {
+                    id: id_a,
+                    value: value_a,
+                },
+                Val::Task {
+                    id: id_b,
+                    value: value_b,
+                },
+            ) => id_a == id_b && value_a == value_b,
+            (
+                Val::Channel {
+                    id: id_a,
+                    capacity: cap_a,
+                    inner_type: type_a,
+                },
+                Val::Channel {
+                    id: id_b,
+                    capacity: cap_b,
+                    inner_type: type_b,
+                },
+            ) => id_a == id_b && cap_a == cap_b && type_a == type_b,
             (Val::Nil, Val::Nil) => true,
             _ => false,
         }
@@ -580,6 +702,23 @@ impl Serialize for Val {
             Val::Closure { .. } | Val::RustFunction(_) => {
                 // Functions can't be serialized, use placeholder
                 serializer.serialize_str("<function>")
+            }
+            Val::Task { value, .. } => {
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("type", "task")?;
+                map.serialize_entry("value", value)?;
+                map.end()
+            }
+            Val::Channel {
+                capacity,
+                inner_type,
+                ..
+            } => {
+                let mut map = serializer.serialize_map(Some(3))?;
+                map.serialize_entry("type", "channel")?;
+                map.serialize_entry("capacity", capacity)?;
+                map.serialize_entry("inner_type", &format!("{:?}", inner_type))?;
+                map.end()
             }
             Val::Nil => serializer.serialize_unit(),
         }
@@ -617,6 +756,23 @@ impl core::fmt::Display for Val {
             }
             Val::RustFunction(_) => {
                 write!(f, "<native function>")
+            }
+            Val::Task { id, value } => match value {
+                Some(v) => write!(f, "Task(id={}, value={})", id, v),
+                None => write!(f, "Task(id={}, pending)", id),
+            },
+            Val::Channel {
+                id,
+                capacity,
+                inner_type,
+            } => {
+                write!(
+                    f,
+                    "Channel(id={}, capacity={}, type={:?})",
+                    id,
+                    capacity.unwrap_or(0),
+                    inner_type
+                )
             }
             Val::Nil => write!(f, "nil"),
         }

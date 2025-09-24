@@ -13,7 +13,9 @@ fn test_stdlib_modules_listed() {
 #[test]
 fn test_module_exports_math() {
     let analyzer = &mut QclAnalyzer::new();
-    let exports = analyzer.list_module_exports("math").expect("math module exports");
+    let exports = analyzer
+        .list_module_exports("math")
+        .expect("math module exports");
     for f in ["abs", "sqrt", "sin", "cos", "tan", "pi", "e"] {
         assert!(exports.contains(&f.to_string()), "missing export: {}", f);
     }

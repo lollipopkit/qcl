@@ -5,12 +5,14 @@ pub mod expr;
 pub mod import;
 pub mod module;
 mod op;
+pub mod runtime;
 pub mod stmt;
 pub mod stmt_parser;
 pub mod token;
 pub mod val;
 
 mod ast_test;
+mod concurrency_test;
 mod de_test;
 mod expr_recover_test;
 mod expr_test;

@@ -84,7 +84,6 @@ mod tests {
         assert_eq!(result, Val::Nil);
     }
 
-
     #[test]
     fn test_block_scope() {
         let program = parse_program(
@@ -145,7 +144,6 @@ mod tests {
                 .contains("Undefined variable")
         );
     }
-
 
     #[test]
     fn test_break_outside_loop_error() {

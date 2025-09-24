@@ -25,4 +25,5 @@ toml = { workspace = true }
 
 [features]
 default = ["all"]
+concurrency = ["qcl-core/concurrency", "qcl-stdlib/concurrency"]
 all = ["qcl-stdlib/all"]

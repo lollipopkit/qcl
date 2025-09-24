@@ -29,15 +29,20 @@ mod tests {
         let connect_fn = exports.get("connect").unwrap();
         let env = create_test_env();
         let ctx = Val::Nil;
-        
+
         // Test with no arguments
         let result = match connect_fn {
             Val::RustFunction(f) => f(&[], &env, &ctx),
             _ => panic!("Expected RustFunction"),
         };
-        
+
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("requires 2 arguments"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("requires 2 arguments")
+        );
     }
 
     #[test]
@@ -47,15 +52,20 @@ mod tests {
         let bind_fn = exports.get("bind").unwrap();
         let env = create_test_env();
         let ctx = Val::Nil;
-        
+
         // Test with no arguments
         let result = match bind_fn {
             Val::RustFunction(f) => f(&[], &env, &ctx),
             _ => panic!("Expected RustFunction"),
         };
-        
+
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("requires 2 arguments"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("requires 2 arguments")
+        );
     }
 
     #[test]
@@ -65,14 +75,19 @@ mod tests {
         let close_fn = exports.get("close").unwrap();
         let env = create_test_env();
         let ctx = Val::Nil;
-        
+
         // Test with no arguments
         let result = match close_fn {
             Val::RustFunction(f) => f(&[], &env, &ctx),
             _ => panic!("Expected RustFunction"),
         };
-        
+
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("requires 1 argument"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("requires 1 argument")
+        );
     }
 }

@@ -37,6 +37,12 @@ pub struct TcpModule {
     functions: HashMap<String, Val>,
 }
 
+impl Default for TcpModule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TcpModule {
     pub fn new() -> Self {
         let mut functions = HashMap::new();
@@ -123,12 +129,15 @@ impl TcpModule {
 
         let registry = TcpRegistry::get_global();
         let mut registry = registry.lock().unwrap();
-        
-        let listener = registry.listeners.get(&listener_id)
+
+        let listener = registry
+            .listeners
+            .get(&listener_id)
             .ok_or_else(|| anyhow!("Invalid listener ID: {}", listener_id))?;
 
         // This is a blocking accept - in a real implementation you might want to make this configurable
-        let (stream, _) = listener.accept()
+        let (stream, _) = listener
+            .accept()
             .map_err(|e| anyhow!("Failed to accept connection: {}", e))?;
 
         let id = registry.next_id;
@@ -141,7 +150,9 @@ impl TcpModule {
     /// Read data from a connection: tcp.read(connection_id, [max_bytes]) -> string
     fn read(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
         if args.is_empty() || args.len() > 2 {
-            return Err(anyhow!("read requires 1-2 arguments: connection_id, [max_bytes]"));
+            return Err(anyhow!(
+                "read requires 1-2 arguments: connection_id, [max_bytes]"
+            ));
         }
 
         let conn_id = match &args[0] {
@@ -160,17 +171,19 @@ impl TcpModule {
 
         let registry = TcpRegistry::get_global();
         let mut registry = registry.lock().unwrap();
-        
-        let stream = registry.connections.get_mut(&conn_id)
+
+        let stream = registry
+            .connections
+            .get_mut(&conn_id)
             .ok_or_else(|| anyhow!("Invalid connection ID: {}", conn_id))?;
 
         let mut buffer = vec![0u8; max_bytes];
-        let bytes_read = stream.read(&mut buffer)
+        let bytes_read = stream
+            .read(&mut buffer)
             .map_err(|e| anyhow!("Failed to read from connection: {}", e))?;
 
         buffer.truncate(bytes_read);
-        let data = String::from_utf8(buffer)
-            .map_err(|_| anyhow!("Data is not valid UTF-8"))?;
+        let data = String::from_utf8(buffer).map_err(|_| anyhow!("Data is not valid UTF-8"))?;
 
         Ok(Val::Str(data.into()))
     }
@@ -197,11 +210,14 @@ impl TcpModule {
 
         let registry = TcpRegistry::get_global();
         let mut registry = registry.lock().unwrap();
-        
-        let stream = registry.connections.get_mut(&conn_id)
+
+        let stream = registry
+            .connections
+            .get_mut(&conn_id)
             .ok_or_else(|| anyhow!("Invalid connection ID: {}", conn_id))?;
 
-        let bytes_written = stream.write(data)
+        let bytes_written = stream
+            .write(data)
             .map_err(|e| anyhow!("Failed to write to connection: {}", e))?;
 
         Ok(Val::Int(bytes_written as i64))
@@ -220,9 +236,9 @@ impl TcpModule {
 
         let registry = TcpRegistry::get_global();
         let mut registry = registry.lock().unwrap();
-        
-        let closed = registry.connections.remove(&id).is_some() || 
-                    registry.listeners.remove(&id).is_some();
+
+        let closed =
+            registry.connections.remove(&id).is_some() || registry.listeners.remove(&id).is_some();
 
         Ok(Val::Bool(closed))
     }

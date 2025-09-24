@@ -75,7 +75,9 @@ impl<'a> StmtParser<'a> {
                 Ok(s) => s,
                 Err(err) => {
                     // Prefer precise token span if available; otherwise, fall back to offset estimation
-                    if let Some(spans) = &self.token_spans && self.pos < spans.len() {
+                    if let Some(spans) = &self.token_spans
+                        && self.pos < spans.len()
+                    {
                         return Err(crate::error::ParseError::with_span(
                             err.to_string(),
                             spans[self.pos].clone(),
@@ -100,11 +102,10 @@ impl<'a> StmtParser<'a> {
 
         Program::new(statements).map_err(|e| {
             // If we have more tokens at current position, use its span; otherwise fallback to start
-            if let Some(spans) = &self.token_spans && self.pos < spans.len() {
-                return crate::error::ParseError::with_span(
-                    e.to_string(),
-                    spans[self.pos].clone(),
-                );
+            if let Some(spans) = &self.token_spans
+                && self.pos < spans.len()
+            {
+                return crate::error::ParseError::with_span(e.to_string(), spans[self.pos].clone());
             }
             crate::error::ParseError::with_position(
                 e.to_string(),
@@ -311,19 +312,19 @@ impl<'a> StmtParser<'a> {
 
     /// 解析 for 语句
     fn parse_for_stmt(&mut self) -> Result<Stmt> {
-        self.expect_token(Token::For)?;  // 消费 'for'
-        
+        self.expect_token(Token::For)?; // 消费 'for'
+
         // 解析模式 (变量名或解构)
         let pattern = self.parse_for_pattern()?;
-        
-        self.expect_token(Token::In)?;   // 消费 'in'
-        
+
+        self.expect_token(Token::In)?; // 消费 'in'
+
         // 解析可迭代表达式 - 在for循环中遇到LBrace时停止
         let iterable = self.parse_expression_with_options(true)?;
-        
+
         // 解析循环体
         let body = Box::new(self.parse_statement()?);
-        
+
         Ok(Stmt::For {
             pattern,
             iterable: Box::new(iterable),
@@ -349,20 +350,20 @@ impl<'a> StmtParser<'a> {
             Token::LParen => {
                 self.pos += 1; // 消费 '('
                 let mut patterns = Vec::new();
-                
+
                 // 处理空元组 ()
                 if !self.eof() && self.tokens[self.pos] == Token::RParen {
                     self.pos += 1;
                     return Ok(ForPattern::Tuple(patterns));
                 }
-                
+
                 loop {
                     patterns.push(self.parse_for_pattern()?);
-                    
+
                     if self.eof() {
                         return Err(anyhow!(self.err("Expected ')' in tuple pattern")));
                     }
-                    
+
                     match &self.tokens[self.pos] {
                         Token::Comma => {
                             self.pos += 1; // 消费 ','
@@ -376,7 +377,7 @@ impl<'a> StmtParser<'a> {
                         _ => return Err(anyhow!(self.err("Expected ',' or ')' in tuple pattern"))),
                     }
                 }
-                
+
                 self.pos += 1; // 消费 ')'
                 Ok(ForPattern::Tuple(patterns))
             }
@@ -385,31 +386,30 @@ impl<'a> StmtParser<'a> {
                 self.pos += 1; // 消费 '['
                 let mut patterns = Vec::new();
                 let mut rest = None;
-                
+
                 // 处理空数组 []
                 if !self.eof() && self.tokens[self.pos] == Token::RBracket {
                     self.pos += 1;
                     return Ok(ForPattern::Array { patterns, rest });
                 }
-                
+
                 loop {
                     // 检查剩余模式 ..
                     if !self.eof() && self.tokens[self.pos] == Token::Range {
                         self.pos += 1; // 消费 '..'
-                        
+
                         // 可选的剩余变量名
-                        if !self.eof() {
-                            if let Token::Id(name) = &self.tokens[self.pos] {
+                        if !self.eof()
+                            && let Token::Id(name) = &self.tokens[self.pos] {
                                 rest = Some(name.clone());
                                 self.pos += 1;
-                            }
                         }
-                        
+
                         // 剩余模式后不能再有其他模式
                         if self.eof() {
                             return Err(anyhow!(self.err("Expected ']' after rest pattern")));
                         }
-                        
+
                         match &self.tokens[self.pos] {
                             Token::RBracket => break,
                             Token::Comma => {
@@ -417,19 +417,25 @@ impl<'a> StmtParser<'a> {
                                 if !self.eof() && self.tokens[self.pos] == Token::RBracket {
                                     break;
                                 } else {
-                                    return Err(anyhow!(self.err("No patterns allowed after rest pattern")));
+                                    return Err(anyhow!(
+                                        self.err("No patterns allowed after rest pattern")
+                                    ));
                                 }
                             }
-                            _ => return Err(anyhow!(self.err("Expected ']' or ',' after rest pattern"))),
+                            _ => {
+                                return Err(anyhow!(
+                                    self.err("Expected ']' or ',' after rest pattern")
+                                ));
+                            }
                         }
                     } else {
                         patterns.push(self.parse_for_pattern()?);
                     }
-                    
+
                     if self.eof() {
                         return Err(anyhow!(self.err("Expected ']' in array pattern")));
                     }
-                    
+
                     match &self.tokens[self.pos] {
                         Token::Comma => {
                             self.pos += 1; // 消费 ','
@@ -443,7 +449,7 @@ impl<'a> StmtParser<'a> {
                         _ => return Err(anyhow!(self.err("Expected ',' or ']' in array pattern"))),
                     }
                 }
-                
+
                 self.pos += 1; // 消费 ']'
                 Ok(ForPattern::Array { patterns, rest })
             }
@@ -481,7 +487,6 @@ impl<'a> StmtParser<'a> {
 
         self.expect_token(Token::Assign)?;
 
-
         let value = self.parse_expression()?;
         self.expect_token(Token::Semicolon)?;
 
@@ -514,13 +519,13 @@ impl<'a> StmtParser<'a> {
         self.expect_token(Token::Colon)?;
         self.expect_token(Token::Assign)?;
 
-
         let value = self.parse_expression()?;
         self.expect_token(Token::Semicolon)?;
-        Ok(Stmt::Define { name, value: Box::new(value) })
+        Ok(Stmt::Define {
+            name,
+            value: Box::new(value),
+        })
     }
-
-
 
     /// 解析 break 语句
     fn parse_break_stmt(&mut self) -> Result<Stmt> {
@@ -634,15 +639,14 @@ impl<'a> StmtParser<'a> {
         let mut depth = 0;
         let mut end_pos = start_pos;
 
-        
         while end_pos < self.len {
             let token = &self.tokens[end_pos];
-                        
+
             match token {
                 Token::LBrace if depth == 0 && stop_at_for_loop_body => {
                     break; // for循环体的开始
                 }
-                  Token::LParen | Token::LBrace | Token::LBracket => {
+                Token::LParen | Token::LBrace | Token::LBracket => {
                     depth += 1;
                     end_pos += 1;
                 }
@@ -847,8 +851,4 @@ impl<'a> StmtParser<'a> {
         };
         format!("Syntax error: {} ({})", msg, ctx)
     }
-
-
-
-
 }

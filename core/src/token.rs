@@ -43,10 +43,20 @@ pub enum Token {
     Fn,       // fn (function definition)
     For,      // for (for loop)
     Range,    // .. (range operator)
+    // Concurrency keywords
+    Spawn,     // spawn
+    Chan,      // chan
+    Send,      // send
+    Recv,      // recv
+    Select,    // select
+    Case,      // case
+    Default,   // default
+    Arrow,     // =>
+    LeftArrow, // <-
     // Import keywords
-    Import, // import
-    From,   // from
-    As,     // as
+    Import,      // import
+    From,        // from
+    As,          // as
     Str(String), // "abc"
     Int(i64),    // 1
     Float(f64),  // 1.1
@@ -252,8 +262,34 @@ impl Tokenizer {
                 self.push_with_span(Token::Str(s), start_pos, end_pos);
                 return Ok(());
             }
-            s.push(c);
-            self.advance_char();
+            
+            // Handle escape sequences
+            if c == '\\' && self.idx + 1 < self.len {
+                self.advance_char(); // skip backslash
+                if !self.eof() {
+                    let escaped_char = self.chars[self.idx];
+                    match escaped_char {
+                        'n' => s.push('\n'),
+                        'r' => s.push('\r'),
+                        't' => s.push('\t'),
+                        '\\' => s.push('\\'),
+                        '\'' => s.push('\''),
+                        '"' => s.push('"'),
+                        '0' => s.push('\0'),
+                        _ => {
+                            // For unknown escape sequences, keep the backslash and the character
+                            s.push('\\');
+                            s.push(escaped_char);
+                        }
+                    }
+                    self.advance_char();
+                } else {
+                    return Err(anyhow!(self.err("Incomplete escape sequence at end of string")));
+                }
+            } else {
+                s.push(c);
+                self.advance_char();
+            }
         }
 
         Err(anyhow!(self.err("String not closed")))
@@ -414,6 +450,35 @@ impl Tokenizer {
         }
         if let Some(sp) = match_kw(self, "for") {
             self.push_span_only(Token::For, sp);
+            return Ok(());
+        }
+        // Concurrency keywords
+        if let Some(sp) = match_kw(self, "spawn") {
+            self.push_span_only(Token::Spawn, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "chan") {
+            self.push_span_only(Token::Chan, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "send") {
+            self.push_span_only(Token::Send, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "recv") {
+            self.push_span_only(Token::Recv, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "select") {
+            self.push_span_only(Token::Select, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "case") {
+            self.push_span_only(Token::Case, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "default") {
+            self.push_span_only(Token::Default, sp);
             return Ok(());
         }
 
@@ -652,6 +717,10 @@ impl Tokenizer {
                     let end = self.current_position();
                     self.push_with_span(Token::Eq, start, end);
                     Ok(())
+                } else if self.expect("=>") {
+                    let end = self.current_position();
+                    self.push_with_span(Token::Arrow, start, end);
+                    Ok(())
                 } else {
                     self.advance_char();
                     let end = self.current_position();
@@ -690,6 +759,10 @@ impl Tokenizer {
                 if self.expect("<=") {
                     let end = self.current_position();
                     self.push_with_span(Token::Le, start, end);
+                    Ok(())
+                } else if self.expect("<-") {
+                    let end = self.current_position();
+                    self.push_with_span(Token::LeftArrow, start, end);
                     Ok(())
                 } else {
                     self.advance_char();

@@ -10,8 +10,11 @@ license = "Apache-2.0"
 qcl-core = { path = "../core" }
 anyhow = { workspace = true }
 chrono = { workspace = true }
+tokio = { workspace = true, optional = true }
 
 [features]
 default = ["all"]
+# Concurrency support
+concurrency = ["tokio", "qcl-core/concurrency"]
 # Keep a single umbrella feature for compatibility; all code is always built.
-all = []
+all = ["concurrency"]

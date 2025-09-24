@@ -1,5 +1,5 @@
 use crate::{
-    expr::Expr,
+    expr::{Expr, SelectCase, SelectPattern},
     op::{BinOp, UnaryOp},
     token::Token,
     val::Val,
@@ -43,7 +43,9 @@ impl<'a> Parser<'a> {
             Ok(expr) => expr,
             Err(err) => {
                 // Prefer precise token span if available; otherwise, fall back to offset estimation
-                if let Some(spans) = &self.token_spans && self.pos < spans.len() {
+                if let Some(spans) = &self.token_spans
+                    && self.pos < spans.len()
+                {
                     return Err(crate::error::ParseError::with_span(
                         err.to_string(),
                         spans[self.pos].clone(),
@@ -65,7 +67,9 @@ impl<'a> Parser<'a> {
         };
 
         if !self.eof() {
-            if let Some(spans) = &self.token_spans && self.pos < spans.len() {
+            if let Some(spans) = &self.token_spans
+                && self.pos < spans.len()
+            {
                 return Err(crate::error::ParseError::with_span(
                     "Unexpected tokens at end".to_string(),
                     spans[self.pos].clone(),
@@ -152,28 +156,28 @@ impl<'a> Parser<'a> {
     /// - `expr..=expr` (inclusive range)  
     fn parse_range(&mut self) -> Result<Expr> {
         let mut expr = self.parse_add_sub()?;
-        
+
         if !self.eof() && self.tokens[self.pos] == Token::Range {
             self.pos += 1; // consume '..'
-            
+
             // For now, we only support exclusive ranges (..)
             // TODO: Add support for inclusive ranges (..=) when Token::RangeInclusive is added
             let inclusive = false;
-            
+
             // Check if there's an end expression
             let end = if !self.eof() && !self.is_range_terminator() {
                 Some(Box::new(self.parse_add_sub()?))
             } else {
                 None
             };
-            
+
             expr = Expr::Range {
                 start: Some(Box::new(expr)),
                 end,
                 inclusive,
             };
         }
-        
+
         Ok(expr)
     }
 
@@ -184,7 +188,12 @@ impl<'a> Parser<'a> {
         }
         matches!(
             self.tokens[self.pos],
-            Token::RParen | Token::RBrace | Token::RBracket | Token::Comma | Token::Semicolon | Token::In
+            Token::RParen
+                | Token::RBrace
+                | Token::RBracket
+                | Token::Comma
+                | Token::Semicolon
+                | Token::In
         )
     }
 
@@ -310,34 +319,342 @@ impl<'a> Parser<'a> {
         if self.eof() {
             return Err(anyhow!(self.err("Unexpected end of input")));
         }
-        let token = &self.tokens[self.pos];
-        let expr = match token {
+
+        match &self.tokens[self.pos] {
             Token::Nil => {
                 self.pos += 1;
-                Expr::Val(Val::Nil)
+                Ok(Expr::Val(Val::Nil))
             }
             Token::Bool(b) => {
                 self.pos += 1;
-                Expr::Val(Val::Bool(*b))
+                Ok(Expr::Val(Val::Bool(*b)))
             }
             Token::Int(i) => {
                 self.pos += 1;
-                Expr::Val(Val::Int(*i))
+                Ok(Expr::Val(Val::Int(*i)))
             }
             Token::Float(f) => {
                 self.pos += 1;
-                Expr::Val(Val::Float(*f))
+                Ok(Expr::Val(Val::Float(*f)))
             }
             Token::Str(s) => {
                 self.pos += 1;
-                Expr::Val(Val::Str(Arc::from(s.as_str())))
+                Ok(Expr::Val(Val::Str(Arc::from(s.as_str()))))
             }
-            Token::At => self.parse_at()?,
-            Token::LBracket => self.parse_list()?,
-            Token::LBrace => self.parse_map()?,
-            _ => self.parse_paren()?,
+            Token::At => self.parse_at(),
+            Token::LBracket => self.parse_list(),
+            Token::LBrace => self.parse_map(),
+            Token::Spawn => self.parse_spawn(),
+            Token::Chan => self.parse_chan(),
+            Token::Send => self.parse_send(),
+            Token::Recv => self.parse_recv(),
+            Token::Select => self.parse_select(),
+            Token::LParen => self.parse_paren(),
+            Token::Id(id) => {
+                let expr = Expr::Var(id.clone());
+                self.pos += 1;
+                Ok(expr)
+            }
+            _ => {
+                let msg = format!("Unexpected token: {:?}", self.tokens[self.pos]);
+                Err(anyhow!(self.err(&msg)))
+            }
+        }
+    }
+
+    /// Parse spawn expression: spawn(expr)
+    fn parse_spawn(&mut self) -> Result<Expr> {
+        if self.tokens[self.pos] != Token::Spawn {
+            let msg = format!("Expecting 'spawn', found {:?}", self.tokens[self.pos]);
+            return Err(anyhow!(self.err(&msg)));
+        }
+        self.pos += 1;
+
+        if self.eof() || self.tokens[self.pos] != Token::LParen {
+            return Err(anyhow!(self.err("Expecting '(' after 'spawn'")));
+        }
+        self.pos += 1;
+
+        let expr = self.parse_expr()?;
+
+        if self.eof() || self.tokens[self.pos] != Token::RParen {
+            return Err(anyhow!(self.err("Expecting ')' to close spawn expression")));
+        }
+        self.pos += 1;
+
+        Ok(Expr::Spawn(Box::new(expr)))
+    }
+
+    /// Parse chan expression: chan(capacity?, type?)
+    fn parse_chan(&mut self) -> Result<Expr> {
+        if self.tokens[self.pos] != Token::Chan {
+            let msg = format!("Expecting 'chan', found {:?}", self.tokens[self.pos]);
+            return Err(anyhow!(self.err(&msg)));
+        }
+        self.pos += 1;
+
+        if self.eof() || self.tokens[self.pos] != Token::LParen {
+            return Err(anyhow!(self.err("Expecting '(' after 'chan'")));
+        }
+        self.pos += 1;
+
+        let mut capacity = None;
+        let mut type_expr = None;
+
+        // Parse capacity if present
+        if !self.eof() && self.tokens[self.pos] != Token::RParen {
+            capacity = Some(Box::new(self.parse_expr()?));
+
+            // Parse type if present
+            if !self.eof() && self.tokens[self.pos] == Token::Comma {
+                self.pos += 1;
+                if self.eof() || !self.is_valid_expr_start() {
+                    return Err(anyhow!(self.err("Expecting type expression after comma")));
+                }
+                type_expr = Some(Box::new(self.parse_expr()?));
+            }
+        }
+
+        if self.eof() || self.tokens[self.pos] != Token::RParen {
+            return Err(anyhow!(self.err("Expecting ')' to close chan expression")));
+        }
+        self.pos += 1;
+
+        Ok(Expr::ChanLiteral {
+            capacity,
+            type_expr,
+        })
+    }
+
+    /// Parse send expression: send(channel, value)
+    fn parse_send(&mut self) -> Result<Expr> {
+        if self.tokens[self.pos] != Token::Send {
+            let msg = format!("Expecting 'send', found {:?}", self.tokens[self.pos]);
+            return Err(anyhow!(self.err(&msg)));
+        }
+        self.pos += 1;
+
+        if self.eof() || self.tokens[self.pos] != Token::LParen {
+            return Err(anyhow!(self.err("Expecting '(' after 'send'")));
+        }
+        self.pos += 1;
+
+        let channel = self.parse_expr()?;
+
+        if self.eof() || self.tokens[self.pos] != Token::Comma {
+            return Err(anyhow!(
+                self.err("Expecting ',' after channel in send expression")
+            ));
+        }
+        self.pos += 1;
+
+        let value = self.parse_expr()?;
+
+        if self.eof() || self.tokens[self.pos] != Token::RParen {
+            return Err(anyhow!(self.err("Expecting ')' to close send expression")));
+        }
+        self.pos += 1;
+
+        Ok(Expr::Send {
+            channel: Box::new(channel),
+            value: Box::new(value),
+        })
+    }
+
+    /// Parse recv expression: recv(channel)
+    fn parse_recv(&mut self) -> Result<Expr> {
+        if self.tokens[self.pos] != Token::Recv {
+            let msg = format!("Expecting 'recv', found {:?}", self.tokens[self.pos]);
+            return Err(anyhow!(self.err(&msg)));
+        }
+        self.pos += 1;
+
+        if self.eof() || self.tokens[self.pos] != Token::LParen {
+            return Err(anyhow!(self.err("Expecting '(' after 'recv'")));
+        }
+        self.pos += 1;
+
+        let channel = self.parse_expr()?;
+
+        if self.eof() || self.tokens[self.pos] != Token::RParen {
+            return Err(anyhow!(self.err("Expecting ')' to close recv expression")));
+        }
+        self.pos += 1;
+
+        Ok(Expr::Recv(Box::new(channel)))
+    }
+
+    /// Parse select expression: select { case ...; default ... }
+    fn parse_select(&mut self) -> Result<Expr> {
+        if self.tokens[self.pos] != Token::Select {
+            let msg = format!("Expecting 'select', found {:?}", self.tokens[self.pos]);
+            return Err(anyhow!(self.err(&msg)));
+        }
+        self.pos += 1;
+
+        if self.eof() || self.tokens[self.pos] != Token::LBrace {
+            return Err(anyhow!(self.err("Expecting '{' after 'select'")));
+        }
+        self.pos += 1;
+
+        let mut cases = Vec::new();
+        let mut default_case = None;
+
+        while !self.eof() && self.tokens[self.pos] != Token::RBrace {
+            match &self.tokens[self.pos] {
+                Token::Case => {
+                    self.pos += 1;
+                    let case = self.parse_select_case()?;
+                    cases.push(case);
+                }
+                Token::Default => {
+                    self.pos += 1;
+                    if self.eof() || self.tokens[self.pos] != Token::Arrow {
+                        return Err(anyhow!(self.err("Expecting '=>' after 'default'")));
+                    }
+                    self.pos += 1;
+
+                    if self.eof() || !self.is_valid_expr_start() {
+                        return Err(anyhow!(self.err("Expecting expression after 'default =>'")));
+                    }
+
+                    let expr = self.parse_expr()?;
+
+                    // Semicolon is optional for the last case
+                    if !self.eof() && self.tokens[self.pos] == Token::Semicolon {
+                        self.pos += 1;
+                    }
+
+                    default_case = Some(Box::new(expr));
+                }
+                Token::Semicolon => {
+                    self.pos += 1; // Skip semicolons between cases
+                }
+                _ => {
+                    let msg = format!("Unexpected token in select: {:?}", self.tokens[self.pos]);
+                    return Err(anyhow!(self.err(&msg)));
+                }
+            }
+        }
+
+        if self.eof() || self.tokens[self.pos] != Token::RBrace {
+            return Err(anyhow!(self.err("Expecting '}' to close select statement")));
+        }
+        self.pos += 1;
+
+        Ok(Expr::Select {
+            cases,
+            default_case,
+        })
+    }
+
+    /// Parse a select case: case pattern => expr;
+    fn parse_select_case(&mut self) -> Result<SelectCase> {
+        // Parse optional binding for recv pattern (identifier <- ...)
+        if self.eof() {
+            return Err(anyhow!(self.err("Expecting pattern after 'case'")));
+        }
+        let mut binding: Option<String> = None;
+        if let Token::Id(name) = &self.tokens[self.pos]
+            && self.pos + 1 < self.len
+            && matches!(self.tokens[self.pos + 1], Token::LeftArrow | Token::Le)
+        {
+            let identifier = name.clone();
+            self.pos += 2; // consume identifier and arrow token
+            if identifier != "_" {
+                binding = Some(identifier);
+            }
+        }
+
+        if self.eof() {
+            return Err(anyhow!(self.err("Expecting pattern after binding")));
+        }
+
+        // Parse pattern
+        let pattern = if self.tokens[self.pos] == Token::Recv {
+            let binding_value = binding;
+            self.pos += 1;
+            if self.eof() || self.tokens[self.pos] != Token::LParen {
+                return Err(anyhow!(
+                    self.err("Expecting '(' after 'recv' in case pattern")
+                ));
+            }
+            self.pos += 1;
+
+            let channel = self.parse_expr()?;
+
+            if self.eof() || self.tokens[self.pos] != Token::RParen {
+                return Err(anyhow!(
+                    self.err("Expecting ')' after channel in recv pattern")
+                ));
+            }
+            self.pos += 1;
+
+            SelectPattern::Recv {
+                binding: binding_value,
+                channel: Box::new(channel),
+            }
+        } else if self.tokens[self.pos] == Token::Send {
+            if binding.is_some() {
+                return Err(anyhow!(self.err("Send pattern does not support bindings")));
+            }
+            self.pos += 1;
+            if self.eof() || self.tokens[self.pos] != Token::LParen {
+                return Err(anyhow!(
+                    self.err("Expecting '(' after 'send' in case pattern")
+                ));
+            }
+            self.pos += 1;
+
+            let channel = self.parse_expr()?;
+
+            if self.eof() || self.tokens[self.pos] != Token::Comma {
+                return Err(anyhow!(
+                    self.err("Expecting ',' after channel in send pattern")
+                ));
+            }
+            self.pos += 1;
+
+            let value = self.parse_expr()?;
+
+            if self.eof() || self.tokens[self.pos] != Token::RParen {
+                return Err(anyhow!(
+                    self.err("Expecting ')' after value in send pattern")
+                ));
+            }
+            self.pos += 1;
+
+            SelectPattern::Send {
+                channel: Box::new(channel),
+                value: Box::new(value),
+            }
+        } else {
+            let msg = format!("Unexpected pattern token: {:?}", self.tokens[self.pos]);
+            return Err(anyhow!(self.err(&msg)));
         };
-        Ok(expr)
+
+        // Parse arrow
+        if self.eof() || self.tokens[self.pos] != Token::Arrow {
+            return Err(anyhow!(self.err("Expecting '=>' after pattern")));
+        }
+        self.pos += 1;
+
+        // Parse body expression
+        if self.eof() || !self.is_valid_expr_start() {
+            return Err(anyhow!(self.err("Expecting expression after '=>'")));
+        }
+        let body = self.parse_expr()?;
+
+        // Semicolon is optional for the last case
+        if !self.eof() && self.tokens[self.pos] == Token::Semicolon {
+            self.pos += 1;
+        }
+
+        Ok(SelectCase {
+            pattern,
+            guard: None, // TODO: Support guard expressions
+            body: Box::new(body),
+        })
     }
 
     /// - `(expr)`
@@ -366,6 +683,12 @@ impl<'a> Parser<'a> {
                     self.pos += 1;
                     Ok(expr)
                 }
+                // Handle concurrency keywords in parentheses
+                Token::Spawn => self.parse_spawn(),
+                Token::Chan => self.parse_chan(),
+                Token::Send => self.parse_send(),
+                Token::Recv => self.parse_recv(),
+                Token::Select => self.parse_select(),
                 _ => {
                     let msg = format!("Unexpected token: {:?}", self.tokens[self.pos]);
                     Err(anyhow!(self.err(&msg)))
@@ -693,6 +1016,11 @@ impl<'a> Parser<'a> {
                 | Token::LBrace
                 | Token::LParen
                 | Token::Not
+                | Token::Spawn
+                | Token::Chan
+                | Token::Send
+                | Token::Recv
+                | Token::Select
         )
     }
 

@@ -10,7 +10,7 @@ use crate::{
     ast::Parser,
     op::{BinOp, UnaryOp, err_op},
     token::Tokenizer,
-    val::Val,
+    val::{Type, Val},
 };
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
@@ -32,6 +32,29 @@ use std::sync::Mutex;
 /// map     ::= '{' [expr ':' expr {',' expr ':' expr}] '}'
 ///
 ///
+/// Select case pattern for select statements
+#[derive(Debug, Clone, PartialEq)]
+pub enum SelectPattern {
+    /// recv(channel) pattern with optional binding
+    Recv {
+        binding: Option<String>,
+        channel: Box<Expr>,
+    },
+    /// send(channel, expr) pattern
+    Send {
+        channel: Box<Expr>,
+        value: Box<Expr>,
+    },
+}
+
+/// Select case: case pattern => expr
+#[derive(Debug, Clone, PartialEq)]
+pub struct SelectCase {
+    pub pattern: SelectPattern,
+    pub guard: Option<Box<Expr>>, // Optional guard expression
+    pub body: Box<Expr>,
+}
+
 /// Details:
 /// - @expr
 ///   + All accessible objects of `@` expr are maps actually.
@@ -89,7 +112,26 @@ pub enum Expr {
     Range {
         start: Option<Box<Expr>>,
         end: Option<Box<Expr>>,
-        inclusive: bool,  // .. vs ..=
+        inclusive: bool, // .. vs ..=
+    },
+    /// spawn(expr) - spawn a new task
+    Spawn(Box<Expr>),
+    /// chan(capacity, type) - create a channel
+    ChanLiteral {
+        capacity: Option<Box<Expr>>,
+        type_expr: Option<Box<Expr>>,
+    },
+    /// send(channel, value) - send a value to a channel
+    Send {
+        channel: Box<Expr>,
+        value: Box<Expr>,
+    },
+    /// recv(channel) - receive a value from a channel
+    Recv(Box<Expr>),
+    /// select { case pattern => expr; ...; default => expr }
+    Select {
+        cases: Vec<SelectCase>,
+        default_case: Option<Box<Expr>>,
     },
     Val(Val),
 }
@@ -142,21 +184,20 @@ impl Expr {
                     return Ok(Val::Nil);
                 }
 
-                let mut val = ctx;
+                let mut result = ctx.clone();
                 for path in paths {
-                    val = match val.access(&path.eval_with_env(ctx, env)?) {
+                    result = match result.access(&path.eval_with_env(ctx, env)?) {
                         Some(v) => v,
                         None => return Ok(Val::Nil),
                     }
                 }
-                // Return a clone only at the end of evaluation to reduce allocations
-                Ok(val.clone())
+                Ok(result)
             }
             Expr::Access(expr, field) => {
                 let val = expr.eval_with_env(ctx, env)?;
                 let field_val = field.eval_with_env(ctx, env)?;
                 match val.access(&field_val) {
-                    Some(v) => Ok(v.clone()),
+                    Some(v) => Ok(v),
                     None => Ok(Val::Nil),
                 }
             }
@@ -239,7 +280,11 @@ impl Expr {
                     Err(anyhow!("Function call requires environment"))
                 }
             }
-            Expr::Range { start, end, inclusive } => {
+            Expr::Range {
+                start,
+                end,
+                inclusive,
+            } => {
                 let start_val = match start {
                     Some(expr) => expr.eval_with_env(ctx, env)?,
                     None => Val::Int(0),
@@ -248,7 +293,7 @@ impl Expr {
                     Some(expr) => expr.eval_with_env(ctx, env)?,
                     None => return Err(anyhow!("Open-ended ranges not supported in for loops")),
                 };
-                
+
                 // Generate range list
                 match (start_val, end_val) {
                     (Val::Int(s), Val::Int(e)) => {
@@ -260,6 +305,256 @@ impl Expr {
                         Ok(Val::List(range.into()))
                     }
                     _ => Err(anyhow!("Range bounds must be integers")),
+                }
+            }
+            Expr::Spawn(expr) => {
+                #[cfg(feature = "concurrency")]
+                {
+                    // Clone the expression and context for the spawned task
+                    let expr_clone = expr.clone();
+                    let ctx_clone = ctx.clone();
+                    let env_clone = env.cloned();
+
+                    // Create a future that evaluates the expression
+                    let future =
+                        async move { expr_clone.eval_with_env(&ctx_clone, env_clone.as_ref()) };
+
+                    // Spawn the task using the runtime
+                    match crate::runtime::with_runtime(|runtime| runtime.spawn(future)) {
+                        Ok(task_id) => {
+                            Ok(Val::Task {
+                                id: task_id,
+                                value: None, // Value will be set when task completes
+                            })
+                        }
+                        Err(e) => Err(anyhow!("Failed to spawn task: {}", e)),
+                    }
+                }
+                #[cfg(not(feature = "concurrency"))]
+                {
+                    // Fallback: just evaluate the expression synchronously
+                    let expr_val = expr.eval_with_env(ctx, env)?;
+                    static mut TASK_ID_COUNTER: u64 = 0;
+                    unsafe {
+                        TASK_ID_COUNTER += 1;
+                        Ok(Val::Task {
+                            id: TASK_ID_COUNTER,
+                            value: Some(Box::new(expr_val)),
+                        })
+                    }
+                }
+            }
+            Expr::ChanLiteral {
+                capacity,
+                type_expr,
+            } => {
+                // Evaluate capacity if provided
+                let capacity_num = match capacity {
+                    Some(cap_expr) => {
+                        let cap_val = cap_expr.eval_with_env(ctx, env)?;
+                        match cap_val {
+                            Val::Int(n) => n,
+                            _ => return Err(anyhow!("Channel capacity must be an integer")),
+                        }
+                    }
+                    None => 0, // Default unbuffered channel
+                };
+
+                // Parse the type expression
+                let inner_type = match type_expr {
+                    Some(type_expr) => {
+                        let type_val = type_expr.eval_with_env(ctx, env)?;
+                        match type_val {
+                            Val::Str(type_str) => Type::parse(&type_str)
+                                .ok_or_else(|| anyhow!("Invalid type: {}", type_str))?,
+                            _ => return Err(anyhow!("Channel type must be a string")),
+                        }
+                    }
+                    None => Type::Nil, // Default to Nil type
+                };
+
+                #[cfg(feature = "concurrency")]
+                {
+                    // Create channel using the runtime
+                    let capacity_opt = if capacity_num == 0 {
+                        None
+                    } else {
+                        Some(capacity_num as usize)
+                    };
+                    match crate::runtime::with_runtime(|runtime| {
+                        runtime.create_channel(capacity_opt)
+                    }) {
+                        Ok(channel_id) => Ok(Val::Channel {
+                            id: channel_id,
+                            capacity: Some(capacity_num),
+                            inner_type: Box::new(inner_type),
+                        }),
+                        Err(e) => Err(anyhow!("Failed to create channel: {}", e)),
+                    }
+                }
+                #[cfg(not(feature = "concurrency"))]
+                {
+                    // Fallback implementation
+                    static mut CHANNEL_ID_COUNTER: u64 = 0;
+                    unsafe {
+                        CHANNEL_ID_COUNTER += 1;
+                        Ok(Val::Channel {
+                            id: CHANNEL_ID_COUNTER,
+                            capacity: Some(capacity_num),
+                            inner_type: Box::new(inner_type),
+                        })
+                    }
+                }
+            }
+            Expr::Send { channel, value } => {
+                // Evaluate channel and value
+                let channel_val = channel.eval_with_env(ctx, env)?;
+                let value_val = value.eval_with_env(ctx, env)?;
+
+                #[cfg(feature = "concurrency")]
+                {
+                    if let Val::Channel { id, .. } = channel_val {
+                        match crate::runtime::with_runtime(|runtime| {
+                            runtime.block_on(runtime.send_async(id, value_val))
+                        }) {
+                            Ok(sent) => Ok(Val::Bool(sent)),
+                            Err(e) => Err(anyhow!("Send operation failed: {}", e)),
+                        }
+                    } else {
+                        Err(anyhow!("Send target is not a channel"))
+                    }
+                }
+                #[cfg(not(feature = "concurrency"))]
+                {
+                    // Fallback: just return success status
+                    Ok(Val::Bool(true))
+                }
+            }
+            Expr::Recv(channel) => {
+                // Evaluate channel
+                let channel_val = channel.eval_with_env(ctx, env)?;
+
+                #[cfg(feature = "concurrency")]
+                {
+                    if let Val::Channel { id, .. } = channel_val {
+                        match crate::runtime::with_runtime(|runtime| {
+                            runtime.block_on(runtime.recv_async(id))
+                        }) {
+                            Ok((ok, value)) => Ok(Val::List(vec![Val::Bool(ok), value].into())),
+                            Err(e) => Err(anyhow!("Receive operation failed: {}", e)),
+                        }
+                    } else {
+                        Err(anyhow!("Receive target is not a channel"))
+                    }
+                }
+                #[cfg(not(feature = "concurrency"))]
+                {
+                    // Fallback: return a tuple (ok: bool, value: T)
+                    Ok(Val::List(vec![Val::Bool(false), Val::Nil].into()))
+                }
+            }
+            Expr::Select {
+                cases,
+                default_case,
+            } => {
+                #[cfg(feature = "concurrency")]
+                {
+                    use crate::runtime::SelectOperation;
+
+                    let mut select_op = SelectOperation::new();
+                    let mut bindings: Vec<Option<String>> = Vec::with_capacity(cases.len());
+
+                    for (idx, case) in cases.iter().enumerate() {
+                        match &case.pattern {
+                            SelectPattern::Recv { binding, channel } => {
+                                let channel_val = channel.eval_with_env(ctx, env)?;
+                                let channel_id = if let Val::Channel { id, .. } = channel_val {
+                                    id
+                                } else {
+                                    return Err(anyhow!("recv() target is not a channel"));
+                                };
+                                select_op.add_recv(idx, channel_id);
+                                bindings.push(binding.clone());
+                            }
+                            SelectPattern::Send { channel, value } => {
+                                let channel_val = channel.eval_with_env(ctx, env)?;
+                                let value_val = value.eval_with_env(ctx, env)?;
+                                let channel_id = if let Val::Channel { id, .. } = channel_val {
+                                    id
+                                } else {
+                                    return Err(anyhow!("send() target is not a channel"));
+                                };
+                                select_op.add_send(idx, channel_id, value_val);
+                                bindings.push(None);
+                            }
+                        }
+                    }
+
+                    let has_default = default_case.is_some();
+                    if select_op.is_empty() && !has_default {
+                        return Ok(Val::Nil);
+                    }
+
+                    let select_result = crate::runtime::with_runtime(|runtime| {
+                        runtime.block_on(select_op.execute(runtime, has_default))
+                    })?;
+
+                    if select_result.is_default {
+                        if let Some(default_expr) = default_case {
+                            return default_expr.eval_with_env(ctx, env);
+                        }
+                        return Ok(Val::Nil);
+                    }
+
+                    let case_index = select_result
+                        .case_index
+                        .ok_or_else(|| anyhow!("Select returned no case index"))?;
+
+                    let selected_case = cases
+                        .get(case_index)
+                        .ok_or_else(|| anyhow!("Invalid select case index"))?;
+
+                    let binding_name = bindings.get(case_index).cloned().flatten();
+
+                    if binding_name.is_some() && env.is_none() {
+                        return Err(anyhow!(
+                            "Select binding requires evaluation environment"
+                        ));
+                    }
+
+                    let binding_env: Option<crate::stmt::Environment>;
+                    let env_for_case: Option<&crate::stmt::Environment> = if let Some(env_ref) = env
+                    {
+                        if let Some(name) = binding_name {
+                            let mut new_env = env_ref.clone();
+                            new_env.push_scope();
+                            let tuple_val = select_result
+                                .recv_payload
+                                .clone()
+                                .map(|(ok, value)| Val::List(vec![Val::Bool(ok), value].into()))
+                                .unwrap_or_else(|| {
+                                    Val::List(vec![Val::Bool(false), Val::Nil].into())
+                                });
+                            new_env.define(name, tuple_val);
+                            binding_env = Some(new_env);
+                            binding_env.as_ref()
+                        } else {
+                            Some(env_ref)
+                        }
+                    } else {
+                        None
+                    };
+
+                    selected_case.body.eval_with_env(ctx, env_for_case)
+                }
+                #[cfg(not(feature = "concurrency"))]
+                {
+                    // Fallback: evaluate default case if present, otherwise return nil
+                    if let Some(default_expr) = default_case {
+                        default_expr.eval_with_env(ctx, env)
+                    } else {
+                        Ok(Val::Nil)
+                    }
                 }
             }
             // Remove the problematic string-to-variable resolution
@@ -352,9 +647,52 @@ impl Expr {
                     e.collect_ctx_names(names);
                 }
             }
+            Expr::Spawn(expr) => {
+                expr.collect_ctx_names(names);
+            }
+            Expr::ChanLiteral {
+                capacity,
+                type_expr,
+            } => {
+                if let Some(cap_expr) = capacity {
+                    cap_expr.collect_ctx_names(names);
+                }
+                if let Some(type_expr) = type_expr {
+                    type_expr.collect_ctx_names(names);
+                }
+            }
+            Expr::Send { channel, value } => {
+                channel.collect_ctx_names(names);
+                value.collect_ctx_names(names);
+            }
+            Expr::Recv(channel) => {
+                channel.collect_ctx_names(names);
+            }
+            Expr::Select {
+                cases,
+                default_case,
+            } => {
+                for case in cases {
+                    match &case.pattern {
+                        SelectPattern::Recv { channel, .. } => {
+                            channel.collect_ctx_names(names);
+                        }
+                        SelectPattern::Send { channel, value } => {
+                            channel.collect_ctx_names(names);
+                            value.collect_ctx_names(names);
+                        }
+                    }
+                    if let Some(guard) = &case.guard {
+                        guard.collect_ctx_names(names);
+                    }
+                    case.body.collect_ctx_names(names);
+                }
+                if let Some(default_expr) = default_case {
+                    default_expr.collect_ctx_names(names);
+                }
+            }
             // Only collect string values when they are actual context names, not field names
-            Expr::Val(_) => {}
-            // Receive operator: collect from inner expression
+            Expr::Val(_) => {} // Receive operator: collect from inner expression
         }
     }
 
@@ -464,7 +802,7 @@ impl Expr {
                 if let (Expr::Val(base_val), Expr::Val(field_val)) = (&base, &field) {
                     // Direct access to constant structure, e.g. [1,2,3].1 or {"k":10}.k
                     if let Some(res_val) = base_val.access(field_val) {
-                        return Expr::Val(res_val.clone());
+                        return Expr::Val(res_val);
                     } else {
                         return Expr::Val(Val::Nil);
                     }
@@ -547,7 +885,11 @@ impl Expr {
                     .collect();
                 Expr::CallExpr(folded_expr, folded_args)
             }
-            Expr::Range { start, end, inclusive } => {
+            Expr::Range {
+                start,
+                end,
+                inclusive,
+            } => {
                 // Range expressions with constant bounds can be folded
                 let folded_start = start.map(|s| Box::new(s.fold_constants()));
                 let folded_end = end.map(|e| Box::new(e.fold_constants()));
@@ -555,6 +897,50 @@ impl Expr {
                     start: folded_start,
                     end: folded_end,
                     inclusive,
+                }
+            }
+            Expr::Spawn(expr) => Expr::Spawn(Box::new(expr.fold_constants())),
+            Expr::ChanLiteral {
+                capacity,
+                type_expr,
+            } => {
+                let folded_capacity = capacity.map(|c| Box::new(c.fold_constants()));
+                let folded_type_expr = type_expr.map(|t| Box::new(t.fold_constants()));
+                Expr::ChanLiteral {
+                    capacity: folded_capacity,
+                    type_expr: folded_type_expr,
+                }
+            }
+            Expr::Send { channel, value } => Expr::Send {
+                channel: Box::new(channel.fold_constants()),
+                value: Box::new(value.fold_constants()),
+            },
+            Expr::Recv(channel) => Expr::Recv(Box::new(channel.fold_constants())),
+            Expr::Select {
+                cases,
+                default_case,
+            } => {
+                let folded_cases = cases
+                    .into_iter()
+                    .map(|case| SelectCase {
+                        pattern: match case.pattern {
+                            SelectPattern::Recv { binding, channel } => SelectPattern::Recv {
+                                binding,
+                                channel: Box::new(channel.fold_constants()),
+                            },
+                            SelectPattern::Send { channel, value } => SelectPattern::Send {
+                                channel: Box::new(channel.fold_constants()),
+                                value: Box::new(value.fold_constants()),
+                            },
+                        },
+                        guard: case.guard.map(|g| Box::new(g.fold_constants())),
+                        body: Box::new(case.body.fold_constants()),
+                    })
+                    .collect();
+                let folded_default = default_case.map(|d| Box::new(d.fold_constants()));
+                Expr::Select {
+                    cases: folded_cases,
+                    default_case: folded_default,
                 }
             }
         }
@@ -628,7 +1014,11 @@ impl Display for Expr {
                 let args_str: Vec<String> = args.iter().map(|a| a.to_string()).collect();
                 write!(f, "{}({})", expr, args_str.join(", "))
             }
-            Expr::Range { start, end, inclusive } => {
+            Expr::Range {
+                start,
+                end,
+                inclusive,
+            } => {
                 let start_str = match start {
                     Some(s) => s.to_string(),
                     None => "".to_string(),
@@ -639,6 +1029,57 @@ impl Display for Expr {
                 };
                 let op = if *inclusive { "..=" } else { ".." };
                 write!(f, "{}{}{}", start_str, op, end_str)
+            }
+            Expr::Spawn(expr) => write!(f, "spawn({})", expr),
+            Expr::ChanLiteral {
+                capacity,
+                type_expr,
+            } => {
+                write!(f, "chan(")?;
+                if let Some(cap) = capacity {
+                    write!(f, "{}", cap)?;
+                    if type_expr.is_some() {
+                        write!(f, ", ")?;
+                    }
+                }
+                if let Some(ty) = type_expr {
+                    write!(f, "{}", ty)?;
+                }
+                write!(f, ")")
+            }
+            Expr::Send { channel, value } => write!(f, "send({}, {})", channel, value),
+            Expr::Recv(channel) => write!(f, "recv({})", channel),
+            Expr::Select {
+                cases,
+                default_case,
+            } => {
+                write!(f, "select {{")?;
+                for (i, case) in cases.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, "; ")?;
+                    }
+                    write!(f, "case ")?;
+                    match &case.pattern {
+                        SelectPattern::Recv { binding, channel } => {
+                            if let Some(name) = binding {
+                                write!(f, "{} <- recv({})", name, channel)?;
+                            } else {
+                                write!(f, "recv({})", channel)?;
+                            }
+                        }
+                        SelectPattern::Send { channel, value } => {
+                            write!(f, "{} <= send({})", channel, value)?
+                        }
+                    }
+                    write!(f, " => {}", case.body)?;
+                }
+                if let Some(default) = default_case {
+                    if !cases.is_empty() {
+                        write!(f, "; ")?;
+                    }
+                    write!(f, "default => {}", default)?;
+                }
+                write!(f, "}}")
             }
             Expr::Val(val) => write!(f, "{}", val),
         }

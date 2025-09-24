@@ -6,6 +6,9 @@ use qcl_core::{
     token::Tokenizer, val::Val,
 };
 
+#[cfg(feature = "concurrency")]
+use qcl_core::runtime;
+
 fn read_file_content(path: &str) -> anyhow::Result<String> {
     std::fs::read_to_string(path)
         .map_err(|e| anyhow::anyhow!("Failed to read file '{}': {}", path, e))
@@ -112,7 +115,15 @@ fn main() -> anyhow::Result<()> {
         de::parse_with_format(&raw, format_override)?
     };
 
-    if is_statement_mode {
+    // Initialize runtime for concurrency if needed (for both statement and expression modes)
+    #[cfg(feature = "concurrency")]
+    {
+        if let Err(e) = runtime::init_runtime() {
+            eprintln!("Warning: Failed to initialize runtime: {}", e);
+        }
+    }
+
+    let result = if is_statement_mode {
         let tokens = Tokenizer::tokenize(&input)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
@@ -126,12 +137,21 @@ fn main() -> anyhow::Result<()> {
         let resolver = Arc::new(import::ModuleResolver::with_registry(registry));
         let mut env = stmt::Environment::with_resolver(resolver);
 
-        let res = program.execute_with_env(&ctx, &mut env)?;
-        println!("{}", res);
+        program.execute_with_env(&ctx, &mut env)
     } else {
         let val = Expr::parse_cached(&input)?;
-        let res = val.eval(&ctx)?;
-        println!("{}", res);
+        val.eval(&ctx)
+    };
+
+    // Shutdown runtime after execution
+    #[cfg(feature = "concurrency")]
+    runtime::shutdown_runtime();
+
+    match result {
+        Ok(res) => {
+            println!("{}", res);
+            Ok(())
+        }
+        Err(e) => Err(e),
     }
-    Ok(())
 }

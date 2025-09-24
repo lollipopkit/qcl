@@ -128,7 +128,7 @@ mod tests {
         let val: Val = map.into();
         let field = Val::Str("name".into());
 
-        assert_eq!(val.access(&field), Some(&Val::Str("alice".into())));
+        assert_eq!(val.access(&field), Some(Val::Str("alice".into())));
     }
 
     #[test]
@@ -137,7 +137,7 @@ mod tests {
         let val: Val = list.into();
         let index = Val::Int(1);
 
-        assert_eq!(val.access(&index), Some(&Val::Int(20)));
+        assert_eq!(val.access(&index), Some(Val::Int(20)));
     }
 
     #[test]
@@ -165,9 +165,9 @@ mod tests {
         let val = Val::List(list.clone().into());
 
         // Test access
-        assert_eq!(val.access(&Val::Int(0)), Some(&Val::Int(1)));
-        assert_eq!(val.access(&Val::Int(1)), Some(&Val::Str("hello".into())));
-        assert_eq!(val.access(&Val::Int(2)), Some(&Val::Bool(true)));
+        assert_eq!(val.access(&Val::Int(0)), Some(Val::Int(1)));
+        assert_eq!(val.access(&Val::Int(1)), Some(Val::Str("hello".into())));
+        assert_eq!(val.access(&Val::Int(2)), Some(Val::Bool(true)));
         assert_eq!(val.access(&Val::Int(3)), None);
     }
 
@@ -183,12 +183,12 @@ mod tests {
         // Test access
         assert_eq!(
             val.access(&Val::Str("name".into())),
-            Some(&Val::Str("Alice".into()))
+            Some(Val::Str("Alice".into()))
         );
-        assert_eq!(val.access(&Val::Str("age".into())), Some(&Val::Int(30)));
+        assert_eq!(val.access(&Val::Str("age".into())), Some(Val::Int(30)));
         assert_eq!(
             val.access(&Val::Str("active".into())),
-            Some(&Val::Bool(true))
+            Some(Val::Bool(true))
         );
         assert_eq!(val.access(&Val::Str("nonexistent".into())), None);
     }
@@ -212,7 +212,7 @@ mod tests {
         let first_user = users.access(&Val::Int(0)).unwrap();
         let name = first_user.access(&Val::Str("name".into())).unwrap();
 
-        assert_eq!(name, &Val::Str("Alice".into()));
+        assert_eq!(name, Val::Str("Alice".into()));
     }
 
     // Comparison tests
@@ -480,16 +480,16 @@ mod tests {
         let result = parse_with_format(json_input, None).unwrap();
         assert_eq!(
             result.access(&Val::Str("name".into())),
-            Some(&Val::Str("Alice".into()))
+            Some(Val::Str("Alice".into()))
         );
-        assert_eq!(result.access(&Val::Str("age".into())), Some(&Val::Int(30)));
+        assert_eq!(result.access(&Val::Str("age".into())), Some(Val::Int(30)));
 
         // Force JSON format
         let json_input2 = r#"{"name": "Charlie", "age": 35}"#;
         let result = parse_with_format(json_input2, Some(Format::Json)).unwrap();
         assert_eq!(
             result.access(&Val::Str("name".into())),
-            Some(&Val::Str("Charlie".into()))
+            Some(Val::Str("Charlie".into()))
         );
     }
 
@@ -503,16 +503,16 @@ mod tests {
         let result = parse_with_format(yaml_input, None).unwrap();
         assert_eq!(
             result.access(&Val::Str("name".into())),
-            Some(&Val::Str("Bob".into()))
+            Some(Val::Str("Bob".into()))
         );
-        assert_eq!(result.access(&Val::Str("age".into())), Some(&Val::Int(25)));
+        assert_eq!(result.access(&Val::Str("age".into())), Some(Val::Int(25)));
 
         // Force YAML format
         let yaml_input2 = "name: Dave\nage: 40";
         let result = parse_with_format(yaml_input2, Some(Format::Yaml)).unwrap();
         assert_eq!(
             result.access(&Val::Str("name".into())),
-            Some(&Val::Str("Dave".into()))
+            Some(Val::Str("Dave".into()))
         );
     }
 
@@ -526,25 +526,25 @@ mod tests {
         let result = parse_with_format(json_input, None).unwrap();
         assert_eq!(
             result.access(&Val::Str("name".into())),
-            Some(&Val::Str("Alice".into()))
+            Some(Val::Str("Alice".into()))
         );
-        assert_eq!(result.access(&Val::Str("age".into())), Some(&Val::Int(30)));
+        assert_eq!(result.access(&Val::Str("age".into())), Some(Val::Int(30)));
 
         // Auto-detect YAML
         let yaml_input = "name: Bob\nage: 25";
         let result = parse_with_format(yaml_input, None).unwrap();
         assert_eq!(
             result.access(&Val::Str("name".into())),
-            Some(&Val::Str("Bob".into()))
+            Some(Val::Str("Bob".into()))
         );
-        assert_eq!(result.access(&Val::Str("age".into())), Some(&Val::Int(25)));
+        assert_eq!(result.access(&Val::Str("age".into())), Some(Val::Int(25)));
 
         // Force JSON format
         let yaml_as_json = r#"{"name": "Charlie", "age": 35}"#;
         let result = parse_with_format(yaml_as_json, Some(Format::Json)).unwrap();
         assert_eq!(
             result.access(&Val::Str("name".into())),
-            Some(&Val::Str("Charlie".into()))
+            Some(Val::Str("Charlie".into()))
         );
 
         // Force YAML format
@@ -552,7 +552,7 @@ mod tests {
         let result = parse_with_format(json_as_yaml, Some(Format::Yaml)).unwrap();
         assert_eq!(
             result.access(&Val::Str("name".into())),
-            Some(&Val::Str("Dave".into()))
+            Some(Val::Str("Dave".into()))
         );
     }
 }

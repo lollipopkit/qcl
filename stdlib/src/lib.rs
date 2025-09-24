@@ -1,3 +1,6 @@
+pub mod concurrency_chan;
+pub mod concurrency_task;
+pub mod concurrency_time;
 pub mod datetime;
 pub mod io;
 pub mod iter;
@@ -7,9 +10,9 @@ pub mod string;
 pub mod tcp;
 
 #[cfg(test)]
-mod tcp_test;
-#[cfg(test)]
 mod globals_test;
+#[cfg(test)]
+mod tcp_test;
 
 use qcl_core::module::ModuleRegistry;
 use qcl_core::val::Val;
@@ -23,6 +26,14 @@ pub fn register_stdlib_modules(registry: &mut ModuleRegistry) {
     registry.register_module("datetime", Box::new(datetime::DateTimeModule::new()));
     registry.register_module("os", Box::new(os::OsModule::new()));
     registry.register_module("tcp", Box::new(tcp::TcpModule::new()));
+
+    // Register concurrency modules
+    #[cfg(feature = "concurrency")]
+    {
+        registry.register_module("task", Box::new(concurrency_task::TaskModule::new()));
+        registry.register_module("chan", Box::new(concurrency_chan::ChannelModule::new()));
+        registry.register_module("time", Box::new(concurrency_time::TimeModule::new()));
+    }
 }
 
 /// Register global builtin functions available without import
@@ -62,7 +73,9 @@ pub fn register_stdlib_globals(registry: &mut ModuleRegistry) {
                     out.push(' ');
                 }
                 for (j, v) in rest[arg_idx..].iter().enumerate() {
-                    if j > 0 { out.push(' '); }
+                    if j > 0 {
+                        out.push(' ');
+                    }
                     out.push_str(&v.to_string());
                 }
             }
@@ -71,33 +84,49 @@ pub fn register_stdlib_globals(registry: &mut ModuleRegistry) {
             // No format string; join all args by spaces
             let mut out = String::new();
             for (i, v) in args.iter().enumerate() {
-                if i > 0 { out.push(' '); }
+                if i > 0 {
+                    out.push(' ');
+                }
                 out.push_str(&v.to_string());
             }
             out
         }
     }
 
-    fn print_fn(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> anyhow::Result<Val> {
+    fn print_fn(
+        args: &[Val],
+        _env: &qcl_core::stmt::Environment,
+        _ctx: &Val,
+    ) -> anyhow::Result<Val> {
         let out = format_variadic(args);
         print!("{}", out);
         Ok(Val::Nil)
     }
 
-    fn println_fn(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> anyhow::Result<Val> {
+    fn println_fn(
+        args: &[Val],
+        _env: &qcl_core::stmt::Environment,
+        _ctx: &Val,
+    ) -> anyhow::Result<Val> {
         let out = format_variadic(args);
         println!("{}", out);
         Ok(Val::Nil)
     }
 
-    fn panic_fn(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> anyhow::Result<Val> {
+    fn panic_fn(
+        args: &[Val],
+        _env: &qcl_core::stmt::Environment,
+        _ctx: &Val,
+    ) -> anyhow::Result<Val> {
         // Compose message from all arguments for better diagnostics
         let mut msg = if args.is_empty() {
             "panic".to_string()
         } else {
             let mut s = String::new();
             for (i, v) in args.iter().enumerate() {
-                if i > 0 { s.push(' '); }
+                if i > 0 {
+                    s.push(' ');
+                }
                 s.push_str(&v.to_string());
             }
             s
@@ -112,5 +141,4 @@ pub fn register_stdlib_globals(registry: &mut ModuleRegistry) {
     registry.register_builtin("print", Val::RustFunction(print_fn));
     registry.register_builtin("println", Val::RustFunction(println_fn));
     registry.register_builtin("panic", Val::RustFunction(panic_fn));
-
 }

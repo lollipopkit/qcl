@@ -1,15 +1,15 @@
 use dashmap::DashMap;
+use regex::Regex;
 use ropey::Rope;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 use tokio::time::{sleep, Duration};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 use tracing::info;
 use twox_hash::XxHash64;
-use regex::Regex;
 
 mod analyzer;
 use analyzer::{AnalysisResult, QclAnalyzer};
@@ -21,7 +21,6 @@ const MAX_SEMANTIC_TOKENS: usize = 12000;
 
 #[cfg(test)]
 mod bench_test;
-
 
 #[derive(Debug, Default)]
 struct Document {
@@ -113,8 +112,9 @@ impl QclLanguageServer {
 
         // QCL keywords
         let keywords = [
-            "if", "else", "while", "let", "fn", "return", "break", "continue", "import",
-            "from", "as", "go", "select", "case", "default", "true", "false", "nil",
+            "if", "else", "while", "let", "fn", "return", "break", "continue", "import", "from",
+            "as", "go", "select", "case", "default", "true", "false", "nil", "spawn", "chan",
+            "send", "recv",
         ];
 
         for keyword in keywords {
@@ -246,7 +246,10 @@ impl LanguageServer for QclLanguageServer {
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                 ..Default::default()
             },
-            server_info: Some(ServerInfo { name: "QCL Language Server".to_string(), version: Some("0.1.0".to_string()) }),
+            server_info: Some(ServerInfo {
+                name: "QCL Language Server".to_string(),
+                version: Some("0.1.0".to_string()),
+            }),
         })
     }
 
@@ -289,10 +292,7 @@ impl LanguageServer for QclLanguageServer {
 
         // Apply all changes (supports both full and incremental)
         {
-            let mut entry = self
-                .documents
-                .entry(uri.clone())
-                .or_default();
+            let mut entry = self.documents.entry(uri.clone()).or_default();
             // Ensure version is monotonic (but still update even if not; clients may resend)
             entry.version = version;
 
@@ -346,7 +346,9 @@ impl LanguageServer for QclLanguageServer {
                 let line = doc.content.line(line_idx).to_string();
                 let line_start_char = doc.content.line_to_char(line_idx);
                 let abs_char = position_to_char_idx(&doc.content, position);
-                let within_line = abs_char.saturating_sub(line_start_char).min(line.chars().count());
+                let within_line = abs_char
+                    .saturating_sub(line_start_char)
+                    .min(line.chars().count());
                 let line_prefix: String = line.chars().take(within_line).collect();
                 let line_suffix: String = line.chars().skip(within_line).collect();
 
@@ -424,14 +426,12 @@ impl LanguageServer for QclLanguageServer {
                         if let Some(br_caps) = br_re.captures(&line_prefix) {
                             if let Some(sf_caps) = sf_re.captures(&line_suffix) {
                                 let module_name = sf_caps.get(1).map(|m| m.as_str()).unwrap_or("");
-                                if let Some(mut exports) = analyzer.list_module_exports(module_name) {
+                                if let Some(mut exports) = analyzer.list_module_exports(module_name)
+                                {
                                     // Determine typed prefix within braces
                                     let raw = br_caps.get(1).map(|m| m.as_str()).unwrap_or("");
-                                    let last = raw.split(',').last().unwrap_or("").trim();
-                                    let typed = last
-                                        .split_whitespace()
-                                        .last()
-                                        .unwrap_or("");
+                                    let last = raw.split(',').next_back().unwrap_or("").trim();
+                                    let typed = last.split_whitespace().last().unwrap_or("");
                                     if !typed.is_empty() {
                                         exports.retain(|e| e.starts_with(typed));
                                     }
@@ -468,15 +468,26 @@ impl LanguageServer for QclLanguageServer {
                                 ("", typed)
                             };
                             for base in base_dirs {
-                                let root = if dir_part.is_empty() { base.clone() } else { base.join(dir_part) };
+                                let root = if dir_part.is_empty() {
+                                    base.clone()
+                                } else {
+                                    base.join(dir_part)
+                                };
                                 if let Ok(entries) = std::fs::read_dir(&root) {
                                     for e in entries.flatten() {
                                         if let Ok(ft) = e.file_type() {
                                             let name = e.file_name().to_string_lossy().to_string();
                                             if name.starts_with(file_prefix) {
-                                                let rel = if dir_part.is_empty() { name.clone() } else { format!("{}/{}", dir_part, name) };
+                                                let rel = if dir_part.is_empty() {
+                                                    name.clone()
+                                                } else {
+                                                    format!("{}/{}", dir_part, name)
+                                                };
                                                 let (label, kind) = if ft.is_dir() {
-                                                    (format!("{}/", rel), CompletionItemKind::FOLDER)
+                                                    (
+                                                        format!("{}/", rel),
+                                                        CompletionItemKind::FOLDER,
+                                                    )
                                                 } else {
                                                     (rel, CompletionItemKind::FILE)
                                                 };
@@ -546,9 +557,14 @@ impl LanguageServer for QclLanguageServer {
 
                 for cand in candidates {
                     let new_text = format!("\"{}\"", cand);
-                    let edit = TextEdit { range: diag.range, new_text };
-                    let mut we = WorkspaceEdit::default();
-                    we.changes = Some(std::collections::HashMap::from([(uri.clone(), vec![edit]) ]));
+                    let edit = TextEdit {
+                        range: diag.range,
+                        new_text,
+                    };
+                    let we = WorkspaceEdit {
+                        changes: Some(std::collections::HashMap::from([(uri.clone(), vec![edit])])),
+                        ..Default::default()
+                    };
                     actions.push(CodeActionOrCommand::CodeAction(CodeAction {
                         title: format!("Use path: {}", cand),
                         kind: Some(CodeActionKind::QUICKFIX),
@@ -563,7 +579,11 @@ impl LanguageServer for QclLanguageServer {
             }
         }
 
-        if actions.is_empty() { Ok(None) } else { Ok(Some(actions)) }
+        if actions.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(actions))
+        }
     }
 
     async fn diagnostic(
@@ -602,7 +622,7 @@ impl LanguageServer for QclLanguageServer {
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
         let uri = &params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
-        
+
         // Get document content to find symbol at position
         let content = {
             let doc = match self.documents.get(uri) {
@@ -616,7 +636,7 @@ impl LanguageServer for QclLanguageServer {
         if let Some(symbol_name) = self.find_symbol_at_position(&content, position).await {
             // Find all references to this symbol in the document
             let locations = self.find_all_references(&content, &symbol_name, uri).await;
-            
+
             if !locations.is_empty() {
                 return Ok(Some(locations));
             }
@@ -625,10 +645,13 @@ impl LanguageServer for QclLanguageServer {
         Ok(None)
     }
 
-    async fn goto_definition(&self, params: GotoDefinitionParams) -> Result<Option<GotoDefinitionResponse>> {
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
         let uri = &params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
-        
+
         // Get document content to find symbol at position
         let content = {
             let doc = match self.documents.get(uri) {
@@ -641,7 +664,9 @@ impl LanguageServer for QclLanguageServer {
         // Find the symbol at the cursor position
         if let Some(symbol_name) = self.find_symbol_at_position(&content, position).await {
             // Find the definition of this symbol in the document
-            if let Some(definition_location) = self.find_definition(&content, &symbol_name, uri).await {
+            if let Some(definition_location) =
+                self.find_definition(&content, &symbol_name, uri).await
+            {
                 return Ok(Some(GotoDefinitionResponse::Scalar(definition_location)));
             }
         }
@@ -739,7 +764,10 @@ impl LanguageServer for QclLanguageServer {
 
         // Read previous baseline (last sent) and id
         let (prev_tokens_opt, prev_id_opt) = if let Some(doc) = self.documents.get(uri) {
-            (doc.last_sent_semantic_tokens.clone(), doc.last_sent_result_id.clone())
+            (
+                doc.last_sent_semantic_tokens.clone(),
+                doc.last_sent_result_id.clone(),
+            )
         } else {
             (None, None)
         };
@@ -764,20 +792,24 @@ impl LanguageServer for QclLanguageServer {
 
         if !prev_id_matches {
             // Resync: send full tokens
-            return Ok(Some(SemanticTokensFullDeltaResult::Tokens(SemanticTokens {
-                result_id: new_result_id,
-                data: new_tokens.clone(),
-            })));
+            return Ok(Some(SemanticTokensFullDeltaResult::Tokens(
+                SemanticTokens {
+                    result_id: new_result_id,
+                    data: new_tokens.clone(),
+                },
+            )));
         }
 
         // Compute a compact delta with a single edit using common prefix/suffix
         let prev_tokens = match prev_tokens_opt {
             Some(p) => p,
             None => {
-                return Ok(Some(SemanticTokensFullDeltaResult::Tokens(SemanticTokens {
-                    result_id: new_result_id,
-                    data: new_tokens,
-                })));
+                return Ok(Some(SemanticTokensFullDeltaResult::Tokens(
+                    SemanticTokens {
+                        result_id: new_result_id,
+                        data: new_tokens,
+                    },
+                )));
             }
         };
 
@@ -785,10 +817,12 @@ impl LanguageServer for QclLanguageServer {
         let (cp, cs, delete_count) = common_prefix_suffix_delete_count(&prev_vec, &new_tokens);
         if delete_count == 0 {
             // No structural change; in theory could return empty edits
-            return Ok(Some(SemanticTokensFullDeltaResult::TokensDelta(SemanticTokensDelta {
-                result_id: new_result_id,
-                edits: vec![],
-            })));
+            return Ok(Some(SemanticTokensFullDeltaResult::TokensDelta(
+                SemanticTokensDelta {
+                    result_id: new_result_id,
+                    edits: vec![],
+                },
+            )));
         }
 
         let insert_slice: Vec<SemanticToken> = new_tokens[cp..(new_tokens.len() - cs)].to_vec();
@@ -797,10 +831,12 @@ impl LanguageServer for QclLanguageServer {
             delete_count: delete_count as u32,
             data: Some(insert_slice),
         };
-        Ok(Some(SemanticTokensFullDeltaResult::TokensDelta(SemanticTokensDelta {
-            result_id: new_result_id,
-            edits: vec![edit],
-        })))
+        Ok(Some(SemanticTokensFullDeltaResult::TokensDelta(
+            SemanticTokensDelta {
+                result_id: new_result_id,
+                edits: vec![edit],
+            },
+        )))
     }
 }
 
@@ -835,7 +871,9 @@ impl QclLanguageServer {
             .and_then(|p| p.parent().map(|p| p.to_path_buf()));
         let computed_result = tokio::task::spawn_blocking(move || {
             let mut analyzer = QclAnalyzer::new();
-            if let Some(b) = base_dir { analyzer.set_base_dir(b); }
+            if let Some(b) = base_dir {
+                analyzer.set_base_dir(b);
+            }
             analyzer.analyze(&content_for_compute)
         })
         .await
@@ -872,7 +910,9 @@ impl QclLanguageServer {
             .and_then(|p| p.parent().map(|p| p.to_path_buf()));
         let generated_result = tokio::task::spawn_blocking(move || {
             let mut analyzer = QclAnalyzer::new();
-            if let Some(b) = base_dir { analyzer.set_base_dir(b); }
+            if let Some(b) = base_dir {
+                analyzer.set_base_dir(b);
+            }
             analyzer.generate_semantic_tokens(&content_for_tokens)
         })
         .await
@@ -915,7 +955,9 @@ impl QclLanguageServer {
                 .and_then(|p| p.parent().map(|p| p.to_path_buf()));
             let analysis = match tokio::task::spawn_blocking(move || {
                 let mut analyzer = QclAnalyzer::new();
-                if let Some(b) = base_dir { analyzer.set_base_dir(b); }
+                if let Some(b) = base_dir {
+                    analyzer.set_base_dir(b);
+                }
                 analyzer.analyze(&content_for_compute)
             })
             .await
@@ -948,7 +990,7 @@ impl QclLanguageServer {
 
         let line = lines[position.line as usize];
         let char_offset = position.character as usize;
-        
+
         if char_offset >= line.len() {
             return None;
         }
@@ -998,7 +1040,7 @@ impl QclLanguageServer {
             start -= 1;
         }
 
-        // Move end forwards to find end of identifier  
+        // Move end forwards to find end of identifier
         while end < chars.len() && (chars[end].is_alphanumeric() || chars[end] == '_') {
             end += 1;
         }
@@ -1014,7 +1056,12 @@ impl QclLanguageServer {
     }
 
     /// Find all references to the given symbol in the content
-    async fn find_all_references(&self, content: &str, symbol_name: &str, uri: &Url) -> Vec<Location> {
+    async fn find_all_references(
+        &self,
+        content: &str,
+        symbol_name: &str,
+        uri: &Url,
+    ) -> Vec<Location> {
         let mut locations = Vec::new();
         let lines: Vec<&str> = content.lines().collect();
 
@@ -1039,17 +1086,26 @@ impl QclLanguageServer {
                 while let Some(pos) = line[start..].find(symbol_name) {
                     let absolute_pos = start + pos;
                     let chars: Vec<char> = line.chars().collect();
-                    
+
                     // Check if this is a whole word match (not part of another identifier)
-                    let is_word_start = absolute_pos == 0 || 
-                        !chars.get(absolute_pos - 1).map(|c| c.is_alphanumeric() || *c == '_').unwrap_or(false);
-                    let is_word_end = absolute_pos + symbol_name.len() >= chars.len() ||
-                        !chars.get(absolute_pos + symbol_name.len()).map(|c| c.is_alphanumeric() || *c == '_').unwrap_or(false);
-                    
+                    let is_word_start = absolute_pos == 0
+                        || !chars
+                            .get(absolute_pos - 1)
+                            .map(|c| c.is_alphanumeric() || *c == '_')
+                            .unwrap_or(false);
+                    let is_word_end = absolute_pos + symbol_name.len() >= chars.len()
+                        || !chars
+                            .get(absolute_pos + symbol_name.len())
+                            .map(|c| c.is_alphanumeric() || *c == '_')
+                            .unwrap_or(false);
+
                     if is_word_start && is_word_end {
                         let range = Range::new(
                             Position::new(line_idx as u32, absolute_pos as u32),
-                            Position::new(line_idx as u32, (absolute_pos + symbol_name.len()) as u32),
+                            Position::new(
+                                line_idx as u32,
+                                (absolute_pos + symbol_name.len()) as u32,
+                            ),
                         );
                         locations.push(Location::new(uri.clone(), range));
                     }
@@ -1062,7 +1118,12 @@ impl QclLanguageServer {
     }
 
     /// Find the definition location of a symbol in the content
-    async fn find_definition(&self, content: &str, symbol_name: &str, uri: &Url) -> Option<Location> {
+    async fn find_definition(
+        &self,
+        content: &str,
+        symbol_name: &str,
+        uri: &Url,
+    ) -> Option<Location> {
         let lines: Vec<&str> = content.lines().collect();
 
         // For context access patterns (@req.user.role), there's no single definition - they're contextual
@@ -1073,7 +1134,7 @@ impl QclLanguageServer {
         // Look for symbol definitions in the document
         for (line_idx, line) in lines.iter().enumerate() {
             let trimmed = line.trim();
-            
+
             // Check for variable declaration: "let symbol_name ="
             if trimmed.starts_with("let ") && trimmed.contains(&format!("{} =", symbol_name)) {
                 if let Some(pos) = line.find(&format!("let {}", symbol_name)) {
@@ -1084,7 +1145,7 @@ impl QclLanguageServer {
                     return Some(Location::new(uri.clone(), range));
                 }
             }
-            
+
             // Check for function declaration: "fn symbol_name("
             if trimmed.starts_with("fn ") && trimmed.contains(&format!("{}(", symbol_name)) {
                 if let Some(pos) = line.find(&format!("fn {}", symbol_name)) {
@@ -1095,7 +1156,7 @@ impl QclLanguageServer {
                     return Some(Location::new(uri.clone(), range));
                 }
             }
-            
+
             // Check for label declaration: "symbol_name:"
             if trimmed.starts_with(&format!("{}:", symbol_name)) {
                 if let Some(pos) = line.find(&format!("{}:", symbol_name)) {
@@ -1106,10 +1167,13 @@ impl QclLanguageServer {
                     return Some(Location::new(uri.clone(), range));
                 }
             }
-            
+
             // Check for import statements: "import symbol_name" or "from symbol_name"
-            if (trimmed.starts_with("import ") && trimmed.contains(&format!("import {}", symbol_name))) ||
-               (trimmed.starts_with("from ") && trimmed.contains(&format!("from {}", symbol_name))) {
+            if (trimmed.starts_with("import ")
+                && trimmed.contains(&format!("import {}", symbol_name)))
+                || (trimmed.starts_with("from ")
+                    && trimmed.contains(&format!("from {}", symbol_name)))
+            {
                 if let Some(pos) = line.find(symbol_name) {
                     let range = Range::new(
                         Position::new(line_idx as u32, pos as u32),
@@ -1234,14 +1298,10 @@ fn describe_token_hover(tokens: &[CoreToken], _spans: &[CoreSpan], idx: usize) -
     let tok = &tokens[idx];
 
     // Attempt to extract full context path when hovering on @, identifiers or dot segments within it
-    if matches!(tok, T::At | T::Id(_) | T::Int(_) ) {
+    if matches!(tok, T::At | T::Id(_) | T::Int(_)) {
         if let Some(path) = extract_context_path(tokens, idx) {
             // Root key is the first segment after '@'
-            let root = path
-                .trim_start_matches('@')
-                .split('.')
-                .next()
-                .unwrap_or("");
+            let root = path.trim_start_matches('@').split('.').next().unwrap_or("");
             return if root.is_empty() {
                 format!("Context path: {}", path)
             } else {
@@ -1253,7 +1313,10 @@ fn describe_token_hover(tokens: &[CoreToken], _spans: &[CoreSpan], idx: usize) -
     match tok {
         T::Id(name) => {
             // Heuristic: function call if next token is '('
-            let is_call = tokens.get(idx + 1).map(|t| matches!(t, T::LParen)).unwrap_or(false);
+            let is_call = tokens
+                .get(idx + 1)
+                .map(|t| matches!(t, T::LParen))
+                .unwrap_or(false);
             if is_call {
                 format!("Function call: {}(…)", name)
             } else {
@@ -1309,6 +1372,17 @@ fn describe_token_hover(tokens: &[CoreToken], _spans: &[CoreSpan], idx: usize) -
         T::RBracket => "Symbol: ]".to_string(),
         T::For => "Keyword: for".to_string(),
         T::Range => "Operator: ..".to_string(),
+
+        // Concurrency keywords
+        T::Spawn => "Concurrency: spawn".to_string(),
+        T::Chan => "Concurrency: chan".to_string(),
+        T::Send => "Concurrency: send".to_string(),
+        T::Recv => "Concurrency: recv".to_string(),
+        T::Select => "Concurrency: select".to_string(),
+        T::Case => "Concurrency: case".to_string(),
+        T::Default => "Concurrency: default".to_string(),
+        T::Arrow => "Symbol: =>".to_string(),
+        T::LeftArrow => "Symbol: <=".to_string(),
     }
 }
 
@@ -1406,7 +1480,7 @@ fn try_cli_analyze() -> anyhow::Result<Option<String>> {
         while path_index < args.len() && args[path_index].starts_with("--") {
             path_index += 1;
         }
-        
+
         let path = args.get(path_index).cloned().ok_or_else(|| {
             anyhow::anyhow!("Usage: qcl-lsp --analyze [--errors-only] <relative-file-path>\n  --analyze <file>     : Full analysis with JSON output\n  --errors-only        : Show only errors in simple format")
         })?;
@@ -1420,21 +1494,23 @@ fn try_cli_analyze() -> anyhow::Result<Option<String>> {
         // Run analysis using the same analyzer used by the LSP
         let mut analyzer = QclAnalyzer::new();
         let analysis = analyzer.analyze(&content);
-        
+
         if errors_only {
             // Only output errors in a simplified format
-            let errors: Vec<String> = analysis.diagnostics
+            let errors: Vec<String> = analysis
+                .diagnostics
                 .iter()
                 .filter(|d| d.severity == Some(tower_lsp::lsp_types::DiagnosticSeverity::ERROR))
                 .map(|d| {
-                    format!("Line {}:{}: {}", 
+                    format!(
+                        "Line {}:{}: {}",
                         d.range.start.line + 1,
                         d.range.start.character + 1,
                         d.message
                     )
                 })
                 .collect();
-            
+
             if errors.is_empty() {
                 return Ok(Some("No errors found".to_string()));
             } else {
@@ -1445,19 +1521,22 @@ fn try_cli_analyze() -> anyhow::Result<Option<String>> {
             let tokens = analyzer.generate_semantic_tokens(&content);
 
             // Convert HashSet to Vec for deterministic JSON output
-            let mut context_refs: Vec<String> = analysis.context_references.iter().cloned().collect();
+            let mut context_refs: Vec<String> =
+                analysis.context_references.iter().cloned().collect();
             context_refs.sort();
 
             // Map tokens to simple arrays to avoid requiring serde on LSP types
             let tokens_simple: Vec<[u32; 5]> = tokens
                 .iter()
-                .map(|t| [
-                    t.delta_line,
-                    t.delta_start,
-                    t.length,
-                    t.token_type,
-                    t.token_modifiers_bitset,
-                ])
+                .map(|t| {
+                    [
+                        t.delta_line,
+                        t.delta_start,
+                        t.length,
+                        t.token_type,
+                        t.token_modifiers_bitset,
+                    ]
+                })
                 .collect();
 
             let output = serde_json::json!({

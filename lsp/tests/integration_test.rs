@@ -252,8 +252,8 @@ impl TestLanguageServer {
         let content = &document.content;
 
         // Tokenize with spans; pick first non-whitespace token to emulate a hover position
-        let (tokens, spans) = qcl_core::token::Tokenizer::tokenize_enhanced_with_spans(content)
-            .ok()?;
+        let (tokens, spans) =
+            qcl_core::token::Tokenizer::tokenize_enhanced_with_spans(content).ok()?;
         let hover_idx = Self::first_non_ws_token_index(content, &spans)?;
         let text = Self::describe_token_hover_test(&tokens, hover_idx);
 
@@ -282,7 +282,10 @@ impl TestLanguageServer {
         }
         match &tokens[idx] {
             T::Id(name) => {
-                let is_call = tokens.get(idx + 1).map(|t| matches!(t, T::LParen)).unwrap_or(false);
+                let is_call = tokens
+                    .get(idx + 1)
+                    .map(|t| matches!(t, T::LParen))
+                    .unwrap_or(false);
                 if is_call {
                     format!("Function call: {}(…)", name)
                 } else {
@@ -334,6 +337,15 @@ impl TestLanguageServer {
             T::RBracket => "Symbol: ]".to_string(),
             T::For => "Keyword: for".to_string(),
             T::Range => "Operator: ..".to_string(),
+            T::Spawn => "Keyword: spawn".to_string(),
+            T::Chan => "Keyword: chan".to_string(),
+            T::Send => "Keyword: send".to_string(),
+            T::Recv => "Keyword: recv".to_string(),
+            T::Select => "Keyword: select".to_string(),
+            T::Case => "Keyword: case".to_string(),
+            T::Default => "Keyword: default".to_string(),
+            T::Arrow => "Operator: =>".to_string(),
+            T::LeftArrow => "Operator: <=".to_string(),
         }
     }
 
@@ -391,8 +403,8 @@ impl TestLanguageServer {
 
         // QCL keywords
         let keywords = [
-            "if", "else", "while", "let", "fn", "return", "break", "continue", "import",
-            "from", "as", "go", "select", "case", "default", "true", "false", "nil",
+            "if", "else", "while", "let", "fn", "return", "break", "continue", "import", "from",
+            "as", "go", "select", "case", "default", "true", "false", "nil",
         ];
 
         for keyword in keywords {
@@ -642,7 +654,6 @@ async fn test_lsp_document_symbols() {
         .collect();
     // Only top-level variables are detected in our simple analyzer
     assert!(variable_symbols.len() >= 2); // At least global_var and final_result
-
 }
 
 #[tokio::test]
@@ -748,7 +759,6 @@ async fn test_lsp_complex_program_analysis() {
     // Check functions
     assert!(symbol_names.contains(&&"validate_access".to_string()));
     assert!(symbol_names.contains(&&"calculate_score".to_string()));
-
 
     // Test hover - should detect context references or symbols
     let hover = server.get_hover_info(&uri).await;

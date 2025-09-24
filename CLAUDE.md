@@ -86,10 +86,11 @@ The language supports both expressions and full statement programs:
 #### Statement Grammar:
 ```
 program  ::= statement*
-statement ::= import_stmt | if_stmt | while_stmt | let_stmt | assign_stmt | break_stmt | continue_stmt | return_stmt | fn_stmt | expr_stmt | block_stmt
+statement ::= import_stmt | if_stmt | while_stmt | for_stmt | let_stmt | assign_stmt | break_stmt | continue_stmt | return_stmt | fn_stmt | expr_stmt | block_stmt
 import_stmt ::= 'import' import_spec ';'
 if_stmt  ::= 'if' '(' expr ')' statement ['else' statement]
 while_stmt ::= 'while' '(' expr ')' statement
+for_stmt ::= 'for' pattern 'in' expr statement
 let_stmt ::= 'let' id [':' type] '=' expr ';'
 assign_stmt ::= id '=' expr ';'
 break_stmt ::= 'break' ';'
@@ -129,7 +130,9 @@ The language includes a modular standard library system:
 - `stdlib-string` - String manipulation functions
 - `stdlib-datetime` - Date and time operations
 - `stdlib-os` - Operating system interface
-- `stdlib-tcp` - TCP networking functions
+- `stdlib-tcp` - TCP networking functions  
+- `stdlib-iter` - Iterator utility functions (enumerate, range)
+- `stdlib-concurrency` - Concurrency primitives (channels, tasks) [experimental]
 - `stdlib-all` = All standard library modules combined
 
 #### Import System
@@ -140,6 +143,52 @@ Supports multiple import syntaxes for modules:
 - `import { abs, sqrt } from math;` - Import specific functions
 - `import * as math from math;` - Import as namespace
 - `import math as m;` - Import module with alias
+
+#### For Loops and Pattern Matching
+
+The language supports `for` loops with pattern matching inspired by Rust:
+
+```qcl
+// Simple iteration
+for item in [1, 2, 3] {
+    print(item);
+}
+
+// Ignore pattern
+for _ in 0..5 {
+    print("Hello!");
+}
+
+// Tuple destructuring
+for (key, value) in {"a": 1, "b": 2} {
+    print(key + ": " + value);
+}
+
+// Array destructuring with rest patterns
+for [first, ..rest] in [[1, 2, 3], [4, 5, 6]] {
+    print("First: " + first);
+}
+
+// Range syntax
+for i in 0..10 {
+    // Iterates from 0 to 9
+}
+```
+
+Supported iterables:
+- Lists/Arrays
+- Maps (iterates as [key, value] pairs)
+- Strings (iterates by character)
+- Range expressions (`0..10`, `1..=5`)
+- Custom iterator functions
+
+#### Experimental Features
+
+Some features are in development or experimental status:
+
+- **Concurrency Support** (`stdlib-concurrency`): Go-inspired lightweight concurrency primitives (tasks, channels, select) - currently experimental
+- **Advanced Pattern Matching**: Extended pattern matching capabilities in for loops and potential match expressions
+- **Enhanced Type System**: Static type checking and inference improvements
 
 ## Language Server Protocol (LSP)
 
@@ -226,8 +275,17 @@ The CLI includes robust security measures for file operations:
 
 ### Code Quality
 
-- Follow Rust idioms and best practices
-- Use `#[allow(dead_code)]` sparingly and with justification
+- Follow Rust idioms and best practices  
+- Implement complete functionality rather than using `#[allow(dead_code)]` - prefer utilizing code in business logic
 - Maintain proper error handling with `anyhow::Result`
 - Include comprehensive documentation for public APIs
 - Follow the existing code style and patterns
+
+### Recent Language Changes
+
+Notable recent changes to the language:
+
+- **Added**: `for` loop support with pattern matching and destructuring
+- **Removed**: `goto` and `label` statements (simplified control flow)
+- **Removed**: Previous concurrency implementation (being redesigned)
+- **Enhanced**: String variable support and parsing improvements
