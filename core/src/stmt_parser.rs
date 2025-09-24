@@ -2,7 +2,7 @@ use crate::{
     ast::Parser as ExprParser,
     expr::Expr,
     import::{ImportItem, ImportSource, ImportStmt},
-    stmt::{Program, Stmt},
+    stmt::{ForPattern, Program, Stmt},
     token::Token,
     val::Type,
 };
@@ -244,6 +244,7 @@ impl<'a> StmtParser<'a> {
             Token::Import => self.parse_import_stmt(),
             Token::If => self.parse_if_stmt(),
             Token::While => self.parse_while_stmt(),
+            Token::For => self.parse_for_stmt(),
             Token::Let => self.parse_let_stmt(),
             Token::Break => self.parse_break_stmt(),
             Token::Continue => self.parse_continue_stmt(),
@@ -306,6 +307,148 @@ impl<'a> StmtParser<'a> {
             condition: Box::new(condition),
             body,
         })
+    }
+
+    /// 解析 for 语句
+    fn parse_for_stmt(&mut self) -> Result<Stmt> {
+        self.expect_token(Token::For)?;  // 消费 'for'
+        
+        // 解析模式 (变量名或解构)
+        let pattern = self.parse_for_pattern()?;
+        
+        self.expect_token(Token::In)?;   // 消费 'in'
+        
+        // 解析可迭代表达式 - 在for循环中遇到LBrace时停止
+        let iterable = self.parse_expression_with_options(true)?;
+        
+        // 解析循环体
+        let body = Box::new(self.parse_statement()?);
+        
+        Ok(Stmt::For {
+            pattern,
+            iterable: Box::new(iterable),
+            body,
+        })
+    }
+
+    /// 解析 for 循环的模式
+    fn parse_for_pattern(&mut self) -> Result<ForPattern> {
+        match &self.tokens[self.pos] {
+            // 忽略模式: _
+            Token::Id(name) if name == "_" => {
+                self.pos += 1;
+                Ok(ForPattern::Ignore)
+            }
+            // 简单变量: identifier
+            Token::Id(name) => {
+                let var_name = name.clone();
+                self.pos += 1;
+                Ok(ForPattern::Variable(var_name))
+            }
+            // 元组模式: (a, b, c)
+            Token::LParen => {
+                self.pos += 1; // 消费 '('
+                let mut patterns = Vec::new();
+                
+                // 处理空元组 ()
+                if !self.eof() && self.tokens[self.pos] == Token::RParen {
+                    self.pos += 1;
+                    return Ok(ForPattern::Tuple(patterns));
+                }
+                
+                loop {
+                    patterns.push(self.parse_for_pattern()?);
+                    
+                    if self.eof() {
+                        return Err(anyhow!(self.err("Expected ')' in tuple pattern")));
+                    }
+                    
+                    match &self.tokens[self.pos] {
+                        Token::Comma => {
+                            self.pos += 1; // 消费 ','
+                            // 允许尾随逗号: (a, b,)
+                            if !self.eof() && self.tokens[self.pos] == Token::RParen {
+                                break;
+                            }
+                            continue;
+                        }
+                        Token::RParen => break,
+                        _ => return Err(anyhow!(self.err("Expected ',' or ')' in tuple pattern"))),
+                    }
+                }
+                
+                self.pos += 1; // 消费 ')'
+                Ok(ForPattern::Tuple(patterns))
+            }
+            // 数组模式: [a, b] 或 [a, b, ..rest]
+            Token::LBracket => {
+                self.pos += 1; // 消费 '['
+                let mut patterns = Vec::new();
+                let mut rest = None;
+                
+                // 处理空数组 []
+                if !self.eof() && self.tokens[self.pos] == Token::RBracket {
+                    self.pos += 1;
+                    return Ok(ForPattern::Array { patterns, rest });
+                }
+                
+                loop {
+                    // 检查剩余模式 ..
+                    if !self.eof() && self.tokens[self.pos] == Token::Range {
+                        self.pos += 1; // 消费 '..'
+                        
+                        // 可选的剩余变量名
+                        if !self.eof() {
+                            if let Token::Id(name) = &self.tokens[self.pos] {
+                                rest = Some(name.clone());
+                                self.pos += 1;
+                            }
+                        }
+                        
+                        // 剩余模式后不能再有其他模式
+                        if self.eof() {
+                            return Err(anyhow!(self.err("Expected ']' after rest pattern")));
+                        }
+                        
+                        match &self.tokens[self.pos] {
+                            Token::RBracket => break,
+                            Token::Comma => {
+                                self.pos += 1;
+                                if !self.eof() && self.tokens[self.pos] == Token::RBracket {
+                                    break;
+                                } else {
+                                    return Err(anyhow!(self.err("No patterns allowed after rest pattern")));
+                                }
+                            }
+                            _ => return Err(anyhow!(self.err("Expected ']' or ',' after rest pattern"))),
+                        }
+                    } else {
+                        patterns.push(self.parse_for_pattern()?);
+                    }
+                    
+                    if self.eof() {
+                        return Err(anyhow!(self.err("Expected ']' in array pattern")));
+                    }
+                    
+                    match &self.tokens[self.pos] {
+                        Token::Comma => {
+                            self.pos += 1; // 消费 ','
+                            // 允许尾随逗号: [a, b,]
+                            if !self.eof() && self.tokens[self.pos] == Token::RBracket {
+                                break;
+                            }
+                            continue;
+                        }
+                        Token::RBracket => break,
+                        _ => return Err(anyhow!(self.err("Expected ',' or ']' in array pattern"))),
+                    }
+                }
+                
+                self.pos += 1; // 消费 ']'
+                Ok(ForPattern::Array { patterns, rest })
+            }
+            _ => Err(anyhow!(self.err("Expected pattern after 'for'"))),
+        }
     }
 
     /// 解析 let 语句
@@ -481,14 +624,25 @@ impl<'a> StmtParser<'a> {
 
     /// 使用现有的表达式解析器来解析表达式
     fn parse_expression(&mut self) -> Result<Expr> {
+        self.parse_expression_with_options(false)
+    }
+
+    /// 使用现有的表达式解析器来解析表达式，带选项
+    fn parse_expression_with_options(&mut self, stop_at_for_loop_body: bool) -> Result<Expr> {
         // 找到表达式的结束位置
         let start_pos = self.pos;
         let mut depth = 0;
         let mut end_pos = start_pos;
 
+        
         while end_pos < self.len {
-            match &self.tokens[end_pos] {
-                Token::LParen | Token::LBrace | Token::LBracket => {
+            let token = &self.tokens[end_pos];
+                        
+            match token {
+                Token::LBrace if depth == 0 && stop_at_for_loop_body => {
+                    break; // for循环体的开始
+                }
+                  Token::LParen | Token::LBrace | Token::LBracket => {
                     depth += 1;
                     end_pos += 1;
                 }
@@ -510,8 +664,12 @@ impl<'a> StmtParser<'a> {
                     depth -= 1;
                     end_pos += 1;
                 }
-                Token::Semicolon if depth == 0 => break,
-                Token::Else if depth == 0 => break,
+                Token::Semicolon if depth == 0 => {
+                    break;
+                }
+                Token::Else if depth == 0 => {
+                    break;
+                }
                 _ => {
                     end_pos += 1;
                 }

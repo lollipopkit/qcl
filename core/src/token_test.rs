@@ -23,6 +23,37 @@ mod tests {
     }
 
     #[test]
+    fn test_range_token() {
+        let tokens = Tokenizer::tokenize("0..5").unwrap();
+        let expected = vec![
+            Token::Int(0),
+            Token::Range,
+            Token::Int(5),
+        ];
+        assert_eq!(tokens, expected);
+    }
+
+    #[test]
+    fn test_for_tokens() {
+        let tokens = Tokenizer::tokenize("for i in [1, 2, 3] {}").unwrap();
+        let expected = vec![
+            Token::For,
+            Token::Id("i".to_string()),
+            Token::In,
+            Token::LBracket,
+            Token::Int(1),
+            Token::Comma,
+            Token::Int(2),
+            Token::Comma,
+            Token::Int(3),
+            Token::RBracket,
+            Token::LBrace,
+            Token::RBrace,
+        ];
+        assert_eq!(tokens, expected);
+    }
+
+    #[test]
     fn punctuations() {
         let t2 = Tokenizer::tokenize(">=<= && || == != ! > <");
         let e2 = vec![

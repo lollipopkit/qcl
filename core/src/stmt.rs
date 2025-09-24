@@ -6,6 +6,22 @@ use crate::{
 use anyhow::{Result, anyhow};
 use std::{collections::HashMap, fmt::Display, sync::Arc};
 
+/// For 循环的模式匹配 (类似 Rust 的 Pattern)
+#[derive(Debug, Clone, PartialEq)]
+pub enum ForPattern {
+    /// 简单变量绑定：for x in iter
+    Variable(String),
+    /// 忽略模式：for _ in iter
+    Ignore,
+    /// 元组解构：for (a, b, c) in iter
+    Tuple(Vec<ForPattern>),
+    /// 数组解构：for [a, b] in iter
+    Array {
+        patterns: Vec<ForPattern>,
+        rest: Option<String>, // for [a, b, ..rest] or [a, b, ..]
+    },
+}
+
 /// Statement AST 节点类型定义
 ///
 /// 语法设计：
@@ -35,6 +51,12 @@ pub enum Stmt {
     /// while (condition) body
     While {
         condition: Box<Expr>,
+        body: Box<Stmt>,
+    },
+    /// for pattern in iterable { body }
+    For {
+        pattern: ForPattern,
+        iterable: Box<Expr>,
         body: Box<Stmt>,
     },
     /// let name [: type] = value;
@@ -219,6 +241,38 @@ impl Stmt {
                 }
                 Ok(ControlFlow::None)
             }
+            Stmt::For { pattern, iterable, body } => {
+                // 求值可迭代表达式
+                let iter_val = iterable.eval_with_env(ctx, Some(env))?;
+                
+                // 获取迭代器
+                let iterator = create_iterator(&iter_val)?;
+                
+                // 执行循环
+                for item in iterator {
+                    // 进入新作用域用于模式绑定
+                    env.push_scope();
+                    
+                    // 根据模式绑定变量 (类似 Rust 的模式匹配)
+                    if let Err(e) = bind_pattern(pattern, &item, env) {
+                        env.pop_scope(); // 清理作用域
+                        return Err(e);
+                    }
+                    
+                    // 执行循环体
+                    let result = body.execute(env, ctx);
+                    env.pop_scope(); // 清理循环变量作用域
+                    
+                    match result? {
+                        ControlFlow::Break => break,
+                        ControlFlow::Continue => continue,
+                        ControlFlow::Return(val) => return Ok(ControlFlow::Return(val)),
+                        ControlFlow::None => {}
+                    }
+                }
+                
+                Ok(ControlFlow::None)
+            }
             Stmt::Let {
                 name,
                 type_annotation,
@@ -339,6 +393,92 @@ impl Program {
     }
 }
 
+/// 从值创建迭代器
+fn create_iterator(val: &Val) -> Result<Vec<Val>> {
+    match val {
+        Val::List(list) => Ok((**list).clone()),
+        Val::Map(map) => {
+            // 返回 [key, value] 对的迭代器
+            let pairs: Vec<Val> = map
+                .iter()
+                .map(|(k, v)| Val::List(vec![Val::Str(k.clone().into()), v.clone()].into()))
+                .collect();
+            Ok(pairs)
+        }
+        Val::Str(s) => {
+            // 按字符迭代
+            let chars: Vec<Val> = s
+                .chars()
+                .map(|c| Val::Str(c.to_string().into()))
+                .collect();
+            Ok(chars)
+        }
+        _ => Err(anyhow!("Value is not iterable: {:?}", val)),
+    }
+}
+
+/// 模式匹配绑定函数 (类似 Rust 的模式匹配语义)
+fn bind_pattern(pattern: &ForPattern, value: &Val, env: &mut Environment) -> Result<()> {
+    match pattern {
+        ForPattern::Variable(name) => {
+            env.define(name.clone(), value.clone());
+            Ok(())
+        }
+        ForPattern::Ignore => {
+            // _ 模式不绑定任何变量
+            Ok(())
+        }
+        ForPattern::Tuple(patterns) => match value {
+            Val::List(list) => {
+                if patterns.len() != list.len() {
+                    return Err(anyhow!(
+                        "Tuple pattern length mismatch: expected {}, got {}",
+                        patterns.len(),
+                        list.len()
+                    ));
+                }
+                for (pattern, val) in patterns.iter().zip(list.iter()) {
+                    bind_pattern(pattern, val, env)?;
+                }
+                Ok(())
+            }
+            _ => Err(anyhow!(
+                "Cannot match tuple pattern against non-list value: {:?}",
+                value
+            )),
+        },
+        ForPattern::Array { patterns, rest } => match value {
+            Val::List(list) => {
+                // 检查最小长度要求
+                if list.len() < patterns.len() {
+                    return Err(anyhow!(
+                        "Array too short: expected at least {}, got {}",
+                        patterns.len(),
+                        list.len()
+                    ));
+                }
+
+                // 绑定前面的固定模式
+                for (i, pattern) in patterns.iter().enumerate() {
+                    bind_pattern(pattern, &list[i], env)?;
+                }
+
+                // 处理剩余模式 (如果有)
+                if let Some(rest_var) = rest {
+                    let rest_values: Vec<Val> = list[patterns.len()..].to_vec();
+                    env.define(rest_var.clone(), Val::List(rest_values.into()));
+                }
+
+                Ok(())
+            }
+            _ => Err(anyhow!(
+                "Cannot match array pattern against non-list value: {:?}",
+                value
+            )),
+        },
+    }
+}
+
 impl Display for Stmt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -358,6 +498,9 @@ impl Display for Stmt {
             }
             Stmt::While { condition, body } => {
                 write!(f, "while ({}) {}", condition, body)
+            }
+            Stmt::For { pattern, iterable, body } => {
+                write!(f, "for {} in {} {}", format_pattern(pattern), iterable, body)
             }
             Stmt::Let {
                 name,
@@ -449,6 +592,31 @@ fn format_import_stmt(import: &ImportStmt) -> String {
         }
         ImportStmt::ModuleAlias { module, alias } => {
             format!("import {} as {}", module, alias)
+        }
+    }
+}
+
+/// Helper function to format patterns for display
+fn format_pattern(pattern: &ForPattern) -> String {
+    match pattern {
+        ForPattern::Variable(name) => name.clone(),
+        ForPattern::Ignore => "_".to_string(),
+        ForPattern::Tuple(patterns) => {
+            let patterns_str = patterns
+                .iter()
+                .map(format_pattern)
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("({})", patterns_str)
+        }
+        ForPattern::Array { patterns, rest } => {
+            let mut parts = patterns.iter().map(format_pattern).collect::<Vec<_>>();
+            if let Some(rest_var) = rest {
+                parts.push(format!("..{}", rest_var));
+            } else if rest.is_some() {
+                parts.push("..".to_string());
+            }
+            format!("[{}]", parts.join(", "))
         }
     }
 }

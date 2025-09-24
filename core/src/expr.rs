@@ -85,6 +85,12 @@ pub enum Expr {
     Call(String, Vec<Box<Expr>>),
     /// Function call on expression: expr(arg1, arg2, ...)
     CallExpr(Box<Expr>, Vec<Box<Expr>>),
+    /// Range expression: start..end
+    Range {
+        start: Option<Box<Expr>>,
+        end: Option<Box<Expr>>,
+        inclusive: bool,  // .. vs ..=
+    },
     Val(Val),
 }
 
@@ -233,6 +239,29 @@ impl Expr {
                     Err(anyhow!("Function call requires environment"))
                 }
             }
+            Expr::Range { start, end, inclusive } => {
+                let start_val = match start {
+                    Some(expr) => expr.eval_with_env(ctx, env)?,
+                    None => Val::Int(0),
+                };
+                let end_val = match end {
+                    Some(expr) => expr.eval_with_env(ctx, env)?,
+                    None => return Err(anyhow!("Open-ended ranges not supported in for loops")),
+                };
+                
+                // Generate range list
+                match (start_val, end_val) {
+                    (Val::Int(s), Val::Int(e)) => {
+                        let range: Vec<Val> = if *inclusive {
+                            (s..=e).map(Val::Int).collect()
+                        } else {
+                            (s..e).map(Val::Int).collect()
+                        };
+                        Ok(Val::List(range.into()))
+                    }
+                    _ => Err(anyhow!("Range bounds must be integers")),
+                }
+            }
             // Remove the problematic string-to-variable resolution
             // String literals should always be treated as string literals
             Expr::Val(val) => Ok(val.clone()), // Clone necessary as eval returns owned Val
@@ -313,6 +342,14 @@ impl Expr {
                 expr.collect_ctx_names(names);
                 for arg in args {
                     arg.collect_ctx_names(names);
+                }
+            }
+            Expr::Range { start, end, .. } => {
+                if let Some(s) = start {
+                    s.collect_ctx_names(names);
+                }
+                if let Some(e) = end {
+                    e.collect_ctx_names(names);
                 }
             }
             // Only collect string values when they are actual context names, not field names
@@ -510,6 +547,16 @@ impl Expr {
                     .collect();
                 Expr::CallExpr(folded_expr, folded_args)
             }
+            Expr::Range { start, end, inclusive } => {
+                // Range expressions with constant bounds can be folded
+                let folded_start = start.map(|s| Box::new(s.fold_constants()));
+                let folded_end = end.map(|e| Box::new(e.fold_constants()));
+                Expr::Range {
+                    start: folded_start,
+                    end: folded_end,
+                    inclusive,
+                }
+            }
         }
     }
 }
@@ -580,6 +627,18 @@ impl Display for Expr {
             Expr::CallExpr(expr, args) => {
                 let args_str: Vec<String> = args.iter().map(|a| a.to_string()).collect();
                 write!(f, "{}({})", expr, args_str.join(", "))
+            }
+            Expr::Range { start, end, inclusive } => {
+                let start_str = match start {
+                    Some(s) => s.to_string(),
+                    None => "".to_string(),
+                };
+                let end_str = match end {
+                    Some(e) => e.to_string(),
+                    None => "".to_string(),
+                };
+                let op = if *inclusive { "..=" } else { ".." };
+                write!(f, "{}{}{}", start_str, op, end_str)
             }
             Expr::Val(val) => write!(f, "{}", val),
         }

@@ -502,4 +502,382 @@ mod tests {
         let result = program.execute(&ctx).expect("Failed to execute");
         assert_eq!(result, Val::Nil);
     }
+
+    // For loop tests
+    #[test]
+    fn test_for_loop_simple_list() {
+        let program = parse_program(
+            r#"
+            for x in [1] {
+                let y = x;
+            }
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Nil);
+    }
+
+    #[test]
+    fn test_for_loop_range() {
+        let program = parse_program(
+            r#"
+            let sum = 0;
+            for i in 0..5 {
+                sum = sum + i;
+            }
+            return sum;
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Int(10)); // 0+1+2+3+4
+    }
+
+    #[test]
+    fn test_for_loop_tuple_destructure() {
+        let program = parse_program(
+            r#"
+            let keys = [];
+            let values = [];
+            for (k, v) in [["a", 1], ["b", 2]] {
+                keys = keys + [k];
+                values = values + [v];
+            }
+            return [keys, values];
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        // Should return [["a", "b"], [1, 2]]
+        if let Val::List(outer) = result {
+            assert_eq!(outer.len(), 2);
+            if let Val::List(keys) = &outer[0] {
+                assert_eq!(keys.len(), 2);
+                assert_eq!(keys[0], Val::Str("a".into()));
+                assert_eq!(keys[1], Val::Str("b".into()));
+            } else {
+                panic!("Expected keys to be a list");
+            }
+            if let Val::List(values) = &outer[1] {
+                assert_eq!(values.len(), 2);
+                assert_eq!(values[0], Val::Int(1));
+                assert_eq!(values[1], Val::Int(2));
+            } else {
+                panic!("Expected values to be a list");
+            }
+        } else {
+            panic!("Expected result to be a list");
+        }
+    }
+
+    #[test]
+    fn test_for_loop_ignore_pattern() {
+        let program = parse_program(
+            r#"
+            let count = 0;
+            for _ in [1, 2, 3, 4, 5] {
+                count = count + 1;
+            }
+            return count;
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Int(5));
+    }
+
+    #[test]
+    fn test_for_loop_break_continue() {
+        let program = parse_program(
+            r#"
+            let result = [];
+            for i in 0..10 {
+                if (i == 3) continue;
+                if (i == 7) break;
+                result = result + [i];
+            }
+            return result;
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        // Should return [0, 1, 2, 4, 5, 6]
+        if let Val::List(list) = result {
+            let expected = vec![
+                Val::Int(0),
+                Val::Int(1),
+                Val::Int(2),
+                Val::Int(4),
+                Val::Int(5),
+                Val::Int(6),
+            ];
+            assert_eq!(*list, expected);
+        } else {
+            panic!("Expected result to be a list");
+        }
+    }
+
+    #[test]
+    fn test_for_loop_scoping() {
+        let program = parse_program(
+            r#"
+            let x = 100;
+            for x in [1, 2, 3] {
+                // Loop variable shadows outer x
+            }
+            return x;
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Int(100)); // Outer x should be unchanged
+    }
+
+    #[test]
+    fn test_for_loop_empty_list() {
+        let program = parse_program(
+            r#"
+            let count = 0;
+            for x in [] {
+                count = count + 1;
+            }
+            return count;
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Int(0)); // Should not iterate
+    }
+
+    #[test]
+    fn test_for_loop_string_iteration() {
+        let program = parse_program(
+            r#"
+            let result = [];
+            for ch in "abc" {
+                result = result + [ch];
+            }
+            return result;
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        if let Val::List(list) = result {
+            assert_eq!(list.len(), 3);
+            assert_eq!(list[0], Val::Str("a".into()));
+            assert_eq!(list[1], Val::Str("b".into()));
+            assert_eq!(list[2], Val::Str("c".into()));
+        } else {
+            panic!("Expected list result");
+        }
+    }
+
+    #[test]
+    fn test_for_loop_map_iteration() {
+        let program = parse_program(
+            r#"
+            let keys = [];
+            let values = [];
+            let m = {"a": 1, "b": 2};
+            for (k, v) in m {
+                keys = keys + [k];
+                values = values + [v];
+            }
+            return [keys, values];
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        if let Val::List(outer) = result {
+            assert_eq!(outer.len(), 2);
+            if let Val::List(keys) = &outer[0] {
+                if let Val::List(values) = &outer[1] {
+                    assert_eq!(keys.len(), 2);
+                    assert_eq!(values.len(), 2);
+                    // Check that we have the expected key-value pairs
+                    let mut found_a = false;
+                    let mut found_b = false;
+                    for i in 0..keys.len() {
+                        if let Val::Str(key) = &keys[i] {
+                            if **key == *"a" && values[i] == Val::Int(1) {
+                                found_a = true;
+                            } else if **key == *"b" && values[i] == Val::Int(2) {
+                                found_b = true;
+                            }
+                        }
+                    }
+                    assert!(found_a && found_b);
+                } else {
+                    panic!("Expected values to be a list");
+                }
+            } else {
+                panic!("Expected keys to be a list");
+            }
+        } else {
+            panic!("Expected result to be a list");
+        }
+    }
+
+    #[test]
+    fn test_for_loop_nested_loops() {
+        let program = parse_program(
+            r#"
+            let result = [];
+            for i in [1, 2] {
+                for j in [3, 4] {
+                    result = result + [[i, j]];
+                }
+            }
+            return result;
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        if let Val::List(outer) = result {
+            assert_eq!(outer.len(), 4);
+            let expected = vec![
+                Val::List(vec![Val::Int(1), Val::Int(3)].into()),
+                Val::List(vec![Val::Int(1), Val::Int(4)].into()),
+                Val::List(vec![Val::Int(2), Val::Int(3)].into()),
+                Val::List(vec![Val::Int(2), Val::Int(4)].into()),
+            ];
+            assert_eq!(*outer, expected);
+        } else {
+            panic!("Expected result to be a list");
+        }
+    }
+
+    #[test]
+    fn test_for_loop_with_return() {
+        let program = parse_program(
+            r#"
+            for x in [1, 2, 3, 4, 5] {
+                if (x == 3) {
+                    return x * 10;
+                }
+            }
+            return 999; // Should not reach here
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Int(30));
+    }
+
+    #[test]
+    fn test_for_loop_range_exclusive() {
+        let program = parse_program(
+            r#"
+            let result = [];
+            for i in 0..3 {
+                result = result + [i];
+            }
+            return result;
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        if let Val::List(list) = result {
+            assert_eq!(list.len(), 3);
+            assert_eq!(list[0], Val::Int(0));
+            assert_eq!(list[1], Val::Int(1));
+            assert_eq!(list[2], Val::Int(2));
+        } else {
+            panic!("Expected list result");
+        }
+    }
+
+    #[test]
+    fn test_for_loop_with_modification() {
+        let program = parse_program(
+            r#"
+            let sum = 0;
+            for x in [1, 2, 3, 4] {
+                sum = sum + x * 2;
+            }
+            return sum;
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Int(20)); // (1+2+3+4)*2 = 20
+    }
+
+    #[test]
+    fn test_for_loop_complex_pattern() {
+        let program = parse_program(
+            r#"
+            let first = [];
+            let rest = [];
+            for [a, b, ..r] in [[1, 2, 3, 4], [5, 6, 7, 8]] {
+                first = first + [[a, b]];
+                rest = rest + [r];
+            }
+            return [first, rest];
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        if let Val::List(outer) = result {
+            assert_eq!(outer.len(), 2);
+            // Check first elements
+            if let Val::List(first) = &outer[0] {
+                assert_eq!(first.len(), 2);
+                assert_eq!(first[0], Val::List(vec![Val::Int(1), Val::Int(2)].into()));
+                assert_eq!(first[1], Val::List(vec![Val::Int(5), Val::Int(6)].into()));
+            } else {
+                panic!("Expected first to be a list");
+            }
+        } else {
+            panic!("Expected result to be a list");
+        }
+    }
+
+    #[test]
+    fn test_for_loop_error_invalid_iterable() {
+        let program = parse_program(
+            r#"
+            for x in true {
+                // This should fail - bool is not iterable
+            }
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not iterable"));
+    }
+
+    #[test]
+    fn test_for_loop_error_pattern_mismatch() {
+        let program = parse_program(
+            r#"
+            for (a, b) in [1, 2, 3] {
+                // This should fail - can't destructure single values into tuples
+            }
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx);
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        assert!(error_msg.contains("Cannot match tuple pattern against non-list value"));
+    }
+
+    #[test]
+    fn test_for_loop_with_function_call() {
+        let program = parse_program(
+            r#"
+            let sum = 0;
+            for x in [1, 2, 3] {
+                sum = sum + x;
+            }
+            return sum;
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Int(6));
+    }
 }

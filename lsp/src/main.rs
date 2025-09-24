@@ -1307,6 +1307,8 @@ fn describe_token_hover(tokens: &[CoreToken], _spans: &[CoreSpan], idx: usize) -
         T::RBrace => "Symbol: }".to_string(),
         T::LBracket => "Symbol: [".to_string(),
         T::RBracket => "Symbol: ]".to_string(),
+        T::For => "Keyword: for".to_string(),
+        T::Range => "Operator: ..".to_string(),
     }
 }
 

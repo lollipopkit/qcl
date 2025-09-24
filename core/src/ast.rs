@@ -129,7 +129,7 @@ impl<'a> Parser<'a> {
     /// - `expr != expr`
     ///   ...
     fn parse_cmp(&mut self) -> Result<Expr> {
-        let mut expr = self.parse_add_sub()?;
+        let mut expr = self.parse_range()?;
         while !self.eof() {
             let op = match self.tokens[self.pos] {
                 Token::Eq => BinOp::Eq,
@@ -142,10 +142,50 @@ impl<'a> Parser<'a> {
                 _ => break,
             };
             self.pos += 1;
-            let right = self.parse_add_sub()?;
+            let right = self.parse_range()?;
             expr = Expr::Bin(Box::new(expr), op, Box::new(right));
         }
         Ok(expr)
+    }
+
+    /// - `expr..expr` (range)
+    /// - `expr..=expr` (inclusive range)  
+    fn parse_range(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_add_sub()?;
+        
+        if !self.eof() && self.tokens[self.pos] == Token::Range {
+            self.pos += 1; // consume '..'
+            
+            // For now, we only support exclusive ranges (..)
+            // TODO: Add support for inclusive ranges (..=) when Token::RangeInclusive is added
+            let inclusive = false;
+            
+            // Check if there's an end expression
+            let end = if !self.eof() && !self.is_range_terminator() {
+                Some(Box::new(self.parse_add_sub()?))
+            } else {
+                None
+            };
+            
+            expr = Expr::Range {
+                start: Some(Box::new(expr)),
+                end,
+                inclusive,
+            };
+        }
+        
+        Ok(expr)
+    }
+
+    /// Check if the current token terminates a range expression
+    fn is_range_terminator(&self) -> bool {
+        if self.eof() {
+            return true;
+        }
+        matches!(
+            self.tokens[self.pos],
+            Token::RParen | Token::RBrace | Token::RBracket | Token::Comma | Token::Semicolon | Token::In
+        )
     }
 
     /// - `expr + expr`

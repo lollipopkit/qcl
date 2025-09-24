@@ -332,6 +332,8 @@ impl TestLanguageServer {
             T::RBrace => "Symbol: }".to_string(),
             T::LBracket => "Symbol: [".to_string(),
             T::RBracket => "Symbol: ]".to_string(),
+            T::For => "Keyword: for".to_string(),
+            T::Range => "Operator: ..".to_string(),
         }
     }
 

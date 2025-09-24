@@ -1,5 +1,6 @@
 pub mod datetime;
 pub mod io;
+pub mod iter;
 pub mod math;
 pub mod os;
 pub mod string;
@@ -16,6 +17,7 @@ use qcl_core::val::Val;
 /// Register all stdlib modules with the given registry
 pub fn register_stdlib_modules(registry: &mut ModuleRegistry) {
     registry.register_module("io", Box::new(io::IoModule::new()));
+    registry.register_module("iter", Box::new(iter::IterModule::new()));
     registry.register_module("math", Box::new(math::MathModule::new()));
     registry.register_module("string", Box::new(string::StringModule::new()));
     registry.register_module("datetime", Box::new(datetime::DateTimeModule::new()));

@@ -41,6 +41,8 @@ pub enum Token {
     Continue, // continue
     Return,   // return
     Fn,       // fn (function definition)
+    For,      // for (for loop)
+    Range,    // .. (range operator)
     // Import keywords
     Import, // import
     From,   // from
@@ -271,6 +273,11 @@ impl Tokenizer {
                 num.push(c);
                 self.advance_char();
             } else if c == '.' {
+                // Check if this is part of a range operator (..)
+                if self.idx + 1 < self.len && self.chars[self.idx + 1] == '.' {
+                    // This is a range operator, don't include the dot in the number
+                    break;
+                }
                 if dot_count > 0 {
                     return Err(anyhow!(self.err("Invalid float, multiple '.'")));
                 }
@@ -405,6 +412,10 @@ impl Tokenizer {
             self.push_span_only(Token::As, sp);
             return Ok(());
         }
+        if let Some(sp) = match_kw(self, "for") {
+            self.push_span_only(Token::For, sp);
+            return Ok(());
+        }
 
         self.parse_id()
     }
@@ -534,6 +545,15 @@ impl Tokenizer {
             }
             '.' => {
                 let next = self.chars.get(self.idx + 1);
+                if let Some(&'.') = next {
+                    // Range operator ..
+                    let start = self.current_position();
+                    self.advance_char(); // consume first .
+                    self.advance_char(); // consume second .
+                    let end = self.current_position();
+                    self.push_with_span(Token::Range, start, end);
+                    return Ok(());
+                }
                 if let Some(&c) = next
                     && c.is_ascii_digit()
                 {
@@ -696,7 +716,7 @@ impl Tokenizer {
                 '0'..='9' => {
                     self.parse_num()?;
                 }
-                // Keywords: true false nil if else while let break continue return goto fn
+                // Keywords: true false nil if else while let break continue return goto fn for
                 // Also: go, select/case/default
                 't' | 'f' | 'n' | 'i' | 'e' | 'w' | 'l' | 'b' | 'c' | 'r' | 'g' | 's' | 'd' => {
                     self.parse_keywords()?;
