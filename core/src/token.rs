@@ -39,7 +39,6 @@ pub enum Token {
     Let,      // let
     Break,    // break
     Continue, // continue
-    Goto,     // goto
     Return,   // return
     Fn,       // fn (function definition)
     // Import keywords
@@ -388,10 +387,6 @@ impl Tokenizer {
         }
         if let Some(sp) = match_kw(self, "return") {
             self.push_span_only(Token::Return, sp);
-            return Ok(());
-        }
-        if let Some(sp) = match_kw(self, "goto") {
-            self.push_span_only(Token::Goto, sp);
             return Ok(());
         }
         if let Some(sp) = match_kw(self, "fn") {

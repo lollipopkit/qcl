@@ -164,22 +164,6 @@ impl QclAnalyzer {
                         children: None,
                     });
                 }
-                Stmt::Label { name } => {
-                    result.symbols.push(DocumentSymbol {
-                        name: format!("{}:", name),
-                        detail: Some("Label".to_string()),
-                        kind: SymbolKind::KEY,
-                        tags: None,
-                        #[allow(deprecated)]
-                        deprecated: None,
-                        range: Range::new(Position::new(i as u32, 0), Position::new(i as u32, 100)),
-                        selection_range: Range::new(
-                            Position::new(i as u32, 0),
-                            Position::new(i as u32, 100),
-                        ),
-                        children: None,
-                    });
-                }
                 _ => {}
             }
         }
@@ -316,7 +300,6 @@ impl TestLanguageServer {
             T::Let => "Keyword: let".to_string(),
             T::Break => "Keyword: break".to_string(),
             T::Continue => "Keyword: continue".to_string(),
-            T::Goto => "Keyword: goto".to_string(),
             T::Return => "Keyword: return".to_string(),
             T::Fn => "Keyword: fn".to_string(),
             T::Import => "Keyword: import".to_string(),
@@ -406,7 +389,7 @@ impl TestLanguageServer {
 
         // QCL keywords
         let keywords = [
-            "if", "else", "while", "let", "fn", "return", "break", "continue", "goto", "import",
+            "if", "else", "while", "let", "fn", "return", "break", "continue", "import",
             "from", "as", "go", "select", "case", "default", "true", "false", "nil",
         ];
 
@@ -619,7 +602,6 @@ async fn test_lsp_document_symbols() {
             return result;
         }
         
-        start_label:
         let final_result = main();
     "#;
 
@@ -630,7 +612,7 @@ async fn test_lsp_document_symbols() {
     assert!(symbols.is_some());
 
     let symbols = symbols.unwrap();
-    assert!(symbols.len() >= 7); // 2 imports, 3 lets, 2 functions, 1 label
+    assert!(symbols.len() >= 6); // 2 imports, 3 lets, 2 functions
 
     let symbol_names: Vec<&String> = symbols.iter().map(|s| &s.name).collect();
     assert!(symbol_names.contains(&&"import math".to_string()));
@@ -638,7 +620,6 @@ async fn test_lsp_document_symbols() {
     assert!(symbol_names.contains(&&"global_var".to_string()));
     assert!(symbol_names.contains(&&"process_data".to_string()));
     assert!(symbol_names.contains(&&"main".to_string()));
-    assert!(symbol_names.contains(&&"start_label:".to_string()));
 
     // Check symbol kinds
     let import_symbols: Vec<_> = symbols
@@ -660,11 +641,6 @@ async fn test_lsp_document_symbols() {
     // Only top-level variables are detected in our simple analyzer
     assert!(variable_symbols.len() >= 2); // At least global_var and final_result
 
-    let label_symbols: Vec<_> = symbols
-        .iter()
-        .filter(|s| s.kind == SymbolKind::KEY)
-        .collect();
-    assert_eq!(label_symbols.len(), 1);
 }
 
 #[tokio::test]
@@ -728,7 +704,6 @@ async fn test_lsp_complex_program_analysis() {
             return adjusted_score + name_bonus;
         }
         
-        main:
         let access_granted = validate_access(@req.user.role);
         
         if (access_granted) {
@@ -736,7 +711,6 @@ async fn test_lsp_complex_program_analysis() {
             let timestamp = datetime.now();
             return score;
         } else {
-            error_handler:
             return 0;
         }
     "#;
@@ -754,8 +728,8 @@ async fn test_lsp_complex_program_analysis() {
     assert!(symbols.is_some());
     let symbols = symbols.unwrap();
 
-    // Should have imports, variables, functions, labels
-    assert!(symbols.len() >= 8);
+    // Should have imports, variables, functions
+    assert!(symbols.len() >= 6);
 
     let symbol_names: Vec<&String> = symbols.iter().map(|s| &s.name).collect();
 
@@ -773,9 +747,6 @@ async fn test_lsp_complex_program_analysis() {
     assert!(symbol_names.contains(&&"validate_access".to_string()));
     assert!(symbol_names.contains(&&"calculate_score".to_string()));
 
-    // Check labels - the main label should be there, let's make error_handler optional
-    assert!(symbol_names.contains(&&"main:".to_string()));
-    // Note: error_handler might not be detected depending on how nested it is in the if statement
 
     // Test hover - should detect context references or symbols
     let hover = server.get_hover_info(&uri).await;

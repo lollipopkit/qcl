@@ -113,7 +113,7 @@ impl QclLanguageServer {
 
         // QCL keywords
         let keywords = [
-            "if", "else", "while", "let", "fn", "return", "break", "continue", "goto", "import",
+            "if", "else", "while", "let", "fn", "return", "break", "continue", "import",
             "from", "as", "go", "select", "case", "default", "true", "false", "nil",
         ];
 
@@ -1273,7 +1273,6 @@ fn describe_token_hover(tokens: &[CoreToken], _spans: &[CoreSpan], idx: usize) -
         T::Let => "Keyword: let".to_string(),
         T::Break => "Keyword: break".to_string(),
         T::Continue => "Keyword: continue".to_string(),
-        T::Goto => "Keyword: goto".to_string(),
         T::Return => "Keyword: return".to_string(),
         T::Fn => "Keyword: fn".to_string(),
         T::Import => "Keyword: import".to_string(),

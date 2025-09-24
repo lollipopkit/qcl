@@ -84,21 +84,6 @@ mod tests {
         assert_eq!(result, Val::Nil);
     }
 
-    #[test]
-    fn test_goto_label() {
-        let program = parse_program(
-            r#"
-            let x = 0;
-            goto end;
-            x = 999;
-            end:
-            x = 42;
-        "#,
-        );
-        let ctx = empty_context();
-        let result = program.execute(&ctx).expect("Failed to execute");
-        assert_eq!(result, Val::Nil);
-    }
 
     #[test]
     fn test_block_scope() {
@@ -161,14 +146,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_undefined_label_error() {
-        let program = parse_program("goto undefined_label;");
-        let ctx = empty_context();
-        let result = program.execute(&ctx);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Undefined label"));
-    }
 
     #[test]
     fn test_break_outside_loop_error() {

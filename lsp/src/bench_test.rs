@@ -38,19 +38,12 @@ mod bench_tests {
                 return 0;
             }
             
-            start:
             let access_score = calculate_access_score(100);
             if access_score > 50 {
-                goto success;
+                return true;
             } else {
-                goto denied;
+                return false;
             }
-            
-            success:
-            return true;
-            
-            denied:
-            return false;
         "#;
         
         let start = Instant::now();

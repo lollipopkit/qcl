@@ -248,7 +248,6 @@ impl<'a> StmtParser<'a> {
             Token::Break => self.parse_break_stmt(),
             Token::Continue => self.parse_continue_stmt(),
             Token::Return => self.parse_return_stmt(),
-            Token::Goto => self.parse_goto_stmt(),
             Token::Fn => self.parse_function_stmt(),
             Token::LBrace => self.parse_block_stmt(),
             Token::Id(id) => {
@@ -257,9 +256,6 @@ impl<'a> StmtParser<'a> {
                     && self.peek_ahead(2) == Some(&Token::Assign)
                 {
                     self.parse_define_stmt_with_id(id.clone())
-                } else if self.peek_ahead(1) == Some(&Token::Colon) {
-                    // 标签 (id:)
-                    self.parse_label_stmt_with_id(id.clone())
                 } else if self.peek_ahead(1) == Some(&Token::Assign) {
                     // 赋值 (id = expr;)
                     self.parse_assign_stmt_with_id(id.clone())
@@ -381,31 +377,7 @@ impl<'a> StmtParser<'a> {
         Ok(Stmt::Define { name, value: Box::new(value) })
     }
 
-    /// 解析标签语句（已匹配标识符）
-    fn parse_label_stmt_with_id(&mut self, name: String) -> Result<Stmt> {
-        // 我们已经在parse_statement中匹配了Id，现在跳过它并继续解析标签
-        self.pos += 1; // 跳过已匹配的 Id token
-        self.expect_token(Token::Colon)?;
 
-        Ok(Stmt::Label { name })
-    }
-
-    /// 解析 goto 语句
-    fn parse_goto_stmt(&mut self) -> Result<Stmt> {
-        self.expect_token(Token::Goto)?;
-
-        let label = if let Token::Id(id) = &self.tokens[self.pos] {
-            let label = id.clone();
-            self.pos += 1;
-            label
-        } else {
-            return Err(anyhow!(self.err("Expected label name after 'goto'")));
-        };
-
-        self.expect_token(Token::Semicolon)?;
-
-        Ok(Stmt::Goto { label })
-    }
 
     /// 解析 break 语句
     fn parse_break_stmt(&mut self) -> Result<Stmt> {

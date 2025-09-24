@@ -17,7 +17,7 @@ The LSP server consists of:
 - `main.rs`: Core LSP server implementation using tower-lsp
 - `analyzer.rs`: QCL language analysis engine that provides:
   - Expression and statement parsing
-  - Symbol extraction (variables, functions, imports, labels)
+  - Symbol extraction (variables, functions, imports)
   - Context reference collection
   - Diagnostic generation
 
@@ -33,13 +33,13 @@ The LSP server consists of:
 - Variable declarations (`let x = value;`)
 - Function definitions (`fn name(params) { body }`)
 - Import statements (`import math;`, `import { abs } from math;`)
-- Control flow (`if`, `while`, `goto`, `break`, `continue`, `return`)
+- Control flow (`if`, `while`, `break`, `continue`, `return`)
 - Concurrency primitives (`go`, `select`, channel operations)
 
 ### Completions Provided
 
 #### Keywords
-- Control flow: `if`, `else`, `while`, `let`, `fn`, `return`, `break`, `continue`, `goto`
+- Control flow: `if`, `else`, `while`, `let`, `fn`, `return`, `break`, `continue`
 - Imports: `import`, `from`, `as`
 - Concurrency: `go`, `select`, `case`, `default`
 - Literals: `true`, `false`, `nil`

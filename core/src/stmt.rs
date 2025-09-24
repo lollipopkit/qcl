@@ -10,14 +10,12 @@ use std::{collections::HashMap, fmt::Display, sync::Arc};
 ///
 /// 语法设计：
 /// program  ::= statement*
-/// statement ::= import_stmt | if_stmt | while_stmt | let_stmt | assign_stmt | goto_stmt | label_stmt | break_stmt | continue_stmt | return_stmt | fn_stmt | expr_stmt | block_stmt
+/// statement ::= import_stmt | if_stmt | while_stmt | let_stmt | assign_stmt | break_stmt | continue_stmt | return_stmt | fn_stmt | expr_stmt | block_stmt
 /// import_stmt ::= 'import' import_spec ';'
 /// if_stmt  ::= 'if' '(' expr ')' statement ['else' statement]
 /// while_stmt ::= 'while' '(' expr ')' statement
 /// let_stmt ::= 'let' id [':' type] '=' expr ';'
 /// assign_stmt ::= id '=' expr ';'
-/// goto_stmt ::= 'goto' id ';'
-/// label_stmt ::= id ':'
 /// break_stmt ::= 'break' ';'
 /// continue_stmt ::= 'continue' ';'
 /// return_stmt ::= 'return' [expr] ';'
@@ -49,10 +47,6 @@ pub enum Stmt {
     Assign { name: String, value: Box<Expr> },
     /// name = value; (变量定义，类似 Go 的短声明)
     Define { name: String, value: Box<Expr> },
-    /// goto label;
-    Goto { label: String },
-    /// label:
-    Label { name: String },
     /// break;
     Break,
     /// continue;
@@ -73,7 +67,7 @@ pub enum Stmt {
     Empty,
 }
 
-/// 控制流状态，用于 break/continue/goto 的实现
+/// 控制流状态，用于 break/continue 的实现
 #[derive(Debug, Clone, PartialEq)]
 pub enum ControlFlow {
     /// 正常执行
@@ -82,8 +76,6 @@ pub enum ControlFlow {
     Break,
     /// continue 语句  
     Continue,
-    /// goto 语句
-    Goto(String),
     /// 函数返回 (预留给未来功能)
     Return(Val),
 }
@@ -221,7 +213,6 @@ impl Stmt {
                     match body.execute(env, ctx)? {
                         ControlFlow::Break => break,
                         ControlFlow::Continue => continue,
-                        ControlFlow::Goto(label) => return Ok(ControlFlow::Goto(label)),
                         ControlFlow::Return(val) => return Ok(ControlFlow::Return(val)),
                         ControlFlow::None => {}
                     }
@@ -251,11 +242,6 @@ impl Stmt {
             Stmt::Define { name, value } => {
                 let val = value.eval_with_env(ctx, Some(env))?;
                 env.define(name.clone(), val);
-                Ok(ControlFlow::None)
-            }
-            Stmt::Goto { label } => Ok(ControlFlow::Goto(label.clone())),
-            Stmt::Label { .. } => {
-                // 标签本身不执行任何操作
                 Ok(ControlFlow::None)
             }
             Stmt::Break => Ok(ControlFlow::Break),
@@ -304,28 +290,15 @@ impl Stmt {
     }
 }
 
-/// 程序结构 - 包含语句列表和标签映射
+/// 程序结构 - 包含语句列表
 #[derive(Debug, Clone)]
 pub struct Program {
     pub statements: Vec<Box<Stmt>>,
-    pub labels: HashMap<String, usize>, // 标签名到语句索引的映射
 }
 
 impl Program {
     pub fn new(statements: Vec<Box<Stmt>>) -> Result<Self> {
-        let mut labels = HashMap::new();
-
-        // 构建标签映射
-        for (index, stmt) in statements.iter().enumerate() {
-            if let Stmt::Label { name } = stmt.as_ref() {
-                if labels.contains_key(name) {
-                    return Err(anyhow!("Duplicate label: {}", name));
-                }
-                labels.insert(name.clone(), index);
-            }
-        }
-
-        Ok(Program { statements, labels })
+        Ok(Program { statements })
     }
 
     /// 执行程序
@@ -354,13 +327,6 @@ impl Program {
                         "continue statement outside of loop at statement {}",
                         pc
                     ));
-                }
-                ControlFlow::Goto(label) => {
-                    if let Some(&target_pc) = self.labels.get(&label) {
-                        pc = target_pc;
-                    } else {
-                        return Err(anyhow!("Undefined label: {}", label));
-                    }
                 }
                 ControlFlow::Return(val) => {
                     return Ok(val);
@@ -409,12 +375,6 @@ impl Display for Stmt {
             }
             Stmt::Define { name, value } => {
                 write!(f, "{} = {};", name, value)
-            }
-            Stmt::Goto { label } => {
-                write!(f, "goto {};", label)
-            }
-            Stmt::Label { name } => {
-                write!(f, "{}:", name)
             }
             Stmt::Break => {
                 write!(f, "break;")

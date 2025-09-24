@@ -86,14 +86,12 @@ The language supports both expressions and full statement programs:
 #### Statement Grammar:
 ```
 program  ::= statement*
-statement ::= import_stmt | if_stmt | while_stmt | let_stmt | assign_stmt | goto_stmt | label_stmt | break_stmt | continue_stmt | return_stmt | fn_stmt | expr_stmt | block_stmt
+statement ::= import_stmt | if_stmt | while_stmt | let_stmt | assign_stmt | break_stmt | continue_stmt | return_stmt | fn_stmt | expr_stmt | block_stmt
 import_stmt ::= 'import' import_spec ';'
 if_stmt  ::= 'if' '(' expr ')' statement ['else' statement]
 while_stmt ::= 'while' '(' expr ')' statement
 let_stmt ::= 'let' id [':' type] '=' expr ';'
 assign_stmt ::= id '=' expr ';'
-goto_stmt ::= 'goto' id ';'
-label_stmt ::= id ':'
 break_stmt ::= 'break' ';'
 continue_stmt ::= 'continue' ';'
 return_stmt ::= 'return' [expr] ';'

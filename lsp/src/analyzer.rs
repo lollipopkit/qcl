@@ -440,8 +440,7 @@ impl QclAnalyzer {
                             || content.contains("if ")
                             || content.contains("while ")
                             || content.contains("return ")
-                            || content.contains("goto ")
-                            || content.contains("break")
+                                                        || content.contains("break")
                             || content.contains("continue");
                         if !expr_recover_errors.is_empty() && !has_statement_keywords {
                             for e in expr_recover_errors {
@@ -519,8 +518,7 @@ impl QclAnalyzer {
                                 || content.contains("if ")
                                 || content.contains("while ")
                                 || content.contains("return ")
-                                || content.contains("goto ")
-                                || content.contains("break")
+                                                                || content.contains("break")
                                 || content.contains("continue");
                             let parse_err = if has_statement_keywords {
                                 &stmt_err
@@ -1129,22 +1127,6 @@ impl QclAnalyzer {
                         children: None,
                     });
                 }
-                Stmt::Label { name } => {
-                    result.symbols.push(DocumentSymbol {
-                        name: format!("{}:", name),
-                        detail: Some("Label".to_string()),
-                        kind: SymbolKind::KEY,
-                        tags: None,
-                        #[allow(deprecated)]
-                        deprecated: None,
-                        range: Range::new(Position::new(i as u32, 0), Position::new(i as u32, 100)),
-                        selection_range: Range::new(
-                            Position::new(i as u32, 0),
-                            Position::new(i as u32, 100),
-                        ),
-                        children: None,
-                    });
-                }
                 _ => {}
             }
         }
@@ -1463,7 +1445,7 @@ impl QclAnalyzer {
                     // Check for keywords
                     let mut token_idx = match identifier.as_str() {
                         "if" | "else" | "while" | "let" | "fn" | "return" | "break"
-                        | "continue" | "goto" | "import" | "from" | "as" | "go" | "select"
+                        | "continue" | "import" | "from" | "as" | "go" | "select"
                         | "case" | "default" | "true" | "false" | "nil" => KEYWORD_IDX,
                         _ => VARIABLE_IDX,
                     };
@@ -1815,7 +1797,7 @@ impl QclAnalyzer {
                     let slice: &str = &line[ident_start..j];
                     let mut token_idx = match slice {
                         "if" | "else" | "while" | "let" | "fn" | "return" | "break"
-                        | "continue" | "goto" | "import" | "from" | "as" | "go" | "select"
+                        | "continue" | "import" | "from" | "as" | "go" | "select"
                         | "case" | "default" | "true" | "false" | "nil" => KEYWORD_IDX,
                         _ => VARIABLE_IDX,
                     };
@@ -2039,7 +2021,6 @@ mod tests {
             fn calculate_score(base) {
                 return math.sqrt(base * user_level);
             }
-            start:
             let result = calculate_score(100);
         "#;
         let result = analyzer.analyze(code);
@@ -2047,14 +2028,13 @@ mod tests {
         // Should not have diagnostics for valid program
         assert!(result.diagnostics.is_empty());
 
-        // Should have symbols for import, variable, function, and label
-        assert!(result.symbols.len() >= 4);
+        // Should have symbols for import, variable, and function
+        assert!(result.symbols.len() >= 3);
 
         let symbol_names: Vec<&String> = result.symbols.iter().map(|s| &s.name).collect();
         assert!(symbol_names.contains(&&"import math".to_string()));
         assert!(symbol_names.contains(&&"user_level".to_string()));
         assert!(symbol_names.contains(&&"calculate_score".to_string()));
-        assert!(symbol_names.contains(&&"start:".to_string()));
         assert!(symbol_names.contains(&&"result".to_string()));
     }
 
