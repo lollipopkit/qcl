@@ -11,6 +11,7 @@ use crate::{
     op::{BinOp, UnaryOp, err_op},
     token::Tokenizer,
     val::{Type, Val},
+    type_checker::TypeChecker,
 };
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
@@ -1265,5 +1266,12 @@ impl Display for Expr {
 impl From<Val> for Expr {
     fn from(val: Val) -> Self {
         Expr::Val(val)
+    }
+}
+
+impl Expr {
+    /// 静态类型检查表达式
+    pub fn type_check(&self, type_checker: &mut TypeChecker) -> Result<Type> {
+        type_checker.check_expr(self)
     }
 }

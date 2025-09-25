@@ -64,6 +64,14 @@ pub enum Token {
     Import,      // import
     From,        // from
     As,          // as
+    // Type system keywords
+    Type,        // type (for type aliases)
+    Trait,       // trait
+    Impl,        // impl
+    // Type operators
+    Pipe,        // | (for union types)
+    Question,    // ? (for optional types)
+    FnArrow,     // -> (for function types)
     Str(String), // "abc"
     Int(i64),    // 1
     Float(f64),  // 1.1
@@ -558,6 +566,19 @@ impl Tokenizer {
             self.push_span_only(Token::Default, sp);
             return Ok(());
         }
+        // Type system keywords
+        if let Some(sp) = match_kw(self, "type") {
+            self.push_span_only(Token::Type, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "trait") {
+            self.push_span_only(Token::Trait, sp);
+            return Ok(());
+        }
+        if let Some(sp) = match_kw(self, "impl") {
+            self.push_span_only(Token::Impl, sp);
+            return Ok(());
+        }
 
         self.parse_id()
     }
@@ -731,7 +752,12 @@ impl Tokenizer {
                     self.push_with_span(Token::NullishCoalescing, start, end);
                     Ok(())
                 } else {
-                    Err(anyhow!(self.err("Unexpected character '?'")))
+                    // Single ? for optional types
+                    let start = self.current_position();
+                    self.advance_char();
+                    let end = self.current_position();
+                    self.push_with_span(Token::Question, start, end);
+                    Ok(())
                 }
             }
             '&' => {
@@ -751,7 +777,11 @@ impl Tokenizer {
                     self.push_with_span(Token::Or, start, end);
                     Ok(())
                 } else {
-                    Err(anyhow!(self.err("Expect '||'")))
+                    // Single | for union types
+                    self.advance_char();
+                    let end = self.current_position();
+                    self.push_with_span(Token::Pipe, start, end);
+                    Ok(())
                 }
             }
             '+' => {
@@ -775,10 +805,17 @@ impl Tokenizer {
                     return self.parse_num();
                 }
                 let start = self.current_position();
-                self.advance_char();
-                let end = self.current_position();
-                self.push_with_span(Token::Sub, start, end);
-                Ok(())
+                if self.expect("->") {
+                    // Function type arrow
+                    let end = self.current_position();
+                    self.push_with_span(Token::FnArrow, start, end);
+                    Ok(())
+                } else {
+                    self.advance_char();
+                    let end = self.current_position();
+                    self.push_with_span(Token::Sub, start, end);
+                    Ok(())
+                }
             }
             '*' => {
                 let start = self.current_position();

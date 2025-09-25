@@ -1,6 +1,7 @@
 use crate::{
     expr::Expr,
     import::{ImportContext, ImportStmt, ModuleResolver},
+    type_checker::TypeChecker,
     val::{Type, Val},
 };
 use anyhow::{Result, anyhow};
@@ -111,6 +112,8 @@ pub struct Environment {
     import_ctx: ImportContext,
     /// Module resolver (shared across all environments)
     resolver: Arc<ModuleResolver>,
+    /// Type checker for static type analysis
+    type_checker: Option<TypeChecker>,
 }
 
 impl Default for Environment {
@@ -125,6 +128,7 @@ impl Environment {
             scopes: vec![HashMap::new()], // 全局作用域
             import_ctx: ImportContext::new(),
             resolver: Arc::new(ModuleResolver::new()),
+            type_checker: None,
         }
     }
 
@@ -133,7 +137,21 @@ impl Environment {
             scopes: vec![HashMap::new()],
             import_ctx: ImportContext::new(),
             resolver,
+            type_checker: None,
         }
+    }
+
+    pub fn with_type_checker(mut self, type_checker: TypeChecker) -> Self {
+        self.type_checker = Some(type_checker);
+        self
+    }
+
+    pub fn get_type_checker(&self) -> Option<&TypeChecker> {
+        self.type_checker.as_ref()
+    }
+
+    pub fn get_type_checker_mut(&mut self) -> Option<&mut TypeChecker> {
+        self.type_checker.as_mut()
     }
 
     /// 进入新的作用域
@@ -344,6 +362,217 @@ impl Stmt {
             }
             Stmt::Empty => Ok(ControlFlow::None),
         }
+    }
+
+    /// 静态类型检查语句
+    pub fn type_check(&self, type_checker: &mut TypeChecker) -> Result<()> {
+        match self {
+            Stmt::Let { name, type_annotation, value } => {
+                // 检查表达式的类型
+                let expr_type = value.type_check(type_checker)?;
+
+                // 如果有类型注解，验证类型匹配
+                if let Some(expected_type) = type_annotation {
+                    if !expr_type.is_assignable_to(expected_type) {
+                        return Err(anyhow::anyhow!(
+                            "Type mismatch in let statement: variable '{}' expected type {}, but expression has type {}",
+                            name, expected_type.display(), expr_type.display()
+                        ));
+                    }
+                }
+
+                // 将变量类型添加到类型检查器的作用域中
+                let var_type = type_annotation.clone().unwrap_or(expr_type);
+                type_checker.add_local_type(name.clone(), var_type);
+
+                Ok(())
+            }
+            Stmt::Assign { name, value } => {
+                // 检查表达式的类型
+                let expr_type = value.type_check(type_checker)?;
+
+                // 获取变量的已声明类型
+                if let Some(var_type) = type_checker.get_local_type(name) {
+                    if !expr_type.is_assignable_to(var_type) {
+                        return Err(anyhow::anyhow!(
+                            "Type mismatch in assignment: variable '{}' has type {}, but assigned expression has type {}",
+                            name, var_type.display(), expr_type.display()
+                        ));
+                    }
+                } else {
+                    return Err(anyhow::anyhow!(
+                        "Cannot assign to undefined variable '{}'", name
+                    ));
+                }
+
+                Ok(())
+            }
+            Stmt::Function { name, params, body } => {
+                // 为函数参数创建新的作用域
+                type_checker.push_scope();
+
+                // 参数类型暂时设为 Any，未来可以支持参数类型注解
+                for param in params {
+                    type_checker.add_local_type(param.clone(), Type::Any);
+                }
+
+                // 检查函数体
+                body.type_check(type_checker)?;
+
+                // 弹出参数作用域
+                type_checker.pop_scope();
+
+                // 将函数添加到当前作用域，类型为 Function
+                let func_type = Type::Function {
+                    params: params.iter().map(|_| Type::Any).collect(),
+                    return_type: Box::new(Type::Any), // 暂时设为 Any，未来可以支持返回类型推断
+                };
+                type_checker.add_local_type(name.clone(), func_type);
+
+                Ok(())
+            }
+            Stmt::If { condition, then_stmt, else_stmt } => {
+                // 条件表达式必须是 Bool 类型
+                let cond_type = condition.type_check(type_checker)?;
+                if !cond_type.is_assignable_to(&Type::Bool) {
+                    return Err(anyhow::anyhow!(
+                        "If condition must be Bool, but got {}", cond_type.display()
+                    ));
+                }
+
+                // 检查 then 和 else 分支
+                then_stmt.type_check(type_checker)?;
+                if let Some(else_stmt) = else_stmt {
+                    else_stmt.type_check(type_checker)?;
+                }
+
+                Ok(())
+            }
+            Stmt::While { condition, body } => {
+                // 条件表达式必须是 Bool 类型
+                let cond_type = condition.type_check(type_checker)?;
+                if !cond_type.is_assignable_to(&Type::Bool) {
+                    return Err(anyhow::anyhow!(
+                        "While condition must be Bool, but got {}", cond_type.display()
+                    ));
+                }
+
+                // 检查循环体
+                body.type_check(type_checker)?;
+
+                Ok(())
+            }
+            Stmt::For { pattern, iterable, body } => {
+                // 检查可迭代表达式的类型
+                let iter_type = iterable.type_check(type_checker)?;
+
+                // 验证可迭代类型
+                match iter_type {
+                    Type::List(_) | Type::String | Type::Map(_, _) => {
+                        // 这些类型都是可迭代的
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!(
+                            "For loop iterable must be List, String, or Map, but got {}",
+                            iter_type.display()
+                        ));
+                    }
+                }
+
+                // 为模式匹配创建新的作用域
+                type_checker.push_scope();
+
+                // 根据模式添加变量类型
+                Self::add_pattern_types(pattern, &iter_type, type_checker)?;
+
+                // 检查循环体
+                body.type_check(type_checker)?;
+
+                // 弹出作用域
+                type_checker.pop_scope();
+
+                Ok(())
+            }
+            Stmt::Expr(expr) => {
+                // 表达式语句，只检查类型，不使用结果
+                expr.type_check(type_checker)?;
+                Ok(())
+            }
+            Stmt::Block { statements } => {
+                // 为块语句创建新的作用域
+                type_checker.push_scope();
+
+                // 检查块中的所有语句
+                for stmt in statements {
+                    stmt.type_check(type_checker)?;
+                }
+
+                // 弹出作用域
+                type_checker.pop_scope();
+
+                Ok(())
+            }
+            Stmt::Import(_) => {
+                // Import 语句暂时不需要类型检查
+                Ok(())
+            }
+            Stmt::Break | Stmt::Continue | Stmt::Return { .. } => {
+                // 控制流语句暂时不需要类型检查
+                Ok(())
+            }
+            Stmt::Define { .. } | Stmt::Empty => {
+                // Define 语句和空语句暂时不需要类型检查
+                Ok(())
+            }
+        }
+    }
+
+    /// 为 for 循环模式添加类型信息
+    fn add_pattern_types(pattern: &ForPattern, iter_type: &Type, type_checker: &mut TypeChecker) -> Result<()> {
+        match pattern {
+            ForPattern::Variable(name) => {
+                // 根据可迭代类型确定变量类型
+                let var_type = match iter_type {
+                    Type::List(inner) => (**inner).clone(),
+                    Type::String => Type::String,
+                    Type::Map(_, _) => {
+                        // Map 迭代返回 [key, value] 对
+                        Type::List(Box::new(Type::Union(vec![
+                            Type::String, // key
+                            Type::Any,    // value
+                        ])))
+                    }
+                    _ => Type::Any,
+                };
+                type_checker.add_local_type(name.clone(), var_type);
+            }
+            ForPattern::Ignore => {
+                // 忽略模式，不需要添加类型
+            }
+            ForPattern::Tuple(patterns) => {
+                if let Type::List(inner_types) = iter_type {
+                    // 这里简化处理，假设 inner_types 是一个包含所有元素类型的 List
+                    // 实际上可能需要更复杂的类型推导
+                    for pattern in patterns {
+                        Self::add_pattern_types(pattern, inner_types, type_checker)?;
+                    }
+                }
+            }
+            ForPattern::Array { patterns, rest } => {
+                if let Type::List(inner_types) = iter_type {
+                    // 为固定模式的每个部分添加类型
+                    for pattern in patterns {
+                        Self::add_pattern_types(pattern, inner_types, type_checker)?;
+                    }
+
+                    // 为剩余模式添加类型
+                    if let Some(rest_var) = rest {
+                        type_checker.add_local_type(rest_var.clone(), (**inner_types).clone());
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }
 

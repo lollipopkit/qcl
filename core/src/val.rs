@@ -89,37 +89,177 @@ impl Clone for Val {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
+    /// Primitive types
     Int,
     Float,
     String,
     Bool,
-    List,
-    Map,
-    Function,
     Nil,
+
+    /// Generic container types
+    List(Box<Type>),  // List<T>
+    Map(Box<Type>, Box<Type>),  // Map<K, V>
+
+    /// Function type with parameters and return type
+    Function {
+        params: Vec<Type>,
+        return_type: Box<Type>,
+    },
+
+    /// Concurrency types
     Task(Box<Type>),
     Channel(Box<Type>),
+
+    /// Union types: Int | String
+    Union(Vec<Type>),
+
+    /// Optional types: ?Int (sugar for Int | Nil)
+    Optional(Box<Type>),
+
+    /// Type variables for inference (prefixed with ')
+    Variable(String),
+
+    /// Custom named types
+    Named(String),
+
+    /// Generic type with parameters: List<T>, Map<K, V>
+    Generic {
+        name: String,
+        params: Vec<Type>,
+    },
+
+    /// Any type (top type)
+    Any,
 }
 
 impl Type {
     pub fn parse(s: &str) -> Option<Type> {
+        let s = s.trim();
+
+        // Handle primitive types
         match s {
-            "Int" => Some(Type::Int),
-            "Float" => Some(Type::Float),
-            "String" => Some(Type::String),
-            "Bool" => Some(Type::Bool),
-            "List" => Some(Type::List),
-            "Map" => Some(Type::Map),
-            "Function" => Some(Type::Function),
-            "Nil" => Some(Type::Nil),
+            "Int" => return Some(Type::Int),
+            "Float" => return Some(Type::Float),
+            "String" => return Some(Type::String),
+            "Bool" => return Some(Type::Bool),
+            "Nil" => return Some(Type::Nil),
+            "Any" => return Some(Type::Any),
+            _ => {}
+        }
+
+        // Handle optional types: ?Int
+        if s.starts_with('?') {
+            let inner = &s[1..];
+            return Type::parse(inner).map(|t| Type::Optional(Box::new(t)));
+        }
+
+        // Handle type variables: 'T, 'K, 'V
+        if s.starts_with('\'') && s.len() > 1 {
+            return Some(Type::Variable(s[1..].to_string()));
+        }
+
+        // Handle union types: Int | String | Nil
+        if s.contains(" | ") {
+            let types: Vec<Type> = s.split(" | ")
+                .filter_map(Type::parse)
+                .collect();
+            if !types.is_empty() {
+                return Some(Type::Union(types));
+            }
+        }
+
+        // Handle generic types with angle brackets
+        if let Some(open) = s.find('<') {
+            if let Some(close) = s.rfind('>') {
+                let base = &s[..open];
+                let params_str = &s[open + 1..close];
+
+                // Parse type parameters
+                let params: Vec<Type> = if params_str.is_empty() {
+                    vec![]
+                } else {
+                    params_str.split(',')
+                        .map(str::trim)
+                        .filter_map(Type::parse)
+                        .collect()
+                };
+
+                // Handle specific generic types
+                match base {
+                    "List" => {
+                        if params.len() == 1 {
+                            return Some(Type::List(Box::new(params[0].clone())));
+                        }
+                    }
+                    "Map" => {
+                        if params.len() == 2 {
+                            return Some(Type::Map(
+                                Box::new(params[0].clone()),
+                                Box::new(params[1].clone())
+                            ));
+                        }
+                    }
+                    "Task" => {
+                        if params.len() == 1 {
+                            return Some(Type::Task(Box::new(params[0].clone())));
+                        }
+                    }
+                    "Channel" => {
+                        if params.len() == 1 {
+                            return Some(Type::Channel(Box::new(params[0].clone())));
+                        }
+                    }
+                    _ => {
+                        // Generic custom type
+                        return Some(Type::Generic {
+                            name: base.to_string(),
+                            params,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Handle function types: (Int, String) -> Bool
+        if s.contains("->") {
+            let parts: Vec<&str> = s.splitn(2, "->").collect();
+            if parts.len() == 2 {
+                let params_str = parts[0].trim();
+                let return_str = parts[1].trim();
+
+                // Parse parameters
+                let params = if params_str.starts_with('(') && params_str.ends_with(')') {
+                    let inner = &params_str[1..params_str.len() - 1];
+                    if inner.is_empty() {
+                        vec![]
+                    } else {
+                        inner.split(',')
+                            .map(str::trim)
+                            .filter_map(Type::parse)
+                            .collect()
+                    }
+                } else {
+                    vec![]
+                };
+
+                // Parse return type
+                if let Some(return_type) = Type::parse(return_str) {
+                    return Some(Type::Function {
+                        params,
+                        return_type: Box::new(return_type),
+                    });
+                }
+            }
+        }
+
+        // Handle bare List and Map as generic types
+        match s {
+            "List" => Some(Type::List(Box::new(Type::Any))),
+            "Map" => Some(Type::Map(Box::new(Type::Any), Box::new(Type::Any))),
             _ => {
-                // Handle generic types like Task<T> and Channel<T>
-                if s.starts_with("Task<") && s.ends_with('>') {
-                    let inner = &s[5..s.len() - 1];
-                    Type::parse(inner).map(|t| Type::Task(Box::new(t)))
-                } else if s.starts_with("Channel<") && s.ends_with('>') {
-                    let inner = &s[8..s.len() - 1];
-                    Type::parse(inner).map(|t| Type::Channel(Box::new(t)))
+                // Assume it's a named custom type
+                if s.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                    Some(Type::Named(s.to_string()))
                 } else {
                     None
                 }
@@ -128,28 +268,214 @@ impl Type {
     }
 
     pub fn validate(&self, val: &Val) -> Result<()> {
-        let matches = matches!(
-            (self, val),
-            (Type::Int, Val::Int(_))
-                | (Type::Float, Val::Float(_))
-                | (Type::String, Val::Str(_))
-                | (Type::Bool, Val::Bool(_))
-                | (Type::List, Val::List(_))
-                | (Type::Map, Val::Map(_))
-                | (Type::Function, Val::Closure { .. } | Val::RustFunction(_))
-                | (Type::Nil, Val::Nil)
-                | (Type::Task(_), Val::Task { .. })
-                | (Type::Channel(_), Val::Channel { .. })
-        );
+        match (self, val) {
+            // Primitive types
+            (Type::Int, Val::Int(_)) => Ok(()),
+            (Type::Float, Val::Float(_)) => Ok(()),
+            (Type::String, Val::Str(_)) => Ok(()),
+            (Type::Bool, Val::Bool(_)) => Ok(()),
+            (Type::Nil, Val::Nil) => Ok(()),
 
-        if matches {
-            Ok(())
-        } else {
-            Err(anyhow!(
+            // Any type accepts everything
+            (Type::Any, _) => Ok(()),
+
+            // Generic container types
+            (Type::List(elem_type), Val::List(list)) => {
+                // Validate all elements match the expected type
+                for item in list.iter() {
+                    elem_type.validate(item)?;
+                }
+                Ok(())
+            }
+            (Type::Map(key_type, val_type), Val::Map(map)) => {
+                // Validate all keys and values match expected types
+                for (k, v) in map.iter() {
+                    let key_val = Val::Str(k.as_str().into());
+                    key_type.validate(&key_val)?;
+                    val_type.validate(v)?;
+                }
+                Ok(())
+            }
+
+            // Function types
+            (Type::Function { .. }, Val::Closure { .. }) => Ok(()),
+            (Type::Function { .. }, Val::RustFunction(_)) => Ok(()),
+
+            // Concurrency types
+            (Type::Task(inner_type), Val::Task { value, .. }) => {
+                if let Some(v) = value {
+                    inner_type.validate(v)?;
+                }
+                Ok(())
+            }
+            (Type::Channel(inner_type), Val::Channel { inner_type: actual_type, .. }) => {
+                if inner_type.as_ref() == actual_type.as_ref() {
+                    Ok(())
+                } else {
+                    Err(anyhow!(
+                        "Channel type mismatch: expected {:?}, got {:?}",
+                        inner_type,
+                        actual_type
+                    ))
+                }
+            }
+
+            // Union types - value must match at least one type in the union
+            (Type::Union(types), val) => {
+                for typ in types {
+                    if typ.validate(val).is_ok() {
+                        return Ok(());
+                    }
+                }
+                Err(anyhow!(
+                    "Union type mismatch: value {:?} doesn't match any of {:?}",
+                    val.type_name(),
+                    types
+                ))
+            }
+
+            // Optional types - value must be Nil or match the inner type
+            (Type::Optional(inner_type), Val::Nil) => Ok(()),
+            (Type::Optional(inner_type), val) => inner_type.validate(val),
+
+            // Type variables and named types are handled by the type checker
+            (Type::Variable(_), _) => Ok(()),  // Always valid during inference
+            (Type::Named(_), _) => Ok(()),     // Validated by type registry
+
+            // Generic types are validated by the type system
+            (Type::Generic { .. }, _) => Ok(()),
+
+            // Type mismatch
+            (expected, actual) => Err(anyhow!(
                 "Type mismatch: expected {:?}, got {:?}",
-                self,
-                val.type_name()
+                expected,
+                actual.type_name()
             ))
+        }
+    }
+
+    /// Get a display representation of the type
+    pub fn display(&self) -> String {
+        match self {
+            Type::Int => "Int".to_string(),
+            Type::Float => "Float".to_string(),
+            Type::String => "String".to_string(),
+            Type::Bool => "Bool".to_string(),
+            Type::Nil => "Nil".to_string(),
+            Type::Any => "Any".to_string(),
+            Type::List(elem) => format!("List<{}>", elem.display()),
+            Type::Map(k, v) => format!("Map<{}, {}>", k.display(), v.display()),
+            Type::Function { params, return_type } => {
+                let param_strs: Vec<String> = params.iter().map(|p| p.display()).collect();
+                format!("({}) -> {}", param_strs.join(", "), return_type.display())
+            }
+            Type::Task(inner) => format!("Task<{}>", inner.display()),
+            Type::Channel(inner) => format!("Channel<{}>", inner.display()),
+            Type::Union(types) => {
+                let type_strs: Vec<String> = types.iter().map(|t| t.display()).collect();
+                type_strs.join(" | ")
+            }
+            Type::Optional(inner) => format!("?{}", inner.display()),
+            Type::Variable(name) => format!("'{}", name),
+            Type::Named(name) => name.clone(),
+            Type::Generic { name, params } => {
+                if params.is_empty() {
+                    name.clone()
+                } else {
+                    let param_strs: Vec<String> = params.iter().map(|p| p.display()).collect();
+                    format!("{}<{}>", name, param_strs.join(", "))
+                }
+            }
+        }
+    }
+
+    /// Check if this type can be assigned to another type (subtyping)
+    pub fn is_assignable_to(&self, other: &Type) -> bool {
+        match (self, other) {
+            // Any type is assignable to Any
+            (_, Type::Any) => true,
+            // Same types are assignable
+            (a, b) if a == b => true,
+            // Optional types: T is assignable to ?T
+            (inner, Type::Optional(expected_inner)) => inner.is_assignable_to(expected_inner),
+            // Union types: T is assignable to Union if T is assignable to any member
+            (t, Type::Union(union_types)) => {
+                union_types.iter().any(|ut| t.is_assignable_to(ut))
+            }
+            // Union member is assignable to union
+            (Type::Union(union_types), target) => {
+                union_types.iter().all(|ut| ut.is_assignable_to(target))
+            }
+            // Generic containers with covariant element types
+            (Type::List(a), Type::List(b)) => a.is_assignable_to(b),
+            (Type::Map(ak, av), Type::Map(bk, bv)) => {
+                ak.is_assignable_to(bk) && av.is_assignable_to(bv)
+            }
+            // Function types (contravariant parameters, covariant return)
+            (Type::Function { params: a_params, return_type: a_ret },
+             Type::Function { params: b_params, return_type: b_ret }) => {
+                if a_params.len() != b_params.len() {
+                    false
+                } else {
+                    // Parameters are contravariant
+                    let params_compatible = b_params.iter().zip(a_params.iter())
+                        .all(|(b_param, a_param)| b_param.is_assignable_to(a_param));
+                    // Return type is covariant
+                    let return_compatible = a_ret.is_assignable_to(b_ret);
+                    params_compatible && return_compatible
+                }
+            }
+            // Concurrency types
+            (Type::Task(a), Type::Task(b)) => a.is_assignable_to(b),
+            (Type::Channel(a), Type::Channel(b)) => a.is_assignable_to(b),
+            // No other assignability rules
+            _ => false,
+        }
+    }
+
+    /// Check if this type contains any type variables
+    pub fn contains_variables(&self) -> bool {
+        match self {
+            Type::Variable(_) => true,
+            Type::List(inner) | Type::Optional(inner) | Type::Task(inner) | Type::Channel(inner) => {
+                inner.contains_variables()
+            }
+            Type::Map(k, v) => k.contains_variables() || v.contains_variables(),
+            Type::Function { params, return_type } => {
+                params.iter().any(|p| p.contains_variables()) || return_type.contains_variables()
+            }
+            Type::Union(types) => types.iter().any(|t| t.contains_variables()),
+            Type::Generic { params, .. } => params.iter().any(|p| p.contains_variables()),
+            _ => false,
+        }
+    }
+
+    /// Substitute type variables with concrete types
+    pub fn substitute(&self, substitutions: &HashMap<String, Type>) -> Type {
+        match self {
+            Type::Variable(name) => {
+                substitutions.get(name).cloned().unwrap_or_else(|| self.clone())
+            }
+            Type::List(inner) => Type::List(Box::new(inner.substitute(substitutions))),
+            Type::Map(k, v) => Type::Map(
+                Box::new(k.substitute(substitutions)),
+                Box::new(v.substitute(substitutions))
+            ),
+            Type::Function { params, return_type } => Type::Function {
+                params: params.iter().map(|p| p.substitute(substitutions)).collect(),
+                return_type: Box::new(return_type.substitute(substitutions)),
+            },
+            Type::Optional(inner) => Type::Optional(Box::new(inner.substitute(substitutions))),
+            Type::Task(inner) => Type::Task(Box::new(inner.substitute(substitutions))),
+            Type::Channel(inner) => Type::Channel(Box::new(inner.substitute(substitutions))),
+            Type::Union(types) => Type::Union(
+                types.iter().map(|t| t.substitute(substitutions)).collect()
+            ),
+            Type::Generic { name, params } => Type::Generic {
+                name: name.clone(),
+                params: params.iter().map(|p| p.substitute(substitutions)).collect(),
+            },
+            _ => self.clone(),
         }
     }
 }

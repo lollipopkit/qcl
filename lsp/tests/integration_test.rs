@@ -353,6 +353,13 @@ impl TestLanguageServer {
             T::TemplateStringExprStart => "Template expression start: ${".to_string(),
             T::TemplateStringExprEnd => "Template expression end: }".to_string(),
             T::TemplateString(_) => "Template string".to_string(),
+            // Type system tokens
+            T::Type => "Keyword: type".to_string(),
+            T::Trait => "Keyword: trait".to_string(),
+            T::Impl => "Keyword: impl".to_string(),
+            T::Pipe => "Operator: |".to_string(),
+            T::Question => "Operator: ?".to_string(),
+            T::FnArrow => "Operator: ->".to_string(),
         }
     }
 
