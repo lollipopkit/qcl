@@ -18,8 +18,8 @@ QCL (Query Check Language) is a domain-specific language for access control eval
 
 - `cargo build` - Debug build
 - `cargo build --release` - Release build
-- `cargo run -- <expression>` - Run CLI with expression (reads context from stdin)
-- `cargo run -- --stmt <program>` - Run CLI with statement program
+- `cargo run -p qcl-cli -- --expr <expression>` - Run CLI with expression (reads context from stdin)
+- `cargo run -p qcl-cli -- --stmt <program>` - Run CLI with statement program
 - `cargo build -p qcl-lsp` - Build LSP server
 - `cargo run -p qcl-lsp` - Run LSP server
 
@@ -226,14 +226,14 @@ cargo run -p qcl-lsp
 
 The binary reads context from stdin and supports both expression and statement modes:
 
-### Expression Mode (default)
+### Expression Mode
 ```bash
-echo '{"req": {"user": {"role": "admin"}}}' | cargo run -- '@req.user.role == "admin"'
+echo '{"req": {"user": {"role": "admin"}}}' | cargo run -p qcl-cli -- --expr '@req.user.role == "admin"'
 ```
 
-### Statement Mode (--stmt flag)
+### Statement Mode
 ```bash
-echo '{"req": {"user": {"role": "admin"}}}' | cargo run -- --stmt 'import math; let result = math.sqrt(@req.user.level); return result;'
+echo '{"req": {"user": {"role": "admin"}}}' | cargo run -p qcl-cli -- --stmt 'import math; let result = math.sqrt(@req.user.level); return result;'
 ```
 
 ### File Execution
@@ -289,3 +289,6 @@ Notable recent changes to the language:
 - **Removed**: `goto` and `label` statements (simplified control flow)
 - **Removed**: Previous concurrency implementation (being redesigned)
 - **Enhanced**: String variable support and parsing improvements
+
+## Note
+- stdin 传入的是 context, qcl-cli 后面传入的是 expr 或者 statement(依据 --expr / --stmt 区分)

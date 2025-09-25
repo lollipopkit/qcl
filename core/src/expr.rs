@@ -55,6 +55,15 @@ pub struct SelectCase {
     pub body: Box<Expr>,
 }
 
+/// Template string part: either a literal string or an interpolated expression
+#[derive(Debug, Clone, PartialEq)]
+pub enum TemplateStringPart {
+    /// String literal part
+    Literal(String),
+    /// Interpolated expression part
+    Expr(Box<Expr>),
+}
+
 /// Details:
 /// - @expr
 ///   + All accessible objects of `@` expr are maps actually.
@@ -137,6 +146,8 @@ pub enum Expr {
         cases: Vec<SelectCase>,
         default_case: Option<Box<Expr>>,
     },
+    /// Template string: `Hello ${name}!`
+    TemplateString(Vec<TemplateStringPart>),
     Val(Val),
 }
 
@@ -582,6 +593,36 @@ impl Expr {
                     }
                 }
             }
+            Expr::TemplateString(parts) => {
+                let mut result = String::new();
+                for part in parts {
+                    match part {
+                        TemplateStringPart::Literal(s) => {
+                            result.push_str(s);
+                        }
+                        TemplateStringPart::Expr(expr) => {
+                            let val = expr.eval_with_env(ctx, env)?;
+                            let str_val = match val {
+                                Val::Str(s) => s.as_ref().to_string(),
+                                Val::Int(i) => i.to_string(),
+                                Val::Float(f) => f.to_string(),
+                                Val::Bool(b) => b.to_string(),
+                                Val::Nil => "nil".to_string(),
+                                Val::List(l) => format!("{:?}", l),
+                                Val::Map(m) => format!("{:?}", m),
+                                #[cfg(feature = "concurrency")]
+                                Val::Task { .. } => format!("{:?}", val),
+                                #[cfg(feature = "concurrency")]
+                                Val::Channel { .. } => format!("{:?}", val),
+                                Val::Closure { .. } => "[Closure]".to_string(),
+                                Val::RustFunction(_) => "[Function]".to_string(),
+                            };
+                            result.push_str(&str_val);
+                        }
+                    }
+                }
+                Ok(Val::Str(Arc::from(result)))
+            }
             // Remove the problematic string-to-variable resolution
             // String literals should always be treated as string literals
             Expr::Val(val) => Ok(val.clone()), // Clone necessary as eval returns owned Val
@@ -718,6 +759,16 @@ impl Expr {
                 }
                 if let Some(default_expr) = default_case {
                     default_expr.collect_ctx_names(names);
+                }
+            }
+            Expr::TemplateString(parts) => {
+                for part in parts {
+                    match part {
+                        TemplateStringPart::Literal(_) => {}
+                        TemplateStringPart::Expr(expr) => {
+                            expr.collect_ctx_names(names);
+                        }
+                    }
                 }
             }
             // Only collect string values when they are actual context names, not field names
@@ -1001,6 +1052,55 @@ impl Expr {
                     default_case: folded_default,
                 }
             }
+            Expr::TemplateString(parts) => {
+                // Template string constant folding: if all interpolated expressions are constants, fold to constant string
+                let folded_parts: Vec<TemplateStringPart> = parts
+                    .into_iter()
+                    .map(|part| match part {
+                        TemplateStringPart::Literal(s) => TemplateStringPart::Literal(s),
+                        TemplateStringPart::Expr(expr) => {
+                            let folded_expr = expr.fold_constants();
+                            if let Expr::Val(val) = folded_expr {
+                                // Convert constant value to string
+                                let str_val = match val {
+                                    Val::Str(s) => s.as_ref().to_string(),
+                                    Val::Int(i) => i.to_string(),
+                                    Val::Float(f) => f.to_string(),
+                                    Val::Bool(b) => b.to_string(),
+                                    Val::Nil => "nil".to_string(),
+                                    Val::List(l) => format!("{:?}", l),
+                                    Val::Map(m) => format!("{:?}", m),
+                                    #[cfg(feature = "concurrency")]
+                                    Val::Task { .. } => format!("{:?}", val),
+                                    #[cfg(feature = "concurrency")]
+                                    Val::Channel { .. } => format!("{:?}", val),
+                                    Val::Closure { .. } => "[Closure]".to_string(),
+                                    Val::RustFunction(_) => "[Function]".to_string(),
+                                };
+                                TemplateStringPart::Literal(str_val)
+                            } else {
+                                TemplateStringPart::Expr(Box::new(folded_expr))
+                            }
+                        }
+                    })
+                    .collect();
+                
+                // If all parts are literals, fold to a single string constant
+                if folded_parts.iter().all(|part| matches!(part, TemplateStringPart::Literal(_))) {
+                    let result = folded_parts.into_iter()
+                        .map(|part| {
+                            if let TemplateStringPart::Literal(s) = part {
+                                s
+                            } else {
+                                unreachable!()
+                            }
+                        })
+                        .collect::<String>();
+                    return Expr::Val(Val::Str(Arc::from(result)));
+                }
+                
+                Expr::TemplateString(folded_parts)
+            }
         }
     }
 }
@@ -1140,6 +1240,22 @@ impl Display for Expr {
                     write!(f, "default => {}", default)?;
                 }
                 write!(f, "}}")
+            }
+            Expr::TemplateString(parts) => {
+                write!(f, "`")?;
+                for part in parts {
+                    match part {
+                        TemplateStringPart::Literal(s) => {
+                            // Escape backticks and dollar signs in literals
+                            let escaped = s.replace("`", "\\`").replace("$", "\\$");
+                            write!(f, "{}", escaped)?;
+                        }
+                        TemplateStringPart::Expr(expr) => {
+                            write!(f, "${{{}}}", expr)?;
+                        }
+                    }
+                }
+                write!(f, "`")
             }
             Expr::Val(val) => write!(f, "{}", val),
         }

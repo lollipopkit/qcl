@@ -55,6 +55,11 @@ pub enum Token {
     Arrow,         // =>
     LeftArrow,     // <-
     NullishCoalescing, // ??
+    TemplateString(String),   // `...` template string content
+    TemplateStringStart,     // ` (backtick for template string start)
+    TemplateStringEnd,       // ` (backtick for template string end)
+    TemplateStringExprStart, // ${
+    TemplateStringExprEnd,   // }
     // Import keywords
     Import,      // import
     From,        // from
@@ -295,6 +300,76 @@ impl Tokenizer {
         }
 
         Err(anyhow!(self.err("String not closed")))
+    }
+
+    fn parse_template_string(&mut self) -> Result<()> {
+        let start_pos = self.current_position();
+        self.advance_char(); // skip opening backtick
+        
+        let mut content = String::new();
+        let mut in_expr = false;
+        let mut brace_depth = 0;
+        
+        while !self.eof() {
+            let c = self.chars[self.idx];
+            
+            if c == '`' && !in_expr {
+                // End of template string
+                self.advance_char(); // skip closing backtick
+                
+                // Return the entire template content as a single token
+                // The parsing of template expressions will be handled at a higher level
+                self.push_with_span(Token::TemplateString(content), start_pos.clone(), self.current_position());
+                return Ok(());
+            } else if c == '$' && !in_expr && self.idx + 1 < self.len && self.chars[self.idx + 1] == '{' {
+                // Start of expression ${...}
+                content.push_str("${"); // Add the ${ markers to content
+                self.advance_char(); // skip $
+                self.advance_char(); // skip {
+                in_expr = true;
+                brace_depth = 1;
+            } else if in_expr {
+                content.push(c);
+                if c == '{' {
+                    brace_depth += 1;
+                } else if c == '}' {
+                    brace_depth -= 1;
+                    if brace_depth == 0 {
+                        in_expr = false;
+                    }
+                }
+                self.advance_char();
+            } else if c == '\\' && self.idx + 1 < self.len {
+                // Handle escape sequences
+                self.advance_char(); // skip backslash
+                if !self.eof() {
+                    let escaped_char = self.chars[self.idx];
+                    match escaped_char {
+                        'n' => content.push('\n'),
+                        'r' => content.push('\r'),
+                        't' => content.push('\t'),
+                        '\\' => content.push('\\'),
+                        '\'' => content.push('\''),
+                        '"' => content.push('"'),
+                        '`' => content.push('`'),
+                        '$' => content.push('$'),
+                        '0' => content.push('\0'),
+                        _ => {
+                            content.push('\\');
+                            content.push(escaped_char);
+                        }
+                    }
+                    self.advance_char();
+                } else {
+                    return Err(anyhow!(self.err("Incomplete escape sequence at end of template string")));
+                }
+            } else {
+                content.push(c);
+                self.advance_char();
+            }
+        }
+        
+        Err(anyhow!(self.err("Template string not closed")))
     }
 
     /// eg.:
@@ -810,6 +885,9 @@ impl Tokenizer {
                 '"' | '\'' => {
                     self.parse_str()?;
                 }
+                '`' => {
+                    self.parse_template_string()?;
+                }
                 '0'..='9' => {
                     self.parse_num()?;
                 }
@@ -855,6 +933,7 @@ impl Tokenizer {
                 | '!'
                 | '>'
                 | '<'
+                | '`'
         )
     }
 }

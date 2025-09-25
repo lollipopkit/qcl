@@ -52,6 +52,14 @@
         {
           "name": "keyword.operator.optional-chaining.qcl",
           "match": "\\?\\."
+        },
+        {
+          "name": "keyword.operator.nullish-coalescing.qcl",
+          "match": "\\?\\?"
+        },
+        {
+          "name": "keyword.operator.range.qcl",
+          "match": "\\.\\.(=)?"
         }
       ]
     },
@@ -78,14 +86,43 @@
               "match": "\\\\."
             }
           ]
+        },
+        {
+          "name": "string.quoted.backtick.qcl",
+          "begin": "`",
+          "end": "`",
+          "patterns": [
+            {
+              "name": "meta.interpolation.qcl",
+              "begin": "\\$\\{",
+              "end": "\\}",
+              "beginCaptures": {
+                "0": { "name": "punctuation.definition.interpolation.begin.qcl" }
+              },
+              "endCaptures": {
+                "0": { "name": "punctuation.definition.interpolation.end.qcl" }
+              },
+              "patterns": [
+                { "include": "$self" }
+              ]
+            },
+            {
+              "name": "constant.character.escape.qcl",
+              "match": "\\\\[`\\$\\\\nrtbf]"
+            }
+          ]
         }
       ]
     },
     "numbers": {
       "patterns": [
         {
-          "name": "constant.numeric.qcl",
-          "match": "\\b[0-9]+(\\.[0-9]+)?\\b"
+          "name": "constant.numeric.float.qcl",
+          "match": "\\b[0-9]+\\.[0-9]+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.qcl",
+          "match": "\\b[0-9]+\\b"
         }
       ]
     },

@@ -348,6 +348,11 @@ impl TestLanguageServer {
             T::LeftArrow => "Operator: <=".to_string(),
             T::OptionalDot => "Operator: ?.".to_string(),
             T::NullishCoalescing => "Operator: ??".to_string(),
+            T::TemplateStringStart => "Template string start: `".to_string(),
+            T::TemplateStringEnd => "Template string end: `".to_string(),
+            T::TemplateStringExprStart => "Template expression start: ${".to_string(),
+            T::TemplateStringExprEnd => "Template expression end: }".to_string(),
+            T::TemplateString(_) => "Template string".to_string(),
         }
     }
 

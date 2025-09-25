@@ -1,7 +1,7 @@
 use crate::{
-    expr::{Expr, SelectCase, SelectPattern},
+    expr::{Expr, SelectCase, SelectPattern, TemplateStringPart},
     op::{BinOp, UnaryOp},
-    token::Token,
+    token::{Token, Tokenizer},
     val::Val,
 };
 use anyhow::{Result, anyhow};
@@ -304,7 +304,7 @@ impl<'a> Parser<'a> {
                     return Err(anyhow!(self.err("Expecting field after '.'")));
                 }
 
-                let field = self.parse_field_accessor()?;
+                let field = self.parse_field_name()?;
 
                 match expr {
                     Expr::At(mut paths) => {
@@ -321,7 +321,7 @@ impl<'a> Parser<'a> {
                 if self.eof() {
                     return Err(anyhow!(self.err("Expecting field after '?.'")));
                 }
-                let field = self.parse_field_accessor()?;
+                let field = self.parse_field_name()?;
                 // Optional access is only supported on regular expressions, not @ expressions
                 expr = Expr::OptionalAccess(Box::new(expr), Box::new(field));
             } else {
@@ -365,6 +365,10 @@ impl<'a> Parser<'a> {
             Token::Str(s) => {
                 self.pos += 1;
                 Ok(Expr::Val(Val::Str(Arc::from(s.as_str()))))
+            }
+            Token::TemplateString(content) => {
+                self.pos += 1;
+                self.parse_template_string_content(content)
             }
             Token::At => self.parse_at(),
             Token::LBracket => self.parse_list(),
@@ -682,6 +686,71 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Parse template string content from a TemplateString token
+    fn parse_template_string_content(&mut self, content: &str) -> Result<Expr> {
+        let mut parts = Vec::new();
+        let mut current_literal = String::new();
+        let mut in_expr = false;
+        let mut expr_start = 0;
+        let mut pos = 0;
+        
+        while pos < content.len() {
+            let c = content.chars().nth(pos).unwrap();
+            
+            if in_expr {
+                if c == '}' {
+                    // End of expression
+                    let expr_content = &content[expr_start..pos];
+                    if !expr_content.is_empty() {
+                        // Tokenize and parse the expression
+                        let expr_tokens = match Tokenizer::tokenize_enhanced(expr_content) {
+                            Ok(tokens) => tokens,
+                            Err(e) => return Err(anyhow!(self.err(&format!("Failed to parse template expression: {}", e)))),
+                        };
+                        
+                        if !expr_tokens.is_empty() {
+                            let mut expr_parser = Parser::new(&expr_tokens);
+                            match expr_parser.parse_expr() {
+                                Ok(expr) => parts.push(TemplateStringPart::Expr(Box::new(expr))),
+                                Err(e) => return Err(anyhow!(self.err(&format!("Failed to parse template expression: {}", e)))),
+                            }
+                        }
+                    }
+                    in_expr = false;
+                    pos += 1; // skip the '}'
+                } else {
+                    pos += 1;
+                }
+            } else if c == '$' && pos + 1 < content.len() && content.chars().nth(pos + 1) == Some('{') {
+                // Start of expression
+                pos += 2; // skip '${'
+                
+                // Push the current literal if not empty
+                if !current_literal.is_empty() {
+                    parts.push(TemplateStringPart::Literal(std::mem::take(&mut current_literal)));
+                }
+                
+                in_expr = true;
+                expr_start = pos;
+            } else {
+                current_literal.push(c);
+                pos += 1;
+            }
+        }
+        
+        // Push any remaining literal content
+        if !current_literal.is_empty() {
+            parts.push(TemplateStringPart::Literal(current_literal));
+        }
+        
+        // If we're still in an expression, it's an error
+        if in_expr {
+            return Err(anyhow!(self.err("Unclosed template expression")));
+        }
+        
+        Ok(Expr::TemplateString(parts))
+    }
+
     /// - `(expr)`
     /// - `expr`
     fn parse_paren(&mut self) -> Result<Expr> {
@@ -934,51 +1003,6 @@ impl<'a> Parser<'a> {
         Ok(Expr::Map(pairs))
     }
 
-    /// Parse a field accessor in an @ expression
-    fn parse_field_accessor(&mut self) -> Result<Expr> {
-        match &self.tokens[self.pos] {
-            Token::Id(id) => {
-                let expr = Expr::Val(Val::Str(Arc::from(id.as_str())));
-                self.pos += 1;
-                Ok(expr)
-            }
-            Token::Str(s) => {
-                let expr = Expr::Val(Val::Str(Arc::from(s.as_str())));
-                self.pos += 1;
-                Ok(expr)
-            }
-            Token::Int(i) => {
-                let expr = Expr::Val(Val::Int(*i));
-                self.pos += 1;
-                Ok(expr)
-            }
-            Token::LParen => {
-                self.pos += 1;
-                let expr = self.parse_expr()?;
-                if self.eof() || self.tokens[self.pos] != Token::RParen {
-                    let msg = format!(
-                        "Expecting ')', found {:?}",
-                        if self.eof() {
-                            &Token::Nil
-                        } else {
-                            &self.tokens[self.pos]
-                        }
-                    );
-                    return Err(anyhow!(self.err(&msg)));
-                }
-                self.pos += 1;
-                Ok(expr)
-            }
-            Token::At => self.parse_at(),
-            _ => {
-                let msg = format!(
-                    "Unexpected token in field accessor: {:?}",
-                    self.tokens[self.pos]
-                );
-                Err(anyhow!(self.err(&msg)))
-            }
-        }
-    }
 
     /// - `@user.name`
     /// - `@user.emails.0.company`
@@ -1011,7 +1035,7 @@ impl<'a> Parser<'a> {
                 }
             }
 
-            paths.push(Box::new(self.parse_field_accessor()?));
+            paths.push(Box::new(self.parse_at_field_accessor()?));
 
             if self.eof() || self.tokens[self.pos] != Token::Dot {
                 break;
@@ -1020,6 +1044,75 @@ impl<'a> Parser<'a> {
         }
 
         Ok(Expr::At(paths))
+    }
+    
+    /// Parse field name for .field and ?.field access - treats IDs as string literals
+    fn parse_field_name(&mut self) -> Result<Expr> {
+        match &self.tokens[self.pos] {
+            Token::Id(id) => {
+                // For field access, treat identifiers as literal strings
+                let expr = Expr::Val(Val::Str(Arc::from(id.as_str())));
+                self.pos += 1;
+                Ok(expr)
+            }
+            Token::Str(s) => {
+                let expr = Expr::Val(Val::Str(Arc::from(s.as_str())));
+                self.pos += 1;
+                Ok(expr)
+            }
+            Token::Int(i) => {
+                let expr = Expr::Val(Val::Int(*i));
+                self.pos += 1;
+                Ok(expr)
+            }
+            _ => {
+                let msg = format!("Invalid field name: {:?}", &self.tokens[self.pos]);
+                Err(anyhow!(self.err(&msg)))
+            }
+        }
+    }
+
+    /// Parse field accessor specifically for @ expressions - treats IDs as string literals
+    fn parse_at_field_accessor(&mut self) -> Result<Expr> {
+        match &self.tokens[self.pos] {
+            Token::Id(id) => {
+                // In @ context, treat identifiers as literal strings for context access
+                let expr = Expr::Val(Val::Str(Arc::from(id.as_str())));
+                self.pos += 1;
+                Ok(expr)
+            }
+            Token::Str(s) => {
+                let expr = Expr::Val(Val::Str(Arc::from(s.as_str())));
+                self.pos += 1;
+                Ok(expr)
+            }
+            Token::Int(i) => {
+                let expr = Expr::Val(Val::Int(*i));
+                self.pos += 1;
+                Ok(expr)
+            }
+            Token::LParen => {
+                self.pos += 1;
+                let expr = self.parse_expr()?;
+                if self.eof() || self.tokens[self.pos] != Token::RParen {
+                    let msg = format!(
+                        "Expecting ')', found {:?}",
+                        if self.eof() {
+                            &Token::Nil
+                        } else {
+                            &self.tokens[self.pos]
+                        }
+                    );
+                    return Err(anyhow!(self.err(&msg)));
+                }
+                self.pos += 1;
+                Ok(expr)
+            }
+            _ => {
+                let msg = format!("Invalid field accessor: {:?}", &self.tokens[self.pos]);
+                Err(anyhow!(self.err(&msg)))
+            }
+        }
     }
 
     /// Check if the current token can start a valid expression
