@@ -169,16 +169,13 @@ impl<'a> Parser<'a> {
     }
 
     /// - `expr..expr` (range)
-    /// - `expr..=expr` (inclusive range)  
+    /// - `expr..=expr` (inclusive range)
     fn parse_range(&mut self) -> Result<Expr> {
         let mut expr = self.parse_add_sub()?;
 
-        if !self.eof() && self.tokens[self.pos] == Token::Range {
-            self.pos += 1; // consume '..'
-
-            // For now, we only support exclusive ranges (..)
-            // TODO: Add support for inclusive ranges (..=) when Token::RangeInclusive is added
-            let inclusive = false;
+        if !self.eof() && (self.tokens[self.pos] == Token::Range || self.tokens[self.pos] == Token::RangeInclusive) {
+            let inclusive = self.tokens[self.pos] == Token::RangeInclusive;
+            self.pos += 1; // consume '..' or '..='
 
             // Check if there's an end expression
             let end = if !self.eof() && !self.is_range_terminator() {
@@ -379,6 +376,7 @@ impl<'a> Parser<'a> {
             Token::Recv => self.parse_recv(),
             Token::Select => self.parse_select(),
             Token::LParen => self.parse_paren(),
+            Token::Pipe => self.parse_closure(),
             Token::Id(id) => {
                 let expr = Expr::Var(id.clone());
                 self.pos += 1;
@@ -1311,6 +1309,55 @@ impl<'a> Parser<'a> {
             len,
             token_spans: Some(spans),
         }
+    }
+
+    /// Parse closure expression: |param1, param2| expr
+    fn parse_closure(&mut self) -> Result<Expr> {
+        self.pos += 1; // Consume the opening '|'
+
+        // Parse parameters
+        let mut params = Vec::new();
+
+        // Check if there are any parameters
+        if !self.eof() && self.tokens[self.pos] != Token::Pipe {
+            // Parse first parameter
+            if let Token::Id(param_name) = &self.tokens[self.pos] {
+                params.push(param_name.clone());
+                self.pos += 1;
+            } else {
+                return Err(anyhow!(self.err("Expected parameter name or '|' after opening '|' in closure")));
+            }
+
+            // Parse additional parameters separated by commas
+            while !self.eof() && self.tokens[self.pos] == Token::Comma {
+                self.pos += 1; // Consume comma
+
+                if let Token::Id(param_name) = &self.tokens[self.pos] {
+                    params.push(param_name.clone());
+                    self.pos += 1;
+                } else {
+                    return Err(anyhow!(self.err("Expected parameter name after comma in closure")));
+                }
+            }
+        }
+
+        // Expect closing '|'
+        if self.eof() || self.tokens[self.pos] != Token::Pipe {
+            return Err(anyhow!(self.err("Expected '|' to close parameter list in closure")));
+        }
+        self.pos += 1; // Consume closing '|'
+
+        // Parse closure body
+        if self.eof() || !self.is_valid_expr_start() {
+            return Err(anyhow!(self.err("Expected expression after closure parameters")));
+        }
+
+        let body = self.parse_expr()?;
+
+        Ok(Expr::Closure {
+            params,
+            body: Box::new(body),
+        })
     }
 
     fn eof(&self) -> bool {

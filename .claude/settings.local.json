@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cargo:*)"
+      "Bash(cargo:*)",
+      "mcp__seq-think__sequentialthinking"
     ],
     "deny": [],
     "ask": []

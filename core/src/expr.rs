@@ -149,6 +149,11 @@ pub enum Expr {
     },
     /// Template string: `Hello ${name}!`
     TemplateString(Vec<TemplateStringPart>),
+    /// Closure: |param1, param2| expr
+    Closure {
+        params: Vec<String>,
+        body: Box<Expr>,
+    },
     Val(Val),
 }
 
@@ -626,6 +631,16 @@ impl Expr {
             }
             // Remove the problematic string-to-variable resolution
             // String literals should always be treated as string literals
+            Expr::Closure { params, body } => {
+                // Create a closure value with the captured environment
+                let env = env.cloned().unwrap_or_default();
+                let stmt = crate::stmt::Stmt::Expr(body.clone());
+                Ok(Val::Closure {
+                    params: Arc::new(params.clone()),
+                    body: Arc::new(stmt),
+                    env: Arc::new(env),
+                })
+            }
             Expr::Val(val) => Ok(val.clone()), // Clone necessary as eval returns owned Val
         }
     }
@@ -771,6 +786,9 @@ impl Expr {
                         }
                     }
                 }
+            }
+            Expr::Closure { params, body } => {
+                body.collect_ctx_names(names);
             }
             // Only collect string values when they are actual context names, not field names
             Expr::Val(_) => {} // Receive operator: collect from inner expression
@@ -1102,6 +1120,13 @@ impl Expr {
                 
                 Expr::TemplateString(folded_parts)
             }
+            Expr::Closure { params, body } => {
+                // Closures cannot be folded at compile time due to environment capture
+                Expr::Closure {
+                    params: params.clone(),
+                    body: Box::new(body.fold_constants()),
+                }
+            }
         }
     }
 }
@@ -1257,6 +1282,10 @@ impl Display for Expr {
                     }
                 }
                 write!(f, "`")
+            }
+            Expr::Closure { params, body } => {
+                let params_str = params.join(", ");
+                write!(f, "|{}| {}", params_str, body)
             }
             Expr::Val(val) => write!(f, "{}", val),
         }

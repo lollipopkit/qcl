@@ -474,6 +474,75 @@ mod test {
 
     #[test]
     #[cfg(feature = "json")]
+    fn range_expressions() {
+        // Exclusive range
+        expect("1..5", vec![1, 2, 3, 4]);
+
+        // Inclusive range
+        expect("1..=5", vec![1, 2, 3, 4, 5]);
+
+        // Single element inclusive range
+        expect("1..=1", vec![1]);
+
+        // Empty exclusive range
+        expect("5..5", Vec::<Val>::new());
+
+        // Negative ranges
+        expect("-3..=3", vec![-3, -2, -1, 0, 1, 2, 3]);
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn closure_expressions() {
+        // Test that closures parse and create closure values
+        let res = with_ctx("|| 42");
+        assert!(res.is_ok());
+        let val = res.unwrap();
+        match val {
+            Val::Closure { params, body, .. } => {
+                assert_eq!(params.len(), 0);
+            }
+            _ => panic!("Expected closure value"),
+        }
+
+        let res = with_ctx("|x| x + 1");
+        assert!(res.is_ok());
+        let val = res.unwrap();
+        match val {
+            Val::Closure { params, body, .. } => {
+                assert_eq!(params.len(), 1);
+                assert_eq!(params[0], "x");
+            }
+            _ => panic!("Expected closure value"),
+        }
+
+        let res = with_ctx("|x, y| x * y");
+        assert!(res.is_ok());
+        let val = res.unwrap();
+        match val {
+            Val::Closure { params, body, .. } => {
+                assert_eq!(params.len(), 2);
+                assert_eq!(params[0], "x");
+                assert_eq!(params[1], "y");
+            }
+            _ => panic!("Expected closure value"),
+        }
+
+        // Test closure call - this should work once the closure infrastructure is complete
+        // For now, just test parsing
+        let res = with_ctx("|| 5 + 3");
+        assert!(res.is_ok()); // Should parse successfully
+        let val = res.unwrap();
+        match val {
+            Val::Closure { params, .. } => {
+                assert_eq!(params.len(), 0);
+            }
+            _ => panic!("Expected closure value"),
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
     fn template_strings() {
         // Basic template string with no interpolation
         expect("`Hello, World!`", "Hello, World!");

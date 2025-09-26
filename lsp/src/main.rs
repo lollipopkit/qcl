@@ -1372,6 +1372,7 @@ fn describe_token_hover(tokens: &[CoreToken], _spans: &[CoreSpan], idx: usize) -
         T::RBracket => "Symbol: ]".to_string(),
         T::For => "Keyword: for".to_string(),
         T::Range => "Operator: ..".to_string(),
+        T::RangeInclusive => "Operator: ..=".to_string(),
 
         // Concurrency keywords
         T::Spawn => "Concurrency: spawn".to_string(),

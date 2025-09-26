@@ -117,6 +117,7 @@ impl TypeChecker {
             Expr::Range { .. } => Ok(Type::Any),
             Expr::ChanLiteral { .. } => Ok(Type::Any),
             Expr::CallExpr(_, _) => Ok(Type::Any),
+            Expr::Closure { .. } => Ok(Type::Any), // Closures are function types
             Expr::Paren(expr) => self.check_expr(expr),
         }
     }
