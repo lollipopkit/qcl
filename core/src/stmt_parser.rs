@@ -472,15 +472,7 @@ impl<'a> StmtParser<'a> {
         // Check for optional type annotation
         let type_annotation = if !self.eof() && self.tokens[self.pos] == Token::Colon {
             self.pos += 1; // consume ':'
-
-            if let Token::Id(type_name) = &self.tokens[self.pos] {
-                let typ = Type::parse(type_name)
-                    .ok_or_else(|| anyhow!(self.err(&format!("Unknown type: {}", type_name))))?;
-                self.pos += 1;
-                Some(typ)
-            } else {
-                return Err(anyhow!(self.err("Expected type name after ':'")));
-            }
+            Some(self.parse_type_annotation()?)
         } else {
             None
         };
@@ -494,6 +486,7 @@ impl<'a> StmtParser<'a> {
             name,
             type_annotation,
             value: Box::new(value),
+            span: self.current_span(),
         })
     }
 
@@ -509,6 +502,7 @@ impl<'a> StmtParser<'a> {
         Ok(Stmt::Assign {
             name,
             value: Box::new(value),
+            span: self.current_span(),
         })
     }
 
@@ -833,6 +827,77 @@ impl<'a> StmtParser<'a> {
         }
     }
 
+    /// Parse a type annotation, handling union types and other complex type syntax
+    fn parse_type_annotation(&mut self) -> Result<Type> {
+        let mut type_tokens = Vec::new();
+        
+        // Collect tokens that make up the type annotation until we hit '='
+        while !self.eof() && self.tokens[self.pos] != Token::Assign {
+            type_tokens.push(&self.tokens[self.pos]);
+            self.pos += 1;
+        }
+        
+        if type_tokens.is_empty() {
+            return Err(anyhow!(self.err("Expected type annotation")));
+        }
+        
+        // Convert tokens back to string and parse
+        let type_str = self.tokens_to_type_string(&type_tokens);
+        Type::parse(&type_str)
+            .ok_or_else(|| anyhow!(self.err(&format!("Invalid type: {}", type_str))))
+    }
+    
+    /// Convert a sequence of tokens back to a type string for parsing
+    fn tokens_to_type_string(&self, tokens: &[&Token]) -> String {
+        let mut result = String::new();
+        
+        for (i, token) in tokens.iter().enumerate() {
+            if i > 0 {
+                // Add space before pipe for union types
+                match token {
+                    Token::Pipe => result.push_str(" | "),
+                    _ => {
+                        // Add space between other tokens as needed
+                        if !matches!(tokens.get(i-1), Some(Token::Lt)) 
+                            && !matches!(token, Token::Gt | Token::Comma) {
+                            result.push(' ');
+                        }
+                        result.push_str(&self.token_to_string(token));
+                    }
+                }
+            } else {
+                result.push_str(&self.token_to_string(token));
+            }
+        }
+        
+        result
+    }
+    
+    /// Convert a single token to its string representation
+    fn token_to_string(&self, token: &Token) -> String {
+        match token {
+            Token::Id(name) => name.clone(),
+            Token::Str(s) => format!("\"{}\"", s),
+            Token::Int(i) => i.to_string(),
+            Token::Float(f) => f.to_string(),
+            Token::Bool(b) => b.to_string(),
+            Token::LParen => "(".to_string(),
+            Token::RParen => ")".to_string(),
+            Token::LBrace => "{".to_string(),
+            Token::RBrace => "}".to_string(),
+            Token::LBracket => "[".to_string(),
+            Token::RBracket => "]".to_string(),
+            Token::Comma => ",".to_string(),
+            Token::Colon => ":".to_string(),
+            Token::Pipe => "|".to_string(),
+            Token::Question => "?".to_string(),
+            Token::FnArrow => "->".to_string(),
+            Token::Lt => "<".to_string(),
+            Token::Gt => ">".to_string(),
+            _ => format!("{:?}", token),
+        }
+    }
+
     fn err(&self, msg: &str) -> String {
         let r_idx = if self.pos + 5 < self.len {
             self.pos + 5
@@ -850,5 +915,18 @@ impl<'a> StmtParser<'a> {
             format!("at end, near '{:?}'", chars)
         };
         format!("Syntax error: {} ({})", msg, ctx)
+    }
+
+    /// Get the current token span if available
+    fn current_span(&self) -> Option<crate::error::Span> {
+        if let Some(spans) = &self.token_spans {
+            if self.pos < spans.len() {
+                Some(spans[self.pos].clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 }

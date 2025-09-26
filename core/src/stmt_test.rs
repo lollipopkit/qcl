@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::{
-        stmt::{Environment, Program},
+        stmt::{Environment, Program, Stmt},
         stmt_parser::StmtParser,
         token::Tokenizer,
         val::Val,
@@ -463,12 +463,24 @@ mod tests {
     }
 
     #[test]
-    fn test_unknown_type_error() {
+    fn test_custom_type_parsing() {
+        // Custom types should parse successfully, validation happens at runtime
         let tokens = Tokenizer::tokenize("let x: UnknownType = 42;").expect("Failed to tokenize");
         let mut parser = StmtParser::new(&tokens);
         let result = parser.parse_program();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Unknown type"));
+        assert!(result.is_ok());
+        
+        // The parsed statement should contain a Type::Named
+        let program = result.unwrap();
+        assert_eq!(program.statements.len(), 1);
+        if let Stmt::Let { type_annotation: Some(typ), .. } = program.statements[0].as_ref() {
+            match typ {
+                crate::val::Type::Named(name) => assert_eq!(name, "UnknownType"),
+                _ => panic!("Expected Type::Named, got {:?}", typ),
+            }
+        } else {
+            panic!("Expected Let statement with type annotation");
+        }
     }
 
     #[test]

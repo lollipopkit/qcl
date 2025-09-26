@@ -1,0 +1,14 @@
+let x: String | Nil = nil;
+x = "hello";  // OK
+x = nil;      // OK
+
+let y: Int = 42;
+y = 100;      // OK
+// y = "world";  // Should cause type error
+
+let z: Int | String = 42;
+z = "hello";  // OK
+z = 100;      // OK
+// z = nil;      // Should cause type error
+
+return `x = ${x}, y = ${y}, z = ${z}`;

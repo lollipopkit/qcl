@@ -3,6 +3,7 @@ use crate::{
     import::{ImportContext, ImportStmt, ModuleResolver},
     type_checker::TypeChecker,
     val::{Type, Val},
+    error::Span,
 };
 use anyhow::{Result, anyhow};
 use std::{collections::HashMap, fmt::Display, sync::Arc};
@@ -65,9 +66,14 @@ pub enum Stmt {
         name: String,
         type_annotation: Option<Type>,
         value: Box<Expr>,
+        span: Option<Span>,
     },
     /// name = value; (赋值语句)
-    Assign { name: String, value: Box<Expr> },
+    Assign { 
+        name: String, 
+        value: Box<Expr>,
+        span: Option<Span>,
+    },
     /// name = value; (变量定义，类似 Go 的短声明)
     Define { name: String, value: Box<Expr> },
     /// break;
@@ -298,18 +304,29 @@ impl Stmt {
                 name,
                 type_annotation,
                 value,
+                span,
             } => {
                 let val = value.eval_with_env(ctx, Some(env))?;
 
                 // Validate type annotation if provided
                 if let Some(expected_type) = type_annotation {
-                    expected_type.validate(&val)?;
+                    if let Err(_e) = expected_type.validate(&val) {
+                        let error_msg = format!(
+                            "Type mismatch in variable '{}': expected {}, got {}",
+                            name, expected_type.display(), val.type_name()
+                        );
+                        return if let Some(span) = span {
+                            Err(anyhow::anyhow!(crate::error::ParseError::with_span(error_msg, span.clone())))
+                        } else {
+                            Err(anyhow::anyhow!(error_msg))
+                        };
+                    }
                 }
 
                 env.define(name.clone(), val);
                 Ok(ControlFlow::None)
             }
-            Stmt::Assign { name, value } => {
+            Stmt::Assign { name, value, span: _ } => {
                 let val = value.eval_with_env(ctx, Some(env))?;
                 env.assign(name, val)?;
                 Ok(ControlFlow::None)
@@ -367,17 +384,22 @@ impl Stmt {
     /// 静态类型检查语句
     pub fn type_check(&self, type_checker: &mut TypeChecker) -> Result<()> {
         match self {
-            Stmt::Let { name, type_annotation, value } => {
+            Stmt::Let { name, type_annotation, value, span } => {
                 // 检查表达式的类型
                 let expr_type = value.type_check(type_checker)?;
 
                 // 如果有类型注解，验证类型匹配
                 if let Some(expected_type) = type_annotation
                     && !expr_type.is_assignable_to(expected_type) {
-                        return Err(anyhow::anyhow!(
+                        let error_msg = format!(
                             "Type mismatch in let statement: variable '{}' expected type {}, but expression has type {}",
                             name, expected_type.display(), expr_type.display()
-                        ));
+                        );
+                        return if let Some(span) = span {
+                            Err(anyhow::anyhow!(crate::error::ParseError::with_span(error_msg, span.clone())))
+                        } else {
+                            Err(anyhow::anyhow!(error_msg))
+                        };
                     }
 
                 // 将变量类型添加到类型检查器的作用域中
@@ -386,17 +408,22 @@ impl Stmt {
 
                 Ok(())
             }
-            Stmt::Assign { name, value } => {
+            Stmt::Assign { name, value, span } => {
                 // 检查表达式的类型
                 let expr_type = value.type_check(type_checker)?;
 
                 // 获取变量的已声明类型
                 if let Some(var_type) = type_checker.get_local_type(name) {
                     if !expr_type.is_assignable_to(var_type) {
-                        return Err(anyhow::anyhow!(
+                        let error_msg = format!(
                             "Type mismatch in assignment: variable '{}' has type {}, but assigned expression has type {}",
                             name, var_type.display(), expr_type.display()
-                        ));
+                        );
+                        return if let Some(span) = span {
+                            Err(anyhow::anyhow!(crate::error::ParseError::with_span(error_msg, span.clone())))
+                        } else {
+                            Err(anyhow::anyhow!(error_msg))
+                        };
                     }
                 } else {
                     return Err(anyhow::anyhow!(
@@ -586,6 +613,14 @@ impl Program {
         Ok(Program { statements })
     }
 
+    /// 类型检查程序
+    pub fn type_check(&self, type_checker: &mut TypeChecker) -> Result<()> {
+        for stmt in &self.statements {
+            stmt.type_check(type_checker)?;
+        }
+        Ok(())
+    }
+
     /// 执行程序
     pub fn execute(&self, ctx: &Val) -> Result<Val> {
         let mut env = Environment::new();
@@ -744,6 +779,7 @@ impl Display for Stmt {
                 name,
                 type_annotation,
                 value,
+                span: _,
             } => {
                 if let Some(typ) = type_annotation {
                     write!(f, "let {}: {:?} = {};", name, typ, value)
@@ -751,7 +787,7 @@ impl Display for Stmt {
                     write!(f, "let {} = {};", name, value)
                 }
             }
-            Stmt::Assign { name, value } => {
+            Stmt::Assign { name, value, span: _ } => {
                 write!(f, "{} = {};", name, value)
             }
             Stmt::Define { name, value } => {

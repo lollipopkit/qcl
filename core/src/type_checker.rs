@@ -615,6 +615,7 @@ mod tests {
             name: "x".to_string(),
             type_annotation: Some(Type::Int),
             value: Box::new(Expr::Val(Val::Int(42))),
+            span: None,
         };
 
         // Should pass type checking
@@ -625,6 +626,7 @@ mod tests {
             name: "y".to_string(),
             type_annotation: Some(Type::String),
             value: Box::new(Expr::Val(Val::Int(42))), // Int assigned to String
+            span: None,
         };
 
         let result = let_stmt_mismatch.type_check(&mut checker);
@@ -641,6 +643,7 @@ mod tests {
             name: "x".to_string(),
             type_annotation: Some(Type::Int),
             value: Box::new(Expr::Val(Val::Int(42))),
+            span: None,
         };
         let_stmt.type_check(&mut checker).unwrap();
 
@@ -648,6 +651,7 @@ mod tests {
         let assign_stmt = Stmt::Assign {
             name: "x".to_string(),
             value: Box::new(Expr::Val(Val::Int(100))),
+            span: None,
         };
         assert!(assign_stmt.type_check(&mut checker).is_ok());
 
@@ -655,6 +659,7 @@ mod tests {
         let assign_stmt_invalid = Stmt::Assign {
             name: "x".to_string(),
             value: Box::new(Expr::Val(Val::Str("hello".into()))), // String assigned to Int
+            span: None,
         };
         let result = assign_stmt_invalid.type_check(&mut checker);
         assert!(result.is_err());
@@ -672,6 +677,7 @@ mod tests {
                 name: "x".to_string(),
                 type_annotation: None,
                 value: Box::new(Expr::Val(Val::Int(42))),
+                span: None,
             }),
             else_stmt: None,
         };
@@ -684,6 +690,7 @@ mod tests {
                 name: "x".to_string(),
                 type_annotation: None,
                 value: Box::new(Expr::Val(Val::Int(42))),
+                span: None,
             }),
             else_stmt: None,
         };

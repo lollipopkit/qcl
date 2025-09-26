@@ -794,12 +794,16 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_question_mark() {
-        // Single question mark without dot should error
+    fn test_question_mark_tokenization() {
+        // Question mark should tokenize successfully as Token::Question
         let result = Tokenizer::tokenize("@req?user");
-        assert!(result.is_err());
-        if let Err(e) = result {
-            assert!(e.to_string().contains("Unexpected character '?'"));
-        }
+        assert!(result.is_ok());
+        let tokens = result.unwrap();
+        assert_eq!(tokens, vec![
+            Token::At,
+            Token::Id("req".to_string()),
+            Token::Question,
+            Token::Id("user".to_string()),
+        ]);
     }
 }

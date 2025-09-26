@@ -124,9 +124,23 @@ fn main() -> anyhow::Result<()> {
     }
 
     let result = if is_statement_mode {
-        let tokens = Tokenizer::tokenize(&input)?;
-        let mut parser = StmtParser::new(&tokens);
-        let program = parser.parse_program()?;
+        // Use enhanced tokenizer with position tracking
+        let (tokens, spans) = match Tokenizer::tokenize_enhanced_with_spans(&input) {
+            Ok((tokens, spans)) => (tokens, spans),
+            Err(parse_err) => {
+                eprintln!("Error: {}", parse_err);
+                std::process::exit(1);
+            }
+        };
+        
+        let mut parser = StmtParser::new_with_spans(&tokens, &spans);
+        let program = match parser.parse_program_with_enhanced_errors(&input) {
+            Ok(program) => program,
+            Err(parse_err) => {
+                eprintln!("Error: {}", parse_err);
+                std::process::exit(1);
+            }
+        };
 
         // Create module registry and register stdlib modules and globals
         let mut registry = ModuleRegistry::new();
