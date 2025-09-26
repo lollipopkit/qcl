@@ -390,6 +390,8 @@ impl Tokenizer {
         let mut num = String::new();
         let start_pos = self.current_position();
         let mut dot_count = 0;
+        let mut has_exp = false;
+        
         while !self.eof() {
             let c = self.chars[self.idx];
             if c.is_ascii_digit() {
@@ -404,10 +406,28 @@ impl Tokenizer {
                 if dot_count > 0 {
                     return Err(anyhow!(self.err("Invalid float, multiple '.'")));
                 }
+                if has_exp {
+                    return Err(anyhow!(self.err("Invalid float, '.' after exponent")));
+                }
                 num.push(c);
                 self.advance_char();
                 dot_count += 1;
+            } else if (c == 'e' || c == 'E') && !num.is_empty() && !has_exp {
+                // Scientific notation exponent
+                num.push(c);
+                self.advance_char();
+                has_exp = true;
+                
+                // Check for optional sign after 'e'/'E'
+                if !self.eof() {
+                    let next_c = self.chars[self.idx];
+                    if next_c == '+' || next_c == '-' {
+                        num.push(next_c);
+                        self.advance_char();
+                    }
+                }
             } else if (c == '-' || c == '+') && num.is_empty() {
+                // Leading sign
                 num.push(c);
                 self.advance_char();
             } else {
@@ -418,8 +438,11 @@ impl Tokenizer {
         if num.ends_with('.') {
             return Err(anyhow!(self.err("Invalid float, ends with '.'")));
         }
+        if num.ends_with('e') || num.ends_with('E') || num.ends_with('+') || num.ends_with('-') {
+            return Err(anyhow!(self.err("Invalid number, incomplete exponent")));
+        }
 
-        let num = if num.contains('.') {
+        let num = if num.contains('.') || num.contains('e') || num.contains('E') {
             match num.parse() {
                 Ok(f) => Token::Float(f),
                 Err(_) => return Err(anyhow!("{}: {}", self.err("Invalid float"), num)),
