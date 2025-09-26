@@ -499,7 +499,7 @@ mod test {
         assert!(res.is_ok());
         let val = res.unwrap();
         match val {
-            Val::Closure { params, body, .. } => {
+            Val::Closure { params, body: _, .. } => {
                 assert_eq!(params.len(), 0);
             }
             _ => panic!("Expected closure value"),
@@ -509,7 +509,7 @@ mod test {
         assert!(res.is_ok());
         let val = res.unwrap();
         match val {
-            Val::Closure { params, body, .. } => {
+            Val::Closure { params, body: _, .. } => {
                 assert_eq!(params.len(), 1);
                 assert_eq!(params[0], "x");
             }
@@ -520,7 +520,7 @@ mod test {
         assert!(res.is_ok());
         let val = res.unwrap();
         match val {
-            Val::Closure { params, body, .. } => {
+            Val::Closure { params, body: _, .. } => {
                 assert_eq!(params.len(), 2);
                 assert_eq!(params[0], "x");
                 assert_eq!(params[1], "y");

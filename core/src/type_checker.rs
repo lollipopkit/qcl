@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use anyhow::{Result, anyhow};
 use crate::{
     expr::Expr,
-    stmt::Stmt,
     val::{Type, Val},
     type_system::{TypeRegistry, TypeInferenceEngine},
 };
@@ -39,6 +38,12 @@ pub struct TypeChecker {
 
     /// Local variable types
     local_types: HashMap<String, Type>,
+}
+
+impl Default for TypeChecker {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TypeChecker {
@@ -141,7 +146,7 @@ impl TypeChecker {
     }
 
     /// Check context access type (@req.user.name)
-    fn check_context_access(&mut self, fields: &[String]) -> Result<Type> {
+    fn check_context_access(&mut self, _fields: &[String]) -> Result<Type> {
         // Context access is dynamic, return Any for now
         // TODO: Could be enhanced with context schema information
         Ok(Type::Any)
@@ -181,8 +186,6 @@ impl TypeChecker {
                     _ => Err(anyhow!("'in' operator requires container type, got {}", right_type.display())),
                 }
             }
-
-            _ => Err(anyhow!("Unsupported binary operator: {:?}", op)),
         }
     }
 
@@ -213,7 +216,6 @@ impl TypeChecker {
                 }
                 Ok(Type::Bool)
             }
-            _ => Err(anyhow!("Unsupported unary operator: {:?}", op)),
         }
     }
 
@@ -227,7 +229,7 @@ impl TypeChecker {
 
         // Check all items have compatible types
         let first_type = self.check_expr(&items[0])?;
-        let mut elem_type = first_type.clone();
+        let elem_type = first_type.clone();
 
         for item in &items[1..] {
             let item_type = self.check_expr(item)?;
@@ -346,23 +348,6 @@ impl TypeChecker {
         }
     }
 
-    /// Check function definition type
-    fn check_function_definition(&mut self, params: &[String], body: &Expr) -> Result<Type> {
-        // Create nested scope for function parameters
-        let mut param_types = Vec::new();
-        for param in params {
-            let param_type = self.inference_engine.fresh_type_var();
-            self.local_types.insert(param.clone(), param_type.clone());
-            param_types.push(param_type);
-        }
-
-        let return_type = self.check_expr(body)?;
-
-        Ok(Type::Function {
-            params: param_types,
-            return_type: Box::new(return_type),
-        })
-    }
 
     /// Check select expression type
     fn check_select_expr(&mut self, cases: &[crate::expr::SelectCase], default: &Option<Box<Expr>>) -> Result<Type> {
@@ -440,15 +425,6 @@ impl TypeChecker {
         }
     }
 
-    /// Check template expression type
-    fn check_template_expr(&mut self, expr: &Expr) -> Result<Type> {
-        let expr_type = self.check_expr(expr)?;
-        // Template expressions should be string-coercible
-        if !expr_type.is_assignable_to(&Type::String) {
-            return Err(anyhow!("Template expression must be string-coercible, got {}", expr_type.display()));
-        }
-        Ok(Type::String)
-    }
 
     /// Solve type constraints and return final types
     pub fn solve_constraints(&mut self) -> Result<HashMap<String, Type>> {
@@ -478,7 +454,7 @@ impl TypeChecker {
                     let value_type = self.registry.fresh_type_var();
                     Ok(Type::Map(Box::new(key_type), Box::new(value_type)))
                 } else {
-                    let (first_key, first_value) = map.iter().next().unwrap();
+                    let (_first_key, first_value) = map.iter().next().unwrap();
                     let key_type = Type::String; // Map keys are always strings
                     let value_type = self.infer_val_type(first_value)?;
                     Ok(Type::Map(Box::new(key_type), Box::new(value_type)))
@@ -515,7 +491,7 @@ impl TypeChecker {
                     let value_type = self.registry.fresh_type_var();
                     Ok(Type::Map(Box::new(key_type), Box::new(value_type)))
                 } else {
-                    let (first_key, first_value) = map.iter().next().unwrap();
+                    let (_first_key, first_value) = map.iter().next().unwrap();
                     let key_type = Type::String; // Map keys are always strings
                     let value_type = self.infer_val_type(first_value)?;
                     Ok(Type::Map(Box::new(key_type), Box::new(value_type)))
@@ -569,7 +545,7 @@ impl TypeChecker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::expr::Expr;
+    use crate::{expr::Expr, stmt::Stmt};
 
     #[test]
     fn test_literal_types() {

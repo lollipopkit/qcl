@@ -148,8 +148,7 @@ impl Type {
         }
 
         // Handle optional types: ?Int
-        if s.starts_with('?') {
-            let inner = &s[1..];
+        if let Some(inner) = s.strip_prefix('?') {
             return Type::parse(inner).map(|t| Type::Optional(Box::new(t)));
         }
 
@@ -169,8 +168,8 @@ impl Type {
         }
 
         // Handle generic types with angle brackets
-        if let Some(open) = s.find('<') {
-            if let Some(close) = s.rfind('>') {
+        if let Some(open) = s.find('<')
+            && let Some(close) = s.rfind('>') {
                 let base = &s[..open];
                 let params_str = &s[open + 1..close];
 
@@ -218,7 +217,6 @@ impl Type {
                     }
                 }
             }
-        }
 
         // Handle function types: (Int, String) -> Bool
         if s.contains("->") {
@@ -335,7 +333,7 @@ impl Type {
             }
 
             // Optional types - value must be Nil or match the inner type
-            (Type::Optional(inner_type), Val::Nil) => Ok(()),
+            (Type::Optional(_inner_type), Val::Nil) => Ok(()),
             (Type::Optional(inner_type), val) => inner_type.validate(val),
 
             // Type variables and named types are handled by the type checker

@@ -787,7 +787,7 @@ impl Expr {
                     }
                 }
             }
-            Expr::Closure { params, body } => {
+            Expr::Closure { params: _, body } => {
                 body.collect_ctx_names(names);
             }
             // Only collect string values when they are actual context names, not field names

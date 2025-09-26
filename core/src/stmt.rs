@@ -372,14 +372,13 @@ impl Stmt {
                 let expr_type = value.type_check(type_checker)?;
 
                 // 如果有类型注解，验证类型匹配
-                if let Some(expected_type) = type_annotation {
-                    if !expr_type.is_assignable_to(expected_type) {
+                if let Some(expected_type) = type_annotation
+                    && !expr_type.is_assignable_to(expected_type) {
                         return Err(anyhow::anyhow!(
                             "Type mismatch in let statement: variable '{}' expected type {}, but expression has type {}",
                             name, expected_type.display(), expr_type.display()
                         ));
                     }
-                }
 
                 // 将变量类型添加到类型检查器的作用域中
                 let var_type = type_annotation.clone().unwrap_or(expr_type);

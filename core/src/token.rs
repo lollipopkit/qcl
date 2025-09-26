@@ -798,7 +798,7 @@ impl Tokenizer {
                     // A closure would have: | ... | expr
                     // Logical OR would have: || expr
                     let mut pos = self.idx;
-                    let mut might_be_closure = false;
+                    let mut might_be_closure;
                         // For || case, this could be an empty closure or logical OR
                     // The key distinction:
                     // - Logical OR: || expr (typically appears in expressions with other operators)
@@ -828,7 +828,7 @@ impl Tokenizer {
                         }
                         // If what follows looks like a standalone expression or literal,
                         // it might be a closure
-                        else if next_char.is_alphanumeric() || next_char.is_digit(10) ||
+                        else if next_char.is_alphanumeric() || next_char.is_ascii_digit() ||
                                  next_char == '[' || next_char == '{' {
                             // For now, be conservative and treat as logical OR in most cases
                             // except when we're clearly at the start of an input
@@ -854,18 +854,12 @@ impl Tokenizer {
                             println!("DEBUG: Looking at char '{}' at position {}", self.chars[pos], pos);
                             if self.chars[pos].is_alphabetic() || self.chars[pos] == '_' {
                                 // Potential parameter name - check if there's a closing | later
-                                might_be_closure = true;
-
                                 // Look ahead for closing | (simplified check)
                                 let mut found_closing_pipe = false;
-                                let mut in_param = true;
 
                                 for i in pos..self.len {
                                     let c = self.chars[i];
-                                    if c == '|' && !in_param {
-                                        found_closing_pipe = true;
-                                        break;
-                                    } else if c == '|' && in_param {
+                                    if c == '|' {
                                         // Found closing pipe of closure
                                         found_closing_pipe = true;
                                         break;

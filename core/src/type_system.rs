@@ -57,10 +57,10 @@ impl TypeRegistry {
 
     /// Register a trait implementation
     pub fn register_trait_impl(&mut self, impl_def: TraitImpl) {
-        let type_name = self.type_to_string(&impl_def.target_type);
+        let type_name = Self::type_to_string(&impl_def.target_type);
         self.implementations
             .entry(type_name)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(impl_def);
     }
 
@@ -81,7 +81,7 @@ impl TypeRegistry {
 
     /// Check if a type implements a trait
     pub fn implements_trait(&self, typ: &Type, trait_name: &str) -> bool {
-        let type_name = self.type_to_string(typ);
+        let type_name = Self::type_to_string(typ);
         if let Some(impls) = self.implementations.get(&type_name) {
             impls.iter().any(|impl_def| impl_def.trait_name == trait_name)
         } else {
@@ -91,7 +91,7 @@ impl TypeRegistry {
 
     /// Get the method implementation for a type and method name
     pub fn get_method(&self, typ: &Type, method_name: &str) -> Option<&Val> {
-        let type_name = self.type_to_string(typ);
+        let type_name = Self::type_to_string(typ);
         if let Some(impls) = self.implementations.get(&type_name) {
             for impl_def in impls {
                 if let Some(method) = impl_def.methods.get(method_name) {
@@ -110,7 +110,7 @@ impl TypeRegistry {
     }
 
     /// Convert a type to a string representation for indexing
-    fn type_to_string(&self, typ: &Type) -> String {
+    fn type_to_string(typ: &Type) -> String {
         match typ {
             Type::Named(name) => name.clone(),
             Type::Int => "Int".to_string(),
@@ -118,22 +118,22 @@ impl TypeRegistry {
             Type::String => "String".to_string(),
             Type::Bool => "Bool".to_string(),
             Type::Nil => "Nil".to_string(),
-            Type::List(inner) => format!("List<{}>", self.type_to_string(inner)),
-            Type::Map(k, v) => format!("Map<{}, {}>", self.type_to_string(k), self.type_to_string(v)),
+            Type::List(inner) => format!("List<{}>", Self::type_to_string(inner)),
+            Type::Map(k, v) => format!("Map<{}, {}>", Self::type_to_string(k), Self::type_to_string(v)),
             Type::Function { .. } => "Function".to_string(),
-            Type::Task(inner) => format!("Task<{}>", self.type_to_string(inner)),
-            Type::Channel(inner) => format!("Channel<{}>", self.type_to_string(inner)),
+            Type::Task(inner) => format!("Task<{}>", Self::type_to_string(inner)),
+            Type::Channel(inner) => format!("Channel<{}>", Self::type_to_string(inner)),
             Type::Union(types) => {
-                let type_names: Vec<String> = types.iter().map(|t| self.type_to_string(t)).collect();
+                let type_names: Vec<String> = types.iter().map(Self::type_to_string).collect();
                 format!("({})", type_names.join(" | "))
             }
-            Type::Optional(inner) => format!("?{}", self.type_to_string(inner)),
+            Type::Optional(inner) => format!("?{}", Self::type_to_string(inner)),
             Type::Variable(name) => format!("'{}", name),
             Type::Generic { name, params } => {
                 if params.is_empty() {
                     name.clone()
                 } else {
-                    let param_names: Vec<String> = params.iter().map(|p| self.type_to_string(p)).collect();
+                    let param_names: Vec<String> = params.iter().map(Self::type_to_string).collect();
                     format!("{}<{}>", name, param_names.join(", "))
                 }
             }
@@ -148,8 +148,8 @@ impl TypeRegistry {
             .ok_or_else(|| anyhow!("Trait '{}' not found", impl_def.trait_name))?;
 
         // Check that all required methods are implemented
-        for (method_name, expected_type) in &trait_def.methods {
-            if let Some(impl_method) = impl_def.methods.get(method_name) {
+        for method_name in trait_def.methods.keys() {
+            if let Some(_impl_method) = impl_def.methods.get(method_name) {
                 // TODO: Check that the implementation method matches the expected type
                 // This requires type checking logic
             } else {
@@ -157,7 +157,7 @@ impl TypeRegistry {
                     "Method '{}' required by trait '{}' not implemented for type '{}'",
                     method_name,
                     impl_def.trait_name,
-                    self.type_to_string(&impl_def.target_type)
+                    Self::type_to_string(&impl_def.target_type)
                 ));
             }
         }
@@ -217,7 +217,7 @@ impl TypeInferenceEngine {
 
             // Variable unification
             (Type::Variable(var), typ) | (typ, Type::Variable(var)) => {
-                if self.occurs_check(var, typ) {
+                if Self::occurs_check(var, typ) {
                     Err(anyhow!("Occurs check failed: {} occurs in {}", var, typ.display()))
                 } else {
                     // Apply the new substitution to existing substitutions
@@ -299,18 +299,18 @@ impl TypeInferenceEngine {
     }
 
     /// Occurs check to prevent infinite types
-    fn occurs_check(&self, var: &str, typ: &Type) -> bool {
+    fn occurs_check(var: &str, typ: &Type) -> bool {
         match typ {
             Type::Variable(v) => v == var,
             Type::List(inner) | Type::Optional(inner) | Type::Task(inner) | Type::Channel(inner) => {
-                self.occurs_check(var, inner)
+                Self::occurs_check(var, inner)
             }
-            Type::Map(k, v) => self.occurs_check(var, k) || self.occurs_check(var, v),
+            Type::Map(k, v) => Self::occurs_check(var, k) || Self::occurs_check(var, v),
             Type::Function { params, return_type } => {
-                params.iter().any(|p| self.occurs_check(var, p)) || self.occurs_check(var, return_type)
+                params.iter().any(|p| Self::occurs_check(var, p)) || Self::occurs_check(var, return_type)
             }
-            Type::Union(types) => types.iter().any(|t| self.occurs_check(var, t)),
-            Type::Generic { params, .. } => params.iter().any(|p| self.occurs_check(var, p)),
+            Type::Union(types) => types.iter().any(|t| Self::occurs_check(var, t)),
+            Type::Generic { params, .. } => params.iter().any(|p| Self::occurs_check(var, p)),
             _ => false,
         }
     }
