@@ -265,6 +265,7 @@ impl<'a> Parser<'a> {
     /// - `primary`
     /// - `primary.field`
     /// - `primary.field.field`
+    /// - `primary[expr]`
     /// - `func_name(args)`
     fn parse_postfix(&mut self) -> Result<Expr> {
         let mut expr = self.parse_primary()?;
@@ -321,6 +322,71 @@ impl<'a> Parser<'a> {
                 let field = self.parse_field_name()?;
                 // Optional access is only supported on regular expressions, not @ expressions
                 expr = Expr::OptionalAccess(Box::new(expr), Box::new(field));
+            } else if !self.eof()
+                && self.tokens[self.pos] == Token::Question
+                && (self.pos + 1) < self.len
+                && self.tokens[self.pos + 1] == Token::LBracket
+            {
+                // Optional bracket access: expr?[expr]
+                // consume '?' and '['
+                self.pos += 2;
+
+                // Parse index expression
+                if self.eof() || !self.is_valid_expr_start() {
+                    let msg = format!(
+                        "Invalid index/key after '?[', {:?}",
+                        if self.eof() { &Token::Nil } else { &self.tokens[self.pos] }
+                    );
+                    return Err(anyhow!(self.err(&msg)));
+                }
+                let index_expr = Box::new(self.parse_expr()?);
+
+                // Expect closing ']'
+                if self.eof() || self.tokens[self.pos] != Token::RBracket {
+                    let msg = format!(
+                        "Expecting ']' to close optional index, found {:?}",
+                        if self.eof() { &Token::Nil } else { &self.tokens[self.pos] }
+                    );
+                    return Err(anyhow!(self.err(&msg)));
+                }
+                self.pos += 1; // skip ']'
+
+                expr = Expr::OptionalAccess(Box::new(expr), index_expr);
+            } else if !self.eof() && self.tokens[self.pos] == Token::LBracket {
+                // Bracket indexing: expr[expr]
+                // Consume '['
+                self.pos += 1;
+
+                // Expect an expression inside brackets
+                if self.eof() || !self.is_valid_expr_start() {
+                    let msg = format!(
+                        "Invalid index/key after '[', {:?}",
+                        if self.eof() { &Token::Nil } else { &self.tokens[self.pos] }
+                    );
+                    return Err(anyhow!(self.err(&msg)));
+                }
+                let index_expr = Box::new(self.parse_expr()?);
+
+                // Expect closing ']'
+                if self.eof() || self.tokens[self.pos] != Token::RBracket {
+                    let msg = format!(
+                        "Expecting ']' to close index, found {:?}",
+                        if self.eof() { &Token::Nil } else { &self.tokens[self.pos] }
+                    );
+                    return Err(anyhow!(self.err(&msg)));
+                }
+                self.pos += 1; // skip ']'
+
+                // If base is an @-path, extend its path; otherwise build Access
+                match expr {
+                    Expr::At(mut paths) => {
+                        paths.push(index_expr);
+                        expr = Expr::At(paths);
+                    }
+                    _ => {
+                        expr = Expr::Access(Box::new(expr), index_expr);
+                    }
+                }
             } else {
                 break; // No more postfix operations
             }

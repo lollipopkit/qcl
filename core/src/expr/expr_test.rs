@@ -248,6 +248,25 @@ mod test {
 
     #[test]
     #[cfg(feature = "json")]
+    fn bracket_index_access() {
+        // List indexing with brackets
+        expect("[1, 2, 3][1]", 2);
+        expect(r#"["hello", "world"][0]"#, "hello");
+
+        // Map indexing with string key
+        expect(r#"{"name": "Alice", "age": 30}["name"]"#, "Alice");
+
+        // Context access with brackets
+        expect("@list[0]", 1);
+        expect(r#"@nested["level1"]["level2"]"#, "value");
+
+        // Mixed bracket and dot access
+        expect(r#"@nested["level1"].level2"#, "value");
+        expect(r#"{ "a": [10, 20, 30] }["a"][2]"#, 30);
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
     fn trailing_commas() {
         // List with trailing comma
         expect("[1, 2, 3,]", vec![1, 2, 3]);
@@ -433,6 +452,25 @@ mod test {
         let expr = Expr::try_from("@data?.user?.name").unwrap();
         let result = expr.eval(&ctx).unwrap();
         assert_eq!(result, Val::Nil);
+
+        // Optional chaining with bracket indexing on list
+        let ctx: Val = json!({
+            "data": {
+                "items": [
+                    {"name": "first"},
+                    {"name": "second"}
+                ]
+            }
+        }).into();
+        let expr = Expr::try_from("@data?.items?[0]?.name").unwrap();
+        let result = expr.eval(&ctx).unwrap();
+        assert_eq!(result, Val::from("first"));
+
+        // Optional chaining with bracket indexing on map
+        let ctx: Val = json!({ "user": {"name": "lk"} }).into();
+        let expr = Expr::try_from("@user?[\"name\"]").unwrap();
+        let result = expr.eval(&ctx).unwrap();
+        assert_eq!(result, Val::from("lk"));
     }
 
     #[cfg(feature = "json")]
