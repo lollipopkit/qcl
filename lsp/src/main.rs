@@ -150,15 +150,6 @@ impl QclLanguageServer {
 
         // Standard library functions (if available)
         let stdlib_functions = [
-            ("abs", "Math function - absolute value"),
-            ("sqrt", "Math function - square root"),
-            ("sin", "Math function - sine"),
-            ("cos", "Math function - cosine"),
-            ("len", "String/Collection function - length"),
-            ("substr", "String function - substring"),
-            ("make_chan", "Concurrency function - create channel"),
-            ("send", "Channel function - send value"),
-            ("recv", "Channel function - receive value"),
             ("print", "Global function - print without newline"),
             ("println", "Global function - print with newline"),
             ("panic", "Global function - raise runtime error"),

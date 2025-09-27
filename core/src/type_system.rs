@@ -14,7 +14,8 @@ pub struct TraitDef {
 pub struct TraitImpl {
     pub trait_name: String,
     pub target_type: Type,
-    pub methods: HashMap<String, Val>, // method_name -> function_value
+    // method_name -> (function_value, declared_type)
+    pub methods: HashMap<String, (Val, Option<Type>)>,
 }
 
 /// Type alias definition
@@ -94,7 +95,7 @@ impl TypeRegistry {
         let type_name = Self::type_to_string(typ);
         if let Some(impls) = self.implementations.get(&type_name) {
             for impl_def in impls {
-                if let Some(method) = impl_def.methods.get(method_name) {
+                if let Some((method, _sig)) = impl_def.methods.get(method_name) {
                     return Some(method);
                 }
             }
@@ -147,18 +148,70 @@ impl TypeRegistry {
         let trait_def = self.traits.get(&impl_def.trait_name)
             .ok_or_else(|| anyhow!("Trait '{}' not found", impl_def.trait_name))?;
 
-        // Check that all required methods are implemented
-        for method_name in trait_def.methods.keys() {
-            if let Some(_impl_method) = impl_def.methods.get(method_name) {
-                // TODO: Check that the implementation method matches the expected type
-                // This requires type checking logic
-            } else {
+        // Check that all required methods are implemented and signatures match
+        for (method_name, expected_ty) in &trait_def.methods {
+            let Some((val, sig)) = impl_def.methods.get(method_name) else {
                 return Err(anyhow!(
                     "Method '{}' required by trait '{}' not implemented for type '{}'",
                     method_name,
                     impl_def.trait_name,
                     Self::type_to_string(&impl_def.target_type)
                 ));
+            };
+
+            // Only function values are valid implementations
+            let mut actual_ty = match val {
+                Val::Closure { params, .. } => Type::Function {
+                    params: vec![Type::Any; params.len()], // Without annotations, conservatively Any
+                    return_type: Box::new(Type::Any),
+                },
+                Val::RustFunction(_) => {
+                    // Native function type info not carried; accept for now as Function Any
+                    Type::Function { params: vec![], return_type: Box::new(Type::Any) }
+                }
+                _ => {
+                    return Err(anyhow!(
+                        "Method '{}' for trait '{}' must be a function, got {:?}",
+                        method_name,
+                        impl_def.trait_name,
+                        val
+                    ));
+                }
+            };
+
+            // Prefer declared signature if provided for strict matching
+            if let Some(declared) = sig { actual_ty = declared.clone(); }
+
+            // If expected is a function, check arity
+            if let Type::Function { params: exp_params, return_type: exp_ret } = expected_ty {
+                if let Type::Function { params: act_params, return_type: act_ret } = &actual_ty {
+                    if exp_params.len() != act_params.len() {
+                        return Err(anyhow!(
+                            "Method '{}' arity mismatch for trait '{}': expected {}, got {}",
+                            method_name,
+                            impl_def.trait_name,
+                            exp_params.len(),
+                            act_params.len()
+                        ));
+                    }
+                    // When signatures are concrete, ensure contravariant params and covariant return
+                    let params_ok = exp_params.iter().zip(act_params.iter()).all(|(e,a)| a.is_assignable_to(e));
+                    let ret_ok = act_ret.is_assignable_to(exp_ret);
+                    if !params_ok || !ret_ok {
+                        return Err(anyhow!(
+                            "Method '{}' signature mismatch for trait '{}'",
+                            method_name,
+                            impl_def.trait_name
+                        ));
+                    }
+                } else {
+                    // Should not happen given construction above
+                    return Err(anyhow!(
+                        "Method '{}' must be a function for trait '{}'",
+                        method_name,
+                        impl_def.trait_name
+                    ));
+                }
             }
         }
 
@@ -207,9 +260,40 @@ impl TypeInferenceEngine {
     }
 
     /// Unify two types
+    fn normalize_union(t: Type) -> Type {
+        // Flatten nested unions and remove duplicates; also collapse Optional(T) into Union(T|Nil)
+        fn collect(t: Type, acc: &mut Vec<Type>) {
+            match t {
+                Type::Union(vs) => {
+                    for u in vs { collect(u, acc); }
+                }
+                Type::Optional(inner) => {
+                    collect(*inner, acc);
+                    acc.push(Type::Nil);
+                }
+                other => acc.push(other),
+            }
+        }
+        let mut items = Vec::new();
+        collect(t, &mut items);
+        // Deduplicate by display string to be stable
+        use std::collections::BTreeSet;
+        let mut seen = BTreeSet::new();
+        let mut uniq = Vec::new();
+        for ty in items {
+            let key = ty.display();
+            if seen.insert(key) { uniq.push(ty); }
+        }
+        match uniq.len() {
+            0 => Type::Nil,
+            1 => uniq.into_iter().next().unwrap(),
+            _ => Type::Union(uniq),
+        }
+    }
+
     fn unify(&mut self, t1: Type, t2: Type) -> Result<()> {
-        let t1 = self.apply_substitution(&t1);
-        let t2 = self.apply_substitution(&t2);
+        let t1 = Self::normalize_union(self.apply_substitution(&t1));
+        let t2 = Self::normalize_union(self.apply_substitution(&t2));
 
         match (&t1, &t2) {
             // Same types unify
@@ -265,15 +349,41 @@ impl TypeInferenceEngine {
                 self.unify((**a).clone(), (**b).clone())
             }
 
-            // Union type unification (simplified)
-            (Type::Union(types), t) | (t, Type::Union(types)) => {
-                // For now, just check if t is assignable to any member of the union
-                for union_type in types {
-                    if t.is_assignable_to(union_type) {
-                        return Ok(());
+            // Union type unification
+            (&Type::Union(ref a_types), &Type::Union(ref b_types)) => {
+                // Intersect the two unions by assignability; if intersection empty, error
+                let mut result = Vec::new();
+                for at in a_types.iter() {
+                    for bt in b_types.iter() {
+                        if at.is_assignable_to(bt) || bt.is_assignable_to(&at) {
+                            result.push(at.clone().clone());
+                            break;
+                        }
                     }
                 }
-                Err(anyhow!("Cannot unify {} with union type", t.display()))
+                if result.is_empty() { return Err(anyhow!("Union types are disjoint: {} vs {}", t1.display(), t2.display())); }
+                // Constrain to the normalized intersection
+                let norm = Self::normalize_union(Type::Union(result));
+                // Bind both sides to intersection to progress inference
+                self.add_constraint(norm.clone(), t1.clone());
+                self.add_constraint(norm, t2.clone());
+                Ok(())
+            }
+            (Type::Union(types), t) | (t, Type::Union(types)) => {
+                // If t is assignable to any, OK; otherwise try to narrow union by t
+                if types.iter().any(|u| t.is_assignable_to(u)) {
+                    Ok(())
+                } else {
+                    // Attempt to find members compatible with t
+                    let compatibles: Vec<Type> = types.into_iter().filter(|u| u.is_assignable_to(&t) || t.is_assignable_to(u)).cloned().collect();
+                    if compatibles.is_empty() {
+                        Err(anyhow!("Cannot unify {} with union type", t.display()))
+                    } else {
+                        let narrowed = Self::normalize_union(Type::Union(compatibles));
+                        self.add_constraint(narrowed, t.clone());
+                        Ok(())
+                    }
+                }
             }
 
             // Generic type unification

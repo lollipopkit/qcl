@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use crate::{
     expr::Expr,
     val::{Type, Val},
@@ -47,6 +47,15 @@ impl Default for TypeChecker {
 }
 
 impl TypeChecker {
+    fn type_err(message: &str, expected: Option<Type>, actual: Option<Type>, expr: Option<Expr>) -> anyhow::Error {
+        let te = TypeError {
+            message: message.to_string(),
+            expected,
+            actual,
+            expr,
+        };
+        anyhow::Error::new(te)
+    }
     /// Create a new type checker
     pub fn new() -> Self {
         let registry = TypeRegistry::new();
@@ -108,6 +117,9 @@ impl TypeChecker {
                 let func_expr = Expr::Var(func.clone());
                 self.check_function_call(&func_expr, &args.iter().map(|a| a.as_ref().clone()).collect::<Vec<_>>())
             }
+            Expr::CallExpr(func_expr, args) => {
+                self.check_function_call(func_expr, &args.iter().map(|a| a.as_ref().clone()).collect::<Vec<_>>())
+            }
 
             // Concurrency
             Expr::Spawn(expr) => self.check_spawn(expr),
@@ -121,8 +133,16 @@ impl TypeChecker {
             // Unhandled expressions for now
             Expr::Range { .. } => Ok(Type::Any),
             Expr::ChanLiteral { .. } => Ok(Type::Any),
-            Expr::CallExpr(_, _) => Ok(Type::Any),
-            Expr::Closure { .. } => Ok(Type::Any), // Closures are function types
+            Expr::Closure { params, body } => {
+                // Infer closure as a function type with param type variables and an inferred return
+                let mut param_types = Vec::with_capacity(params.len());
+                for _ in params {
+                    param_types.push(self.inference_engine.fresh_type_var());
+                }
+                // Body type is inferred by checking the body expression
+                let ret_type = self.check_expr(body)?;
+                Ok(Type::Function { params: param_types, return_type: Box::new(ret_type) })
+            }
             Expr::Paren(expr) => self.check_expr(expr),
         }
     }
@@ -165,16 +185,61 @@ impl TypeChecker {
             // Arithmetic operators
             crate::op::BinOp::Add | crate::op::BinOp::Sub |
             crate::op::BinOp::Mul | crate::op::BinOp::Div | crate::op::BinOp::Mod => {
-                // For now, allow numeric types with coercion
-                // TODO: Implement proper type coercion rules
-                Ok(Type::Any)
+                // Numeric ops: if any side is Float -> Float, else Int.
+                // Add constraints to steer inference towards numeric types.
+                // If non-numeric types appear, leave to runtime ops or future strict checks.
+                let result = match (&left_type, &right_type) {
+                    (Type::Float, _) | (_, Type::Float) => Type::Float,
+                    (Type::Int, Type::Int) => Type::Int,
+                    (Type::Variable(_), Type::Int) | (Type::Int, Type::Variable(_)) => Type::Int,
+                    (Type::Variable(_), Type::Variable(_)) => Type::Int,
+                    // Fallback: Any (e.g., String + String handled elsewhere)
+                    _ => Type::Any,
+                };
+
+                // Encourage numeric compatibility via constraints
+                match &result {
+                    Type::Float => {
+                        // Allow Int -> Float promotion via assignability; add soft constraints
+                        // T == Float or Int allowed; we don't have soft constraints, so tie both sides.
+                        self.inference_engine.add_constraint(left_type.clone(), left_type.clone());
+                        self.inference_engine.add_constraint(right_type.clone(), right_type.clone());
+                    }
+                    Type::Int => {
+                        self.inference_engine.add_constraint(left_type.clone(), left_type.clone());
+                        self.inference_engine.add_constraint(right_type.clone(), right_type.clone());
+                    }
+                    _ => {}
+                }
+                Ok(result)
             }
 
             // Comparison operators
-            crate::op::BinOp::Eq | crate::op::BinOp::Ne |
+            crate::op::BinOp::Eq | crate::op::BinOp::Ne => {
+                // Equality comparisons allowed for any types
+                Ok(Type::Bool)
+            }
             crate::op::BinOp::Lt | crate::op::BinOp::Le |
             crate::op::BinOp::Gt | crate::op::BinOp::Ge => {
-                // Comparisons always return bool
+                // Enforce numeric operands for ordering comparisons
+                let lhs_ok = matches!(left_type, Type::Int | Type::Float | Type::Variable(_));
+                let rhs_ok = matches!(right_type, Type::Int | Type::Float | Type::Variable(_));
+                if !lhs_ok {
+                    return Err(Self::type_err(
+                        "Ordering comparison requires numeric left operand",
+                        None,
+                        Some(left_type),
+                        Some(Expr::Bin(Box::new(left.clone()), op.clone(), Box::new(right.clone())))
+                    ));
+                }
+                if !rhs_ok {
+                    return Err(Self::type_err(
+                        "Ordering comparison requires numeric right operand",
+                        None,
+                        Some(right_type),
+                        Some(Expr::Bin(Box::new(left.clone()), op.clone(), Box::new(right.clone())))
+                    ));
+                }
                 Ok(Type::Bool)
             }
 
@@ -183,7 +248,12 @@ impl TypeChecker {
                 // Check if right type is container
                 match &right_type {
                     Type::List(_) | Type::Map(_, _) => Ok(Type::Bool),
-                    _ => Err(anyhow!("'in' operator requires container type, got {}", right_type.display())),
+                    _ => Err(Self::type_err(
+                        "'in' operator requires container type",
+                        Some(Type::List(Box::new(Type::Any))),
+                        Some(right_type),
+                        Some(Expr::Bin(Box::new(left.clone()), op.clone(), Box::new(right.clone()))),
+                    )),
                 }
             }
         }
@@ -196,10 +266,10 @@ impl TypeChecker {
 
         // Both operands must be boolean
         if left_type != Type::Bool {
-            return Err(anyhow!("Expected boolean type for logical operation, got {}", left_type.display()));
+            return Err(Self::type_err("Expected boolean type for logical operation", Some(Type::Bool), Some(left_type), None));
         }
         if right_type != Type::Bool {
-            return Err(anyhow!("Expected boolean type for logical operation, got {}", right_type.display()));
+            return Err(Self::type_err("Expected boolean type for logical operation", Some(Type::Bool), Some(right_type), None));
         }
 
         Ok(result_type)
@@ -212,7 +282,7 @@ impl TypeChecker {
         match op {
             crate::op::UnaryOp::Not => {
                 if expr_type != Type::Bool {
-                    return Err(anyhow!("Expected boolean type for '!' operator, got {}", expr_type.display()));
+                    return Err(Self::type_err("Expected boolean type for '!' operator", Some(Type::Bool), Some(expr_type), None));
                 }
                 Ok(Type::Bool)
             }
@@ -273,7 +343,7 @@ impl TypeChecker {
             Type::List(elem_type) => {
                 // Field must be integer index
                 if field_type != Type::Int {
-                    return Err(anyhow!("List index must be integer, got {}", field_type.display()));
+                    return Err(Self::type_err("List index must be integer", Some(Type::Int), Some(field_type), None));
                 }
                 Ok((*elem_type).clone())
             }
@@ -282,7 +352,7 @@ impl TypeChecker {
                 self.inference_engine.add_constraint((*key_type).clone(), field_type);
                 Ok((*value_type).clone())
             }
-            _ => Err(anyhow!("Cannot access field on type {}", expr_type.display())),
+            _ => Err(Self::type_err("Cannot access field on type", None, Some(expr_type), None)),
         }
     }
 
@@ -311,10 +381,22 @@ impl TypeChecker {
 
         match expr_type {
             Type::Optional(inner) => {
-                // Check field access on inner type, wrap result in optional
+                // Evaluate access on the inner type; result becomes optional
                 match *inner {
-                    Type::Map(_, value_type) => Ok(Type::Optional(value_type)),
-                    _ => Err(anyhow!("Cannot access field on type {}", inner.display())),
+                    Type::List(ref elem_type) => {
+                        // index must be Int
+                        let field_ty = self.check_expr(field)?;
+                        if field_ty != Type::Int {
+                            return Err(Self::type_err("List index must be integer", Some(Type::Int), Some(field_ty), None));
+                        }
+                        Ok(Type::Optional(elem_type.clone()))
+                    }
+                    Type::Map(ref key_type, ref value_type) => {
+                        let field_ty = self.check_expr(field)?;
+                        self.inference_engine.add_constraint((**key_type).clone(), field_ty);
+                        Ok(Type::Optional(value_type.clone()))
+                    }
+                    _ => Err(Self::type_err("Cannot access field on type", None, Some(*inner), None)),
                 }
             }
             Type::Nil => Ok(Type::Nil),
@@ -329,11 +411,7 @@ impl TypeChecker {
         match func_type {
             Type::Function { params, return_type } => {
                 if params.len() != args.len() {
-                    return Err(anyhow!(
-                        "Function expects {} arguments, got {}",
-                        params.len(),
-                        args.len()
-                    ));
+                    return Err(Self::type_err(&format!("Function expects {} arguments", params.len()), None, None, None));
                 }
 
                 // Check each argument type
@@ -344,7 +422,7 @@ impl TypeChecker {
 
                 Ok(*return_type)
             }
-            _ => Err(anyhow!("Cannot call non-function type {}", func_type.display())),
+            _ => Err(Self::type_err("Cannot call non-function type", None, Some(func_type), None)),
         }
     }
 
@@ -357,7 +435,7 @@ impl TypeChecker {
         } else if let Some(default_expr) = default {
             self.check_expr(default_expr)?
         } else {
-            return Err(anyhow!("Select expression must have at least one case or default"));
+            return Err(Self::type_err("Select expression must have at least one case or default", None, None, None));
         };
 
         // Check all cases and default have compatible types
@@ -386,7 +464,7 @@ impl TypeChecker {
                     let expr_type = self.check_expr(expr)?;
                     // Check if expression can be converted to string
                     if !expr_type.is_assignable_to(&Type::String) {
-                        return Err(anyhow!("Template string expression must be string-coercible, got {}", expr_type.display()));
+                        return Err(Self::type_err("Template string expression must be string-coercible", Some(Type::String), Some(expr_type), Some(*expr.clone())));
                     }
                 }
             }
@@ -411,7 +489,7 @@ impl TypeChecker {
                 self.inference_engine.add_constraint(*inner, value_type);
                 Ok(Type::Nil)
             }
-            _ => Err(anyhow!("Cannot send to non-channel type {}", channel_type.display())),
+            _ => Err(Self::type_err("Cannot send to non-channel type", None, Some(channel_type), Some(channel.clone()))),
         }
     }
 
@@ -421,7 +499,7 @@ impl TypeChecker {
 
         match channel_type {
             Type::Channel(inner) => Ok((*inner).clone()),
-            _ => Err(anyhow!("Cannot receive from non-channel type {}", channel_type.display())),
+            _ => Err(Self::type_err("Cannot receive from non-channel type", None, Some(channel_type), Some(channel.clone()))),
         }
     }
 
@@ -569,8 +647,8 @@ mod tests {
         );
 
         let result_type = checker.check_expr(&add_expr).unwrap();
-        // For now, binary ops return Any due to flexible numeric types
-        assert!(matches!(result_type, Type::Any));
+        // Now numeric ops infer Int for Int+Int
+        assert!(matches!(result_type, Type::Int));
     }
 
     #[test]
