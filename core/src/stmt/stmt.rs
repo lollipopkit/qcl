@@ -82,10 +82,14 @@ pub enum Stmt {
     Continue,
     /// return [expression];
     Return { value: Option<Box<Expr>> },
-    /// fn name(param1, param2) { body }
+    /// fn name(param1[: type], ...) [-> type] { body }
     Function {
         name: String,
         params: Vec<String>,
+        /// Parameter types aligned with params; None when unannotated
+        param_types: Vec<Option<Type>>,
+        /// Optional declared return type
+        return_type: Option<Type>,
         body: Box<Stmt>,
     },
     /// expression;
@@ -355,7 +359,7 @@ impl Stmt {
                 };
                 Ok(ControlFlow::Return(return_val))
             }
-            Stmt::Function { name, params, body } => {
+            Stmt::Function { name, params, param_types: _, return_type: _, body } => {
                 let func_val = Val::Closure {
                     params: Arc::new(params.clone()),
                     body: Arc::new((**body).clone()),
@@ -459,13 +463,14 @@ impl Stmt {
 
                 Ok(())
             }
-            Stmt::Function { name, params, body } => {
+            Stmt::Function { name, params, param_types, return_type, body } => {
                 // 为函数参数创建新的作用域
                 type_checker.push_scope();
 
-                // 参数类型暂时设为 Any，未来可以支持参数类型注解
-                for param in params {
-                    type_checker.add_local_type(param.clone(), Type::Any);
+                // 将参数类型加入作用域（默认 Any；有注解用注解）
+                for (i, param) in params.iter().enumerate() {
+                    let ty = param_types.get(i).cloned().flatten().unwrap_or(Type::Any);
+                    type_checker.add_local_type(param.clone(), ty);
                 }
 
                 // 检查函数体
@@ -476,8 +481,10 @@ impl Stmt {
 
                 // 将函数添加到当前作用域，类型为 Function
                 let func_type = Type::Function {
-                    params: params.iter().map(|_| Type::Any).collect(),
-                    return_type: Box::new(Type::Any), // 暂时设为 Any，未来可以支持返回类型推断
+                    params: params.iter().enumerate().map(|(i, _)| {
+                        param_types.get(i).cloned().flatten().unwrap_or(Type::Any)
+                    }).collect(),
+                    return_type: Box::new(return_type.clone().unwrap_or(Type::Any)),
                 };
                 type_checker.add_local_type(name.clone(), func_type);
 
@@ -850,8 +857,25 @@ impl Display for Stmt {
                     write!(f, "return;")
                 }
             }
-            Stmt::Function { name, params, body } => {
-                write!(f, "fn {}({}) {}", name, params.join(", "), body)
+            Stmt::Function { name, params, param_types, return_type, body } => {
+                // Format parameters with optional types
+                let parts: Vec<String> = params.iter().enumerate().map(|(i, p)| {
+                    match param_types.get(i).and_then(|t| t.clone()) {
+                        Some(ty) => format!("{}: {}", p, ty.display()),
+                        None => p.clone(),
+                    }
+                }).collect();
+                // Format return type and elide full body to avoid huge/recursive prints
+                let body_summary = if let Stmt::Block { statements } = &**body {
+                    format!("... ({} statements) ...", statements.len())
+                } else {
+                    "...".to_string()
+                };
+                if let Some(rt) = return_type {
+                    write!(f, "fn {}({}) -> {} {{ {} }}", name, parts.join(", "), rt.display(), body_summary)
+                } else {
+                    write!(f, "fn {}({}) {{ {} }}", name, parts.join(", "), body_summary)
+                }
             }
             Stmt::Expr(expr) => {
                 write!(f, "{};", expr)

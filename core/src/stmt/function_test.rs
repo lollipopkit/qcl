@@ -16,7 +16,7 @@ mod tests {
         let mut parser = StmtParser::new(&tokens);
         let stmt = parser.parse_statement()?;
 
-        if let Stmt::Function { name, params, body } = stmt {
+        if let Stmt::Function { name, params, body, .. } = stmt {
             assert_eq!(name, "add");
             assert_eq!(params, vec!["a", "b"]);
             assert!(matches!(body.as_ref(), Stmt::Block { .. }));
@@ -34,11 +34,7 @@ mod tests {
         let mut parser = StmtParser::new(&tokens);
         let stmt = parser.parse_statement()?;
 
-        if let Stmt::Function {
-            name,
-            params,
-            body: _,
-        } = stmt
+        if let Stmt::Function { name, params, .. } = stmt
         {
             assert_eq!(name, "hello");
             assert!(params.is_empty());

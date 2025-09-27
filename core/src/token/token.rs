@@ -470,6 +470,12 @@ impl Tokenizer {
                 break;
             }
         }
+        // Guard against empty identifiers (e.g., unknown unicode punctuation like '；').
+        // If we didn't consume any character, report an unknown character to avoid
+        // non-advancing loops that can blow up memory.
+        if id.is_empty() {
+            return Err(anyhow!(self.err("Invalid identifier start or unknown character")));
+        }
         let end_pos = self.current_position();
         self.push_with_span(Token::Id(id), start_pos, end_pos);
         Ok(())

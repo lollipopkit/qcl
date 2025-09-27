@@ -566,30 +566,56 @@ impl<'a> StmtParser<'a> {
 
         // 解析参数列表
         self.expect_token(Token::LParen)?;
-        let mut params = Vec::new();
+        let mut params: Vec<String> = Vec::new();
+        let mut param_types: Vec<Option<Type>> = Vec::new();
 
         while !self.eof() && self.tokens[self.pos] != Token::RParen {
-            if let Token::Id(param) = &self.tokens[self.pos] {
-                params.push(param.clone());
+            // 参数名
+            let param_name = if let Token::Id(param) = &self.tokens[self.pos] {
+                let p = param.clone();
                 self.pos += 1;
-
-                // 如果下一个token是逗号，则继续解析参数
-                if !self.eof() && self.tokens[self.pos] == Token::Comma {
-                    self.pos += 1;
-                } else if self.tokens[self.pos] != Token::RParen {
-                    return Err(anyhow!(self.err("Expected ',' or ')' in parameter list")));
-                }
+                p
             } else {
                 return Err(anyhow!(self.err("Expected parameter name")));
+            };
+
+            // 可选的参数类型注解 `: Type`
+            let mut parsed_type: Option<Type> = None;
+            if !self.eof() && self.tokens[self.pos] == Token::Colon {
+                self.pos += 1; // consume ':'
+                let ty = self.parse_inline_type_until_param_delim()?;
+                parsed_type = Some(ty);
+            }
+
+            params.push(param_name);
+            param_types.push(parsed_type);
+
+            // 分隔符：逗号或结束
+            if !self.eof() && self.tokens[self.pos] == Token::Comma {
+                self.pos += 1; // 继续下一个参数
+            } else if !self.eof() && self.tokens[self.pos] == Token::RParen {
+                // end of params
+            } else if self.eof() {
+                return Err(anyhow!(self.err("Unexpected end while parsing parameters")));
+            } else {
+                return Err(anyhow!(self.err("Expected ',' or ')' in parameter list")));
             }
         }
 
         self.expect_token(Token::RParen)?;
 
+        // 可选的返回类型 `-> Type`
+        let mut return_type: Option<Type> = None;
+        if !self.eof() && self.tokens[self.pos] == Token::FnArrow {
+            self.pos += 1; // consume '->'
+            let ty = self.parse_inline_type_until_block_start()?;
+            return_type = Some(ty);
+        }
+
         // 解析函数体 (必须是块语句)
         let body = Box::new(self.parse_block_stmt()?);
 
-        Ok(Stmt::Function { name, params, body })
+        Ok(Stmt::Function { name, params, param_types, return_type, body })
     }
 
     /// 解析块语句
@@ -855,11 +881,17 @@ impl<'a> StmtParser<'a> {
             if i > 0 {
                 // Add space before pipe for union types
                 match token {
+                    // Union types
                     Token::Pipe => result.push_str(" | "),
+                    // Do NOT insert space before '<'
+                    Token::Lt => result.push_str("<"),
+                    // No leading space before these closers / separators
+                    Token::Gt | Token::Comma | Token::RParen | Token::RBracket | Token::RBrace => {
+                        result.push_str(&self.token_to_string(token));
+                    }
+                    // Default: insert a single space unless previous was '<'
                     _ => {
-                        // Add space between other tokens as needed
-                        if !matches!(tokens.get(i-1), Some(Token::Lt)) 
-                            && !matches!(token, Token::Gt | Token::Comma) {
+                        if !matches!(tokens.get(i - 1), Some(Token::Lt)) {
                             result.push(' ');
                         }
                         result.push_str(&self.token_to_string(token));
@@ -896,6 +928,87 @@ impl<'a> StmtParser<'a> {
             Token::Gt => ">".to_string(),
             _ => format!("{:?}", token),
         }
+    }
+
+    /// Parse an inline type annotation inside parameter list until reaching a comma or ')'
+    /// at zero nesting depth for (), [] and <>. Does not consume the delimiter.
+    fn parse_inline_type_until_param_delim(&mut self) -> Result<Type> {
+        let start_pos = self.pos;
+        let mut tokens: Vec<&Token> = Vec::new();
+        let mut paren: i32 = 0;
+        let mut bracket: i32 = 0;
+        let mut angle: i32 = 0;
+        let mut guard: usize = 0;
+
+        while !self.eof() {
+            guard += 1;
+            if guard > 1000 { // hard stop to avoid pathological scans
+                break;
+            }
+            let t = &self.tokens[self.pos];
+            match t {
+                Token::LParen => { paren += 1; tokens.push(t); self.pos += 1; }
+                Token::RParen => {
+                    if paren == 0 && bracket == 0 && angle == 0 { break; }
+                    if paren > 0 { paren -= 1; }
+                    tokens.push(t); self.pos += 1;
+                }
+                Token::LBracket => { bracket += 1; tokens.push(t); self.pos += 1; }
+                Token::RBracket => { if bracket > 0 { bracket -= 1; } tokens.push(t); self.pos += 1; }
+                Token::Lt => { angle += 1; tokens.push(t); self.pos += 1; }
+                Token::Gt => { if angle > 0 { angle -= 1; } tokens.push(t); self.pos += 1; }
+                Token::Comma if paren == 0 && bracket == 0 && angle == 0 => { break; }
+                _ => { tokens.push(t); self.pos += 1; }
+            }
+        }
+
+        if tokens.is_empty() {
+            // reset pos to start to avoid desync
+            self.pos = start_pos;
+            return Err(anyhow!(self.err("Expected type annotation")));
+        }
+
+        let type_str = self.tokens_to_type_string(&tokens);
+        Type::parse(&type_str)
+            .ok_or_else(|| anyhow!(self.err(&format!("Invalid type: {}", type_str))))
+    }
+
+    /// Parse a return type until the start of the function body '{' at zero depth.
+    /// Does not consume the '{'.
+    fn parse_inline_type_until_block_start(&mut self) -> Result<Type> {
+        let start_pos = self.pos;
+        let mut tokens: Vec<&Token> = Vec::new();
+        let mut paren: i32 = 0;
+        let mut bracket: i32 = 0;
+        let mut angle: i32 = 0;
+        let mut guard: usize = 0;
+
+        while !self.eof() {
+            guard += 1;
+            if guard > 2000 { // hard stop to avoid pathological scans
+                break;
+            }
+            let t = &self.tokens[self.pos];
+            match t {
+                Token::LBrace if paren == 0 && bracket == 0 && angle == 0 => { break; }
+                Token::LParen => { paren += 1; tokens.push(t); self.pos += 1; }
+                Token::RParen => { if paren > 0 { paren -= 1; } tokens.push(t); self.pos += 1; }
+                Token::LBracket => { bracket += 1; tokens.push(t); self.pos += 1; }
+                Token::RBracket => { if bracket > 0 { bracket -= 1; } tokens.push(t); self.pos += 1; }
+                Token::Lt => { angle += 1; tokens.push(t); self.pos += 1; }
+                Token::Gt => { if angle > 0 { angle -= 1; } tokens.push(t); self.pos += 1; }
+                _ => { tokens.push(t); self.pos += 1; }
+            }
+        }
+
+        if tokens.is_empty() {
+            self.pos = start_pos;
+            return Err(anyhow!(self.err("Expected return type after '->'")));
+        }
+
+        let type_str = self.tokens_to_type_string(&tokens);
+        Type::parse(&type_str)
+            .ok_or_else(|| anyhow!(self.err(&format!("Invalid return type: {}", type_str))))
     }
 
     fn err(&self, msg: &str) -> String {
