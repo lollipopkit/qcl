@@ -94,7 +94,32 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr(&mut self) -> Result<Expr> {
-        self.parse_nullish_coalescing()
+        self.parse_conditional()
+    }
+
+    /// - `cond ? then : else` (ternary conditional)
+    /// Right-associative; precedence lower than nullish coalescing/or/and.
+    fn parse_conditional(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_nullish_coalescing()?;
+        if !self.eof() && self.tokens[self.pos] == Token::Question {
+            // consume '?'
+            self.pos += 1;
+
+            // parse then branch as a full expression (it will naturally stop before ':')
+            let then_expr = self.parse_expr()?;
+
+            // expect ':'
+            if self.eof() || self.tokens[self.pos] != Token::Colon {
+                return Err(anyhow!(self.err("Expected ':' in ternary expression")));
+            }
+            self.pos += 1; // consume ':'
+
+            // parse else branch (allow nesting: right-associative)
+            let else_expr = self.parse_expr()?;
+
+            expr = Expr::Conditional(Box::new(expr), Box::new(then_expr), Box::new(else_expr));
+        }
+        Ok(expr)
     }
 
     /// - `expr ?? expr` (nullish coalescing)

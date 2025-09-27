@@ -78,6 +78,36 @@ mod test {
 
     #[test]
     #[cfg(feature = "json")]
+    fn ternary_operator() {
+        // Basic boolean conditions
+        expect("true ? 1 : 2", 1);
+        expect("false ? 1 : 2", 2);
+
+        // With context
+        expect("@pub ? @user.name : 'guest'", "lk");
+
+        // Short-circuit: only selected branch should evaluate
+        expect("false ? (@nonexistent.field) : 42", 42);
+
+        // Precedence with arithmetic on else branch
+        expect("true ? 1 : 2 + 3", 1);
+        expect("false ? 1 : 2 + 3", 5);
+
+        // Nested ternary
+        expect("true ? (false ? 1 : 2) : 3", 2);
+
+        // Nullish inside else branch
+        expect("false ? 1 : (nil ?? 5)", 5);
+
+        // Ternary as map key requires parentheses to avoid ambiguity with ':'
+        use std::collections::HashMap;
+        let mut expected = HashMap::new();
+        expected.insert("x".to_string(), Val::Int(1));
+        expect("{('a' == 'a' ? 'x' : 'y'): 1}", expected);
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
     fn nullish_coalescing_operations() {
         // Basic nullish coalescing with nil values
         expect("@nonexistent.field ?? 'default'", "default");

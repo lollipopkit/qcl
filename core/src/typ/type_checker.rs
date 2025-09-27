@@ -111,6 +111,18 @@ impl TypeChecker {
             Expr::Access(expr, field) => self.check_access(expr, field),
             Expr::NullishCoalescing(expr, default) => self.check_nullish_coalescing(expr, default),
             Expr::OptionalAccess(expr, field) => self.check_optional_chaining(expr, field),
+            Expr::Conditional(cond, then_expr, else_expr) => {
+                // condition must be Bool
+                let cond_ty = self.check_expr(cond)?;
+                if cond_ty != Type::Bool {
+                    return Err(Self::type_err("Ternary condition must be Bool", Some(Type::Bool), Some(cond_ty), Some(*cond.clone())));
+                }
+                let then_ty = self.check_expr(then_expr)?;
+                let else_ty = self.check_expr(else_expr)?;
+                // unify then/else types; return the unified type (prefer then_ty)
+                self.inference_engine.add_constraint(then_ty.clone(), else_ty.clone());
+                Ok(then_ty)
+            }
             // Functions - handle both Call (string name) and CallExpr (expression)
             Expr::Call(func, args) => {
                 // For Call with string name, create a variable expression for the function

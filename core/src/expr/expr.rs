@@ -97,6 +97,8 @@ pub enum Expr {
     Bin(Box<Expr>, BinOp, Box<Expr>),
     /// !expr
     Unary(UnaryOp, Box<Expr>),
+    /// cond ? then_expr : else_expr
+    Conditional(Box<Expr>, Box<Expr>, Box<Expr>),
     /// expr && expr
     And(Box<Expr>, Box<Expr>),
     /// expr || expr
@@ -169,6 +171,14 @@ impl Expr {
                 let left_val = l.eval_with_env(ctx, env)?;
                 let right_val = r.eval_with_env(ctx, env)?;
                 op.eval_vals(&left_val, &right_val)
+            }
+            Expr::Conditional(cond, then_expr, else_expr) => {
+                let cv = cond.eval_with_env(ctx, env)?;
+                match cv {
+                    Val::Bool(true) => then_expr.eval_with_env(ctx, env),
+                    Val::Bool(false) => else_expr.eval_with_env(ctx, env),
+                    _ => Err(anyhow!("Ternary condition must be Bool, got: {:?}", cv)),
+                }
             }
             Expr::Unary(op, expr) => {
                 let val = expr.eval_with_env(ctx, env)?;
@@ -657,6 +667,11 @@ impl Expr {
     /// eg.: `@user.props.(@req.service).value && @list` => `["user", "req", "list"]`
     fn collect_ctx_names(&self, names: &mut HashSet<String>) {
         match self {
+            Expr::Conditional(c, t, e) => {
+                c.collect_ctx_names(names);
+                t.collect_ctx_names(names);
+                e.collect_ctx_names(names);
+            }
             Expr::At(paths) => {
                 if !paths.is_empty() {
                     // The first path element is the context name
@@ -845,6 +860,15 @@ impl Expr {
                 }
                 // Partial folding: left and right nodes already folded, but current node can't fold to constant
                 Expr::Bin(Box::new(left), op, Box::new(right))
+            }
+            Expr::Conditional(c_box, t_box, e_box) => {
+                let c = (*c_box).fold_constants();
+                let t = (*t_box).fold_constants();
+                let e = (*e_box).fold_constants();
+                if let Expr::Val(Val::Bool(b)) = c {
+                    return if b { t } else { e };
+                }
+                Expr::Conditional(Box::new(c), Box::new(t), Box::new(e))
             }
             Expr::Unary(op, expr_box) => {
                 let inner = (*expr_box).fold_constants();
@@ -1172,6 +1196,7 @@ impl Display for Expr {
         match self {
             Expr::Bin(left, op, right) => write!(f, "{left} {op:?} {right}"),
             Expr::Unary(op, expr) => write!(f, "{op:?}{expr}"),
+            Expr::Conditional(c, t, e) => write!(f, "{} ? {} : {}", c, t, e),
             Expr::And(left, right) => write!(f, "{left} && {right}"),
             Expr::Or(left, right) => write!(f, "{left} || {right}"),
             Expr::NullishCoalescing(left, right) => write!(f, "{left} ?? {right}"),

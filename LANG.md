@@ -59,6 +59,14 @@ fn add(a, b) { return a + b; }
 && || !
 ```
 
+### Conditional (Ternary)
+```
+cond ? then : else
+```
+- Right-associative.
+- Lowest precedence among expression operators (evaluated after `||`, `&&`, comparisons, and arithmetic).
+- Only the selected branch is evaluated.
+
 ### Access
 ```
 @ . ()
@@ -96,7 +104,8 @@ sqrt(@req.user.level)
 
 ### Expression Grammar (precedence hierarchy):
 ```ebnf
-exp     ::= or
+exp     ::= conditional
+conditional ::= or [ '?' expr ':' expr ]
 or      ::= and { '||' and }
 and     ::= cmp { '&&' cmp }
 cmp     ::= addsub { ('==' | '!=' | '<' | '>' | '<=' | '>=' | 'in') addsub }
