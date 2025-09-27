@@ -806,4 +806,18 @@ mod tests {
             Token::Id("user".to_string()),
         ]);
     }
+
+    #[test]
+    fn test_import_math_as_alias_tokenization() {
+        let src = "import math as m;";
+        let tokens = Tokenizer::tokenize(src).expect("tokenize failed");
+        let expected = vec![
+            Token::Import,
+            Token::Id("math".to_string()),
+            Token::As,
+            Token::Id("m".to_string()),
+            Token::Semicolon,
+        ];
+        assert_eq!(tokens, expected);
+    }
 }
