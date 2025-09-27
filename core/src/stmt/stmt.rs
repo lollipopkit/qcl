@@ -22,6 +22,9 @@ pub enum ForPattern {
         patterns: Vec<ForPattern>,
         rest: Option<String>, // for [a, b, ..rest] or [a, b, ..]
     },
+    /// 对象解构：for {"k1": v1, "k2": v2} in iter
+    /// 仅支持字符串字面量作为键，值位置可以是变量或更深的模式（递归支持）
+    Object(Vec<(String, ForPattern)>),
 }
 
 /// Statement AST 节点类型定义
@@ -644,6 +647,31 @@ impl Stmt {
                     }
                 }
             }
+            ForPattern::Object(entries) => {
+                // 目前仅支持元素为 Map<K, V> 的列表：List<Map<K,V>>
+                // 将每个绑定变量加入作用域，类型为 V（未知则 Any）
+                let value_ty = match iter_type {
+                    Type::List(inner) => match &**inner {
+                        Type::Map(_k, v) => Some((**v).clone()),
+                        _ => None,
+                    },
+                    // 直接迭代 Map 时 create_iterator 产生 [key,value] 对，不适配对象解构
+                    _ => None,
+                }.unwrap_or(Type::Any);
+
+                for (_key, subpat) in entries {
+                    match subpat {
+                        ForPattern::Variable(name) => {
+                            type_checker.add_local_type(name.clone(), value_ty.clone());
+                        }
+                        ForPattern::Ignore => {}
+                        // 对于嵌套模式，保守地继续使用相同的 value_ty
+                        other => {
+                            Self::add_pattern_types(other, &value_ty, type_checker)?;
+                        }
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -783,6 +811,22 @@ fn bind_pattern(pattern: &ForPattern, value: &Val, env: &mut Environment) -> Res
             }
             _ => Err(anyhow!(
                 "Cannot match array pattern against non-list value: {:?}",
+                value
+            )),
+        },
+        ForPattern::Object(entries) => match value {
+            Val::Map(map) => {
+                for (key, subpat) in entries {
+                    if let Some(v) = map.get(key) {
+                        bind_pattern(subpat, v, env)?;
+                    } else {
+                        return Err(anyhow!("Missing key '{}' in object pattern", key));
+                    }
+                }
+                Ok(())
+            }
+            _ => Err(anyhow!(
+                "Cannot match object pattern against non-map value: {:?}",
                 value
             )),
         },
@@ -959,6 +1003,14 @@ fn format_pattern(pattern: &ForPattern) -> String {
                 parts.push("..".to_string());
             }
             format!("[{}]", parts.join(", "))
+        }
+        ForPattern::Object(entries) => {
+            let parts = entries
+                .iter()
+                .map(|(k, v)| format!("\"{}\": {}", k, format_pattern(v)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{{{}}}", parts)
         }
     }
 }

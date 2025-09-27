@@ -453,6 +453,60 @@ impl<'a> StmtParser<'a> {
                 self.pos += 1; // 消费 ']'
                 Ok(ForPattern::Array { patterns, rest })
             }
+            // 对象模式: {"k1": v1, "k2": v2}
+            Token::LBrace => {
+                self.pos += 1; // 消费 '{'
+                let mut entries: Vec<(String, ForPattern)> = Vec::new();
+
+                // 处理空对象 {}
+                if !self.eof() && self.tokens[self.pos] == Token::RBrace {
+                    self.pos += 1;
+                    return Ok(ForPattern::Object(entries));
+                }
+
+                loop {
+                    if self.eof() {
+                        return Err(anyhow!(self.err("Expected string key in object pattern")));
+                    }
+
+                    // 键必须是字符串字面量
+                    let key = if let Token::Str(s) = &self.tokens[self.pos] {
+                        let k = s.clone();
+                        self.pos += 1;
+                        k
+                    } else {
+                        return Err(anyhow!(self.err("Expected string key in object pattern")));
+                    };
+
+                    // 冒号
+                    self.expect_token(Token::Colon)?;
+
+                    // 值部分可以是任意 for 模式（变量、_、元组、数组、嵌套对象等）
+                    let value_pattern = self.parse_for_pattern()?;
+
+                    entries.push((key, value_pattern));
+
+                    if self.eof() {
+                        return Err(anyhow!(self.err("Expected '}' in object pattern")));
+                    }
+
+                    match &self.tokens[self.pos] {
+                        Token::Comma => {
+                            self.pos += 1; // 继续解析下一个键值
+                            // 允许尾随逗号
+                            if !self.eof() && self.tokens[self.pos] == Token::RBrace {
+                                break;
+                            }
+                            continue;
+                        }
+                        Token::RBrace => break,
+                        _ => return Err(anyhow!(self.err("Expected ',' or '}' in object pattern"))),
+                    }
+                }
+
+                self.pos += 1; // 消费 '}'
+                Ok(ForPattern::Object(entries))
+            }
             _ => Err(anyhow!(self.err("Expected pattern after 'for'"))),
         }
     }
