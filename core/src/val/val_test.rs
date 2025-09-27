@@ -389,7 +389,7 @@ mod tests {
     #[test]
     #[cfg(feature = "json")]
     fn test_format_detection_json() {
-        use crate::de::{Format, detect_format};
+        use crate::val::de::{Format, detect_format};
 
         // JSON detection
         assert_eq!(detect_format(r#"{"key": "value"}"#), Format::Json);
@@ -410,7 +410,7 @@ mod tests {
     #[test]
     #[cfg(feature = "yaml")]
     fn test_format_detection_yaml() {
-        use crate::de::{Format, detect_format};
+        use crate::val::de::{Format, detect_format};
 
         // YAML detection
         assert_eq!(detect_format("key: value"), Format::Yaml);
@@ -434,7 +434,7 @@ mod tests {
     #[test]
     #[cfg(all(feature = "json", feature = "yaml"))]
     fn test_format_detection_all() {
-        use crate::de::{Format, detect_format};
+        use crate::val::de::{Format, detect_format};
 
         // JSON detection
         assert_eq!(detect_format(r#"{"key": "value"}"#), Format::Json);
@@ -473,7 +473,7 @@ mod tests {
     #[test]
     #[cfg(feature = "json")]
     fn test_parse_with_format_json() {
-        use crate::de::{Format, parse_with_format};
+        use crate::val::de::{Format, parse_with_format};
 
         // Auto-detect JSON
         let json_input = r#"{"name": "Alice", "age": 30}"#;
@@ -496,7 +496,7 @@ mod tests {
     #[test]
     #[cfg(feature = "yaml")]
     fn test_parse_with_format_yaml() {
-        use crate::de::{Format, parse_with_format};
+        use crate::val::de::{Format, parse_with_format};
 
         // Auto-detect YAML
         let yaml_input = "name: Bob\nage: 25";
@@ -519,7 +519,7 @@ mod tests {
     #[test]
     #[cfg(all(feature = "json", feature = "yaml"))]
     fn test_parse_with_format_all() {
-        use crate::de::{Format, parse_with_format};
+        use crate::val::de::{Format, parse_with_format};
 
         // Auto-detect JSON
         let json_input = r#"{"name": "Alice", "age": 30}"#;

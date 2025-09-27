@@ -1,13 +1,17 @@
 use std::io::{BufRead, IsTerminal};
 use std::{collections::HashMap, sync::Arc};
 
+use qcl_core::stmt::ModuleResolver;
 use qcl_core::{
-    de, expr::Expr, import, module::ModuleRegistry, stmt, stmt_parser::StmtParser,
-    token::Tokenizer, val::Val,
+    expr::Expr,
+    module::ModuleRegistry,
+    stmt::{self, stmt_parser::StmtParser},
+    token::Tokenizer,
+    val::{de, Val},
 };
 
 #[cfg(feature = "concurrency")]
-use qcl_core::runtime;
+use qcl_core::rt;
 
 fn read_file_content(path: &str) -> anyhow::Result<String> {
     std::fs::read_to_string(path)
@@ -118,7 +122,7 @@ fn main() -> anyhow::Result<()> {
     // Initialize runtime for concurrency if needed (for both statement and expression modes)
     #[cfg(feature = "concurrency")]
     {
-        if let Err(e) = runtime::init_runtime() {
+        if let Err(e) = rt::init_runtime() {
             eprintln!("Warning: Failed to initialize runtime: {}", e);
         }
     }
@@ -132,7 +136,7 @@ fn main() -> anyhow::Result<()> {
                 std::process::exit(1);
             }
         };
-        
+
         let mut parser = StmtParser::new_with_spans(&tokens, &spans);
         let program = match parser.parse_program_with_enhanced_errors(&input) {
             Ok(program) => program,
@@ -148,7 +152,7 @@ fn main() -> anyhow::Result<()> {
         qcl_stdlib::register_stdlib_modules(&mut registry);
 
         // Create environment with stdlib modules
-        let resolver = Arc::new(import::ModuleResolver::with_registry(registry));
+        let resolver = Arc::new(ModuleResolver::with_registry(registry));
         let mut env = stmt::Environment::with_resolver(resolver);
 
         program.execute_with_env(&ctx, &mut env)
@@ -159,7 +163,7 @@ fn main() -> anyhow::Result<()> {
 
     // Shutdown runtime after execution
     #[cfg(feature = "concurrency")]
-    runtime::shutdown_runtime();
+    rt::shutdown_runtime();
 
     match result {
         Ok(res) => {

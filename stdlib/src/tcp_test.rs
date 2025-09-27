@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::tcp::TcpModule;
-    use qcl_core::{import::ModuleResolver, module::Module, stmt::Environment, val::Val};
+    use qcl_core::{module::Module, stmt::{Environment, ModuleResolver}, val::Val};
     use std::sync::Arc;
 
     fn create_test_env() -> Environment {

@@ -11,7 +11,7 @@ use crate::{
     op::{BinOp, UnaryOp, err_op},
     token::Tokenizer,
     val::{Type, Val},
-    type_checker::TypeChecker,
+    typ::TypeChecker,
 };
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
@@ -362,7 +362,7 @@ impl Expr {
                         async move { expr_clone.eval_with_env(&ctx_clone, env_clone.as_ref()) };
 
                     // Spawn the task using the runtime
-                    match crate::runtime::with_runtime(|runtime| runtime.spawn(future)) {
+                    match crate::rt::with_runtime(|runtime| runtime.spawn(future)) {
                         Ok(task_id) => {
                             Ok(Val::Task {
                                 id: task_id,
@@ -423,7 +423,7 @@ impl Expr {
                     } else {
                         Some(capacity_num as usize)
                     };
-                    match crate::runtime::with_runtime(|runtime| {
+                    match crate::rt::with_runtime(|runtime| {
                         runtime.create_channel(capacity_opt)
                     }) {
                         Ok(channel_id) => Ok(Val::Channel {
@@ -456,7 +456,7 @@ impl Expr {
                 #[cfg(feature = "concurrency")]
                 {
                     if let Val::Channel { id, .. } = channel_val {
-                        match crate::runtime::with_runtime(|runtime| {
+                        match crate::rt::with_runtime(|runtime| {
                             runtime.block_on(runtime.send_async(id, value_val))
                         }) {
                             Ok(sent) => Ok(Val::Bool(sent)),
@@ -479,7 +479,7 @@ impl Expr {
                 #[cfg(feature = "concurrency")]
                 {
                     if let Val::Channel { id, .. } = channel_val {
-                        match crate::runtime::with_runtime(|runtime| {
+                        match crate::rt::with_runtime(|runtime| {
                             runtime.block_on(runtime.recv_async(id))
                         }) {
                             Ok((ok, value)) => Ok(Val::List(vec![Val::Bool(ok), value].into())),
@@ -501,7 +501,7 @@ impl Expr {
             } => {
                 #[cfg(feature = "concurrency")]
                 {
-                    use crate::runtime::SelectOperation;
+                    use crate::rt::SelectOperation;
 
                     let mut select_op = SelectOperation::new();
                     let mut bindings: Vec<Option<String>> = Vec::with_capacity(cases.len());
@@ -537,7 +537,7 @@ impl Expr {
                         return Ok(Val::Nil);
                     }
 
-                    let select_result = crate::runtime::with_runtime(|runtime| {
+                    let select_result = crate::rt::with_runtime(|runtime| {
                         runtime.block_on(select_op.execute(runtime, has_default))
                     })?;
 

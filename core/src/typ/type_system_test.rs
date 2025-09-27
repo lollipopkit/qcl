@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::type_system::*;
+    use crate::typ::type_system::*;
     use crate::val::Type;
     use crate::token::Tokenizer;
     use std::collections::HashMap;

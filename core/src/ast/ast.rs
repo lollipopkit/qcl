@@ -1,7 +1,7 @@
 use crate::{
     expr::{Expr, SelectCase, SelectPattern, TemplateStringPart},
     op::{BinOp, UnaryOp},
-    token::{Token, Tokenizer},
+    token::{offset_to_position, ParseError, Span, Token, Tokenizer},
     val::Val,
 };
 use anyhow::{Result, anyhow};
@@ -11,7 +11,7 @@ pub struct Parser<'a> {
     tokens: &'a [Token],
     pos: usize,
     len: usize,
-    token_spans: Option<&'a [crate::error::Span]>,
+    token_spans: Option<&'a [Span]>,
 }
 
 impl<'a> Parser<'a> {
@@ -34,7 +34,7 @@ impl<'a> Parser<'a> {
     pub fn parse_with_enhanced_errors(
         &mut self,
         input: &str,
-    ) -> std::result::Result<Expr, crate::error::ParseError> {
+    ) -> std::result::Result<Expr, ParseError> {
         if self.eof() {
             return Ok(Expr::Val(Val::Nil));
         }
@@ -46,12 +46,12 @@ impl<'a> Parser<'a> {
                 if let Some(spans) = &self.token_spans
                     && self.pos < spans.len()
                 {
-                    return Err(crate::error::ParseError::with_span(
+                    return Err(ParseError::with_span(
                         err.to_string(),
                         spans[self.pos].clone(),
                     ));
                 }
-                let position = crate::error::offset_to_position(
+                let position = offset_to_position(
                     input,
                     if self.pos < self.tokens.len() && self.pos > 0 {
                         self.pos * input.len() / self.tokens.len().max(1)
@@ -59,7 +59,7 @@ impl<'a> Parser<'a> {
                         input.len()
                     },
                 );
-                return Err(crate::error::ParseError::with_position(
+                return Err(ParseError::with_position(
                     err.to_string(),
                     position,
                 ));
@@ -70,12 +70,12 @@ impl<'a> Parser<'a> {
             if let Some(spans) = &self.token_spans
                 && self.pos < spans.len()
             {
-                return Err(crate::error::ParseError::with_span(
+                return Err(ParseError::with_span(
                     "Unexpected tokens at end".to_string(),
                     spans[self.pos].clone(),
                 ));
             }
-            let position = crate::error::offset_to_position(
+            let position = offset_to_position(
                 input,
                 if self.pos < self.tokens.len() {
                     self.pos * input.len() / self.tokens.len().max(1)
@@ -83,7 +83,7 @@ impl<'a> Parser<'a> {
                     input.len()
                 },
             );
-            return Err(crate::error::ParseError::with_position(
+            return Err(ParseError::with_position(
                 "Unexpected tokens at end".to_string(),
                 position,
             ));
@@ -1154,9 +1154,9 @@ impl<'a> Parser<'a> {
     /// multiple issues within a single line/chunk.
     pub fn recover_expression_errors(
         tokens: &'a [Token],
-        spans: &'a [crate::error::Span],
+        spans: &'a [Span],
         input: &str,
-    ) -> Vec<crate::error::ParseError> {
+    ) -> Vec<ParseError> {
         let mut errors = Vec::new();
         let len = tokens.len();
         let mut i = 0usize;
@@ -1301,7 +1301,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Create a parser with token spans for precise error reporting
-    pub fn new_with_spans(tokens: &'a [Token], spans: &'a [crate::error::Span]) -> Self {
+    pub fn new_with_spans(tokens: &'a [Token], spans: &'a [Span]) -> Self {
         let len = tokens.len();
         Self {
             tokens,

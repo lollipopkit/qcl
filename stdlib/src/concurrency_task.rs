@@ -77,7 +77,7 @@ fn task_await(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> R
         Val::Task { id, value: _ } => {
             #[cfg(feature = "concurrency")]
             {
-                match qcl_core::runtime::with_runtime(|runtime| {
+                match qcl_core::rt::with_runtime(|runtime| {
                     runtime.block_on(runtime.join_task(*id))
                 }) {
                     Ok(result) => Ok(result),
@@ -129,7 +129,7 @@ fn task_join_all(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -
             Val::Task { id, value: _ } => {
                 #[cfg(feature = "concurrency")]
                 {
-                    match qcl_core::runtime::with_runtime(|runtime| {
+                    match qcl_core::rt::with_runtime(|runtime| {
                         runtime.block_on(runtime.join_task(*id))
                     }) {
                         Ok(result) => results.push(result),
@@ -165,7 +165,7 @@ fn task_sleep(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> R
 
     #[cfg(feature = "concurrency")]
     {
-        match qcl_core::runtime::with_runtime(|runtime| {
+        match qcl_core::rt::with_runtime(|runtime| {
             let duration = std::time::Duration::from_millis(duration_ms as u64);
             runtime.block_on(async {
                 tokio::time::sleep(duration).await;
@@ -212,7 +212,7 @@ fn task_spawn_blocking(
     {
         // Note: This is a simplified implementation that doesn't capture env/ctx
         // In a full implementation, we'd need to handle the lifetime issues
-        match qcl_core::runtime::with_runtime(|runtime| {
+        match qcl_core::rt::with_runtime(|runtime| {
             let future = async move {
                 // For now, execute with empty context
                 func(&[], &qcl_core::stmt::Environment::new(), &Val::Nil)

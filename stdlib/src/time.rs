@@ -78,7 +78,7 @@ fn time_sleep(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> R
 
     #[cfg(feature = "concurrency")]
     {
-        match qcl_core::runtime::with_runtime(|runtime| {
+        match qcl_core::rt::with_runtime(|runtime| {
             let duration = std::time::Duration::from_millis(duration_ms as u64);
             runtime.block_on(async {
                 tokio::time::sleep(duration).await;
@@ -112,7 +112,7 @@ fn time_timeout(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) ->
 
     #[cfg(feature = "concurrency")]
     {
-        match qcl_core::runtime::with_runtime(|runtime| {
+        match qcl_core::rt::with_runtime(|runtime| {
             let duration = std::time::Duration::from_millis(duration_ms as u64);
 
             // Create a channel for the timeout
@@ -125,7 +125,7 @@ fn time_timeout(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) ->
             let future = async move {
                 tokio::time::sleep(duration).await;
                 // Use a new runtime reference to send the signal
-                match qcl_core::runtime::with_runtime(|rt| rt.try_send(timeout_channel_id, Val::Nil)) {
+                match qcl_core::rt::with_runtime(|rt| rt.try_send(timeout_channel_id, Val::Nil)) {
                     Ok(_success) => Ok(Val::Nil),
                     Err(e) => Err(anyhow!("Failed to send timeout signal: {}", e)),
                 }
@@ -168,7 +168,7 @@ fn time_after(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> R
 
     #[cfg(feature = "concurrency")]
     {
-        match qcl_core::runtime::with_runtime(|runtime| {
+        match qcl_core::rt::with_runtime(|runtime| {
             let duration = std::time::Duration::from_millis(duration_ms as u64);
 
             // Create a channel for the timer
@@ -185,7 +185,7 @@ fn time_after(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> R
                     .unwrap()
                     .as_millis() as i64;
                 // Use a new runtime reference to send the time
-                match qcl_core::runtime::with_runtime(|rt| {
+                match qcl_core::rt::with_runtime(|rt| {
                     rt.try_send(timer_channel_id, Val::Int(current_time))
                 }) {
                     Ok(_success) => Ok(Val::Nil),

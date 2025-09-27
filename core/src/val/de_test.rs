@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::{de::*, val::Val};
+    use crate::val::{de::*, Val};
     use std::sync::Arc;
 
     #[test]

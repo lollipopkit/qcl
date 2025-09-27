@@ -1,8 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::{
-        stmt::{Environment, Program, Stmt},
-        stmt_parser::StmtParser,
+        stmt::{Environment, Program, Stmt, stmt_parser::StmtParser},
         token::Tokenizer,
         val::Val,
     };
@@ -469,11 +468,15 @@ mod tests {
         let mut parser = StmtParser::new(&tokens);
         let result = parser.parse_program();
         assert!(result.is_ok());
-        
+
         // The parsed statement should contain a Type::Named
         let program = result.unwrap();
         assert_eq!(program.statements.len(), 1);
-        if let Stmt::Let { type_annotation: Some(typ), .. } = program.statements[0].as_ref() {
+        if let Stmt::Let {
+            type_annotation: Some(typ),
+            ..
+        } = program.statements[0].as_ref()
+        {
             match typ {
                 crate::val::Type::Named(name) => assert_eq!(name, "UnknownType"),
                 _ => panic!("Expected Type::Named, got {:?}", typ),

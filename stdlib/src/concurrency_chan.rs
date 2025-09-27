@@ -75,7 +75,7 @@ fn chan_close(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> R
         Val::Channel { id, .. } => {
             #[cfg(feature = "concurrency")]
             {
-                match qcl_core::runtime::with_runtime(|runtime| runtime.close_channel(*id)) {
+                match qcl_core::rt::with_runtime(|runtime| runtime.close_channel(*id)) {
                     Ok(()) => Ok(Val::Nil),
                     Err(e) => Err(anyhow!("Failed to close channel: {}", e)),
                 }
@@ -168,7 +168,7 @@ fn chan_try_send(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -
         Val::Channel { id, .. } => {
             #[cfg(feature = "concurrency")]
             {
-                match qcl_core::runtime::with_runtime(|runtime| {
+                match qcl_core::rt::with_runtime(|runtime| {
                     runtime.try_send(*id, value.clone())
                 }) {
                     Ok(success) => Ok(Val::Bool(success)),
@@ -197,7 +197,7 @@ fn chan_try_recv(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -
         Val::Channel { id, .. } => {
             #[cfg(feature = "concurrency")]
             {
-                match qcl_core::runtime::with_runtime(|runtime| runtime.try_recv(*id)) {
+                match qcl_core::rt::with_runtime(|runtime| runtime.try_recv(*id)) {
                     Ok(Some((ok, value))) => Ok(Val::List(vec![Val::Bool(ok), value].into())),
                     Ok(None) => Ok(Val::List(vec![Val::Bool(false), Val::Nil].into())),
                     Err(e) => Err(anyhow!("Failed to receive from channel: {}", e)),

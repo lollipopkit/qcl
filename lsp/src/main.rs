@@ -13,7 +13,7 @@ use twox_hash::XxHash64;
 
 mod analyzer;
 use analyzer::{AnalysisResult, QclAnalyzer};
-use qcl_core::{error::Span as CoreSpan, token::Token as CoreToken};
+use qcl_core::{token::Span as CoreSpan, token::Token as CoreToken};
 
 // Hard cap on number of semantic tokens sent to the client to avoid
 // excessive payloads and UI work on very large files.

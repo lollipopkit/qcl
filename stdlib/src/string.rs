@@ -332,7 +332,7 @@ impl Module for StringModule {
 mod tests {
     use crate::register_stdlib_modules;
     use anyhow::Result;
-    use qcl_core::{stmt_parser::StmtParser, token::Tokenizer, val::Val};
+    use qcl_core::{stmt::stmt_parser::StmtParser, token::Tokenizer, val::Val};
     use std::sync::Arc;
 
     #[test]
@@ -349,7 +349,7 @@ mod tests {
 
         // Create environment with stdlib modules
         let resolver =
-            std::sync::Arc::new(qcl_core::import::ModuleResolver::with_registry(registry));
+            std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
 
         let result = program.execute_with_env(&ctx, &mut env)?;
@@ -372,7 +372,7 @@ mod tests {
 
         // Create environment with stdlib modules
         let resolver =
-            std::sync::Arc::new(qcl_core::import::ModuleResolver::with_registry(registry));
+            std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
 
         let result = program.execute_with_env(&ctx, &mut env)?;

@@ -1,9 +1,9 @@
 use crate::{
     expr::Expr,
-    import::{ImportContext, ImportStmt, ModuleResolver},
-    type_checker::TypeChecker,
+    stmt::{ImportContext, ImportStmt, ModuleResolver},
+    token::{ParseError, Span},
+    typ::TypeChecker,
     val::{Type, Val},
-    error::Span,
 };
 use anyhow::{Result, anyhow};
 use std::{collections::HashMap, fmt::Display, sync::Arc};
@@ -69,8 +69,8 @@ pub enum Stmt {
         span: Option<Span>,
     },
     /// name = value; (赋值语句)
-    Assign { 
-        name: String, 
+    Assign {
+        name: String,
         value: Box<Expr>,
         span: Option<Span>,
     },
@@ -313,10 +313,15 @@ impl Stmt {
                     if let Err(_e) = expected_type.validate(&val) {
                         let error_msg = format!(
                             "Type mismatch in variable '{}': expected {}, got {}",
-                            name, expected_type.display(), val.type_name()
+                            name,
+                            expected_type.display(),
+                            val.type_name()
                         );
                         return if let Some(span) = span {
-                            Err(anyhow::anyhow!(crate::error::ParseError::with_span(error_msg, span.clone())))
+                            Err(anyhow::anyhow!(ParseError::with_span(
+                                error_msg,
+                                span.clone()
+                            )))
                         } else {
                             Err(anyhow::anyhow!(error_msg))
                         };
@@ -326,7 +331,11 @@ impl Stmt {
                 env.define(name.clone(), val);
                 Ok(ControlFlow::None)
             }
-            Stmt::Assign { name, value, span: _ } => {
+            Stmt::Assign {
+                name,
+                value,
+                span: _,
+            } => {
                 let val = value.eval_with_env(ctx, Some(env))?;
                 env.assign(name, val)?;
                 Ok(ControlFlow::None)
@@ -384,23 +393,34 @@ impl Stmt {
     /// 静态类型检查语句
     pub fn type_check(&self, type_checker: &mut TypeChecker) -> Result<()> {
         match self {
-            Stmt::Let { name, type_annotation, value, span } => {
+            Stmt::Let {
+                name,
+                type_annotation,
+                value,
+                span,
+            } => {
                 // 检查表达式的类型
                 let expr_type = value.type_check(type_checker)?;
 
                 // 如果有类型注解，验证类型匹配
                 if let Some(expected_type) = type_annotation
-                    && !expr_type.is_assignable_to(expected_type) {
-                        let error_msg = format!(
-                            "Type mismatch in let statement: variable '{}' expected type {}, but expression has type {}",
-                            name, expected_type.display(), expr_type.display()
-                        );
-                        return if let Some(span) = span {
-                            Err(anyhow::anyhow!(crate::error::ParseError::with_span(error_msg, span.clone())))
-                        } else {
-                            Err(anyhow::anyhow!(error_msg))
-                        };
-                    }
+                    && !expr_type.is_assignable_to(expected_type)
+                {
+                    let error_msg = format!(
+                        "Type mismatch in let statement: variable '{}' expected type {}, but expression has type {}",
+                        name,
+                        expected_type.display(),
+                        expr_type.display()
+                    );
+                    return if let Some(span) = span {
+                        Err(anyhow::anyhow!(ParseError::with_span(
+                            error_msg,
+                            span.clone()
+                        )))
+                    } else {
+                        Err(anyhow::anyhow!(error_msg))
+                    };
+                }
 
                 // 将变量类型添加到类型检查器的作用域中
                 let var_type = type_annotation.clone().unwrap_or(expr_type);
@@ -417,17 +437,23 @@ impl Stmt {
                     if !expr_type.is_assignable_to(var_type) {
                         let error_msg = format!(
                             "Type mismatch in assignment: variable '{}' has type {}, but assigned expression has type {}",
-                            name, var_type.display(), expr_type.display()
+                            name,
+                            var_type.display(),
+                            expr_type.display()
                         );
                         return if let Some(span) = span {
-                            Err(anyhow::anyhow!(crate::error::ParseError::with_span(error_msg, span.clone())))
+                            Err(anyhow::anyhow!(ParseError::with_span(
+                                error_msg,
+                                span.clone()
+                            )))
                         } else {
                             Err(anyhow::anyhow!(error_msg))
                         };
                     }
                 } else {
                     return Err(anyhow::anyhow!(
-                        "Cannot assign to undefined variable '{}'", name
+                        "Cannot assign to undefined variable '{}'",
+                        name
                     ));
                 }
 
@@ -457,12 +483,17 @@ impl Stmt {
 
                 Ok(())
             }
-            Stmt::If { condition, then_stmt, else_stmt } => {
+            Stmt::If {
+                condition,
+                then_stmt,
+                else_stmt,
+            } => {
                 // 条件表达式必须是 Bool 类型
                 let cond_type = condition.type_check(type_checker)?;
                 if !cond_type.is_assignable_to(&Type::Bool) {
                     return Err(anyhow::anyhow!(
-                        "If condition must be Bool, but got {}", cond_type.display()
+                        "If condition must be Bool, but got {}",
+                        cond_type.display()
                     ));
                 }
 
@@ -479,7 +510,8 @@ impl Stmt {
                 let cond_type = condition.type_check(type_checker)?;
                 if !cond_type.is_assignable_to(&Type::Bool) {
                     return Err(anyhow::anyhow!(
-                        "While condition must be Bool, but got {}", cond_type.display()
+                        "While condition must be Bool, but got {}",
+                        cond_type.display()
                     ));
                 }
 
@@ -488,7 +520,11 @@ impl Stmt {
 
                 Ok(())
             }
-            Stmt::For { pattern, iterable, body } => {
+            Stmt::For {
+                pattern,
+                iterable,
+                body,
+            } => {
                 // 检查可迭代表达式的类型
                 let iter_type = iterable.type_check(type_checker)?;
 
@@ -554,7 +590,11 @@ impl Stmt {
     }
 
     /// 为 for 循环模式添加类型信息
-    fn add_pattern_types(pattern: &ForPattern, iter_type: &Type, type_checker: &mut TypeChecker) -> Result<()> {
+    fn add_pattern_types(
+        pattern: &ForPattern,
+        iter_type: &Type,
+        type_checker: &mut TypeChecker,
+    ) -> Result<()> {
         match pattern {
             ForPattern::Variable(name) => {
                 // 根据可迭代类型确定变量类型
@@ -787,7 +827,11 @@ impl Display for Stmt {
                     write!(f, "let {} = {};", name, value)
                 }
             }
-            Stmt::Assign { name, value, span: _ } => {
+            Stmt::Assign {
+                name,
+                value,
+                span: _,
+            } => {
                 write!(f, "{} = {};", name, value)
             }
             Stmt::Define { name, value } => {
@@ -828,7 +872,7 @@ impl Display for Stmt {
 
 /// Helper function to format import statements for display
 fn format_import_stmt(import: &ImportStmt) -> String {
-    use crate::import::{ImportSource, ImportStmt};
+    use crate::stmt::{ImportSource, ImportStmt};
 
     match import {
         ImportStmt::Module { module } => {

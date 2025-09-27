@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::{stmt_parser::StmtParser, token::Tokenizer};
+    use crate::{stmt::stmt_parser::StmtParser, token::Tokenizer};
 
     #[test]
     fn test_stmt_recovery_collects_multiple_errors() {

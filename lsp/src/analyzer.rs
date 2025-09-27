@@ -1,6 +1,6 @@
 use qcl_core::{
-    ast::Parser as ExprParser, error::Span, expr::Expr, import::ImportStmt, module::ModuleRegistry,
-    stmt::Stmt, stmt_parser::StmtParser, token::Tokenizer, val::Val,
+    ast::Parser as ExprParser, expr::Expr, module::ModuleRegistry,
+    stmt::{Stmt, stmt_parser::StmtParser, ImportStmt}, token::{Tokenizer, Span}, val::Val,
 };
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -337,7 +337,7 @@ impl QclAnalyzer {
     pub fn tokenize_with_spans_cached(
         &mut self,
         content: &str,
-    ) -> std::result::Result<(Vec<qcl_core::token::Token>, Vec<Span>), qcl_core::error::ParseError>
+    ) -> std::result::Result<(Vec<qcl_core::token::Token>, Vec<Span>), qcl_core::token::ParseError>
     {
         if let Some(cached) = self.token_cache.get(content) {
             return Ok(cached.clone());
@@ -647,7 +647,7 @@ impl QclAnalyzer {
                         map.insert(alias.clone(), module.clone());
                     }
                     ImportStmt::Namespace { alias, source } => {
-                        if let qcl_core::import::ImportSource::Module(name) = source {
+                        if let qcl_core::stmt::ImportSource::Module(name) = source {
                             // import * as m from math; -> alias maps to module
                             map.insert(alias.clone(), name.clone());
                         }
@@ -655,7 +655,7 @@ impl QclAnalyzer {
                     ImportStmt::Items { source, .. } => {
                         // import { sqrt } from math; -> does not create a module alias
                         // We could track individual items in the future
-                        if let qcl_core::import::ImportSource::Module(_name) = source {
+                        if let qcl_core::stmt::ImportSource::Module(_name) = source {
                             // no alias to insert
                         }
                     }
@@ -1137,12 +1137,12 @@ impl QclAnalyzer {
                         ImportStmt::Module { module } => module.clone(),
                         ImportStmt::File { path } => path.clone(),
                         ImportStmt::Items { source, .. } => match source {
-                            qcl_core::import::ImportSource::Module(name) => name.clone(),
-                            qcl_core::import::ImportSource::File(path) => path.clone(),
+                            qcl_core::stmt::ImportSource::Module(name) => name.clone(),
+                            qcl_core::stmt::ImportSource::File(path) => path.clone(),
                         },
                         ImportStmt::Namespace { source, .. } => match source {
-                            qcl_core::import::ImportSource::Module(name) => name.clone(),
-                            qcl_core::import::ImportSource::File(path) => path.clone(),
+                            qcl_core::stmt::ImportSource::Module(name) => name.clone(),
+                            qcl_core::stmt::ImportSource::File(path) => path.clone(),
                         },
                         ImportStmt::ModuleAlias { module, .. } => module.clone(),
                     };

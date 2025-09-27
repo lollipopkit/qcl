@@ -1,6 +1,6 @@
 pub mod concurrency_chan;
 pub mod concurrency_task;
-pub mod concurrency_time;
+pub mod time;
 pub mod datetime;
 pub mod io;
 pub mod iter;
@@ -32,7 +32,7 @@ pub fn register_stdlib_modules(registry: &mut ModuleRegistry) {
     {
         registry.register_module("task", Box::new(concurrency_task::TaskModule::new()));
         registry.register_module("chan", Box::new(concurrency_chan::ChannelModule::new()));
-        registry.register_module("time", Box::new(concurrency_time::TimeModule::new()));
+        registry.register_module("time", Box::new(time::TimeModule::new()));
     }
 }
 

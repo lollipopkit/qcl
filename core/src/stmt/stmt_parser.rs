@@ -1,9 +1,9 @@
 use crate::{
     ast::Parser as ExprParser,
     expr::Expr,
-    import::{ImportItem, ImportSource, ImportStmt},
+    stmt::{ImportItem, ImportSource, ImportStmt},
     stmt::{ForPattern, Program, Stmt},
-    token::Token,
+    token::{Token, Span, ParseError, Position, offset_to_position},
     val::Type,
 };
 use anyhow::{Result, anyhow};
@@ -13,7 +13,7 @@ pub struct StmtParser<'a> {
     tokens: &'a [Token],
     pos: usize,
     len: usize,
-    token_spans: Option<&'a [crate::error::Span]>,
+    token_spans: Option<&'a [Span]>,
 }
 
 impl<'a> StmtParser<'a> {
@@ -28,7 +28,7 @@ impl<'a> StmtParser<'a> {
     }
 
     /// Create a statement parser with token spans for precise error reporting
-    pub fn new_with_spans(tokens: &'a [Token], spans: &'a [crate::error::Span]) -> Self {
+    pub fn new_with_spans(tokens: &'a [Token], spans: &'a [Span]) -> Self {
         let len = tokens.len();
         Self {
             tokens,
@@ -60,7 +60,7 @@ impl<'a> StmtParser<'a> {
     pub fn parse_program_with_enhanced_errors(
         &mut self,
         input: &str,
-    ) -> std::result::Result<Program, crate::error::ParseError> {
+    ) -> std::result::Result<Program, ParseError> {
         let mut statements = Vec::new();
 
         while !self.eof() {
@@ -78,12 +78,12 @@ impl<'a> StmtParser<'a> {
                     if let Some(spans) = &self.token_spans
                         && self.pos < spans.len()
                     {
-                        return Err(crate::error::ParseError::with_span(
+                        return Err(ParseError::with_span(
                             err.to_string(),
                             spans[self.pos].clone(),
                         ));
                     }
-                    let position = crate::error::offset_to_position(
+                    let position = offset_to_position(
                         input,
                         if self.pos < self.tokens.len() && self.pos > 0 {
                             self.pos * input.len() / self.tokens.len().max(1)
@@ -91,7 +91,7 @@ impl<'a> StmtParser<'a> {
                             input.len()
                         },
                     );
-                    return Err(crate::error::ParseError::with_position(
+                    return Err(ParseError::with_position(
                         err.to_string(),
                         position,
                     ));
@@ -105,11 +105,11 @@ impl<'a> StmtParser<'a> {
             if let Some(spans) = &self.token_spans
                 && self.pos < spans.len()
             {
-                return crate::error::ParseError::with_span(e.to_string(), spans[self.pos].clone());
+                return ParseError::with_span(e.to_string(), spans[self.pos].clone());
             }
-            crate::error::ParseError::with_position(
+            ParseError::with_position(
                 e.to_string(),
-                crate::error::Position {
+                Position {
                     line: 0,
                     column: 0,
                     offset: 0,
@@ -123,7 +123,7 @@ impl<'a> StmtParser<'a> {
     pub fn parse_program_recovering_with_enhanced_errors(
         &mut self,
         input: &str,
-    ) -> (Vec<Box<Stmt>>, Vec<crate::error::ParseError>) {
+    ) -> (Vec<Box<Stmt>>, Vec<ParseError>) {
         let mut statements = Vec::new();
         let mut errors = Vec::new();
 
@@ -147,13 +147,13 @@ impl<'a> StmtParser<'a> {
                             spans[spans.len() - 1].clone()
                         } else {
                             // Ultimate fallback to end-of-input position
-                            let pos = crate::error::offset_to_position(input, input.len());
-                            crate::error::Span::single(pos)
+                            let pos = offset_to_position(input, input.len());
+                            Span::single(pos)
                         };
-                        crate::error::ParseError::with_span(err.to_string(), span)
+                        ParseError::with_span(err.to_string(), span)
                     } else {
                         // Estimate position if spans unavailable
-                        let position = crate::error::offset_to_position(
+                        let position = offset_to_position(
                             input,
                             if self.pos < self.tokens.len() && self.pos > 0 {
                                 self.pos * input.len() / self.tokens.len().max(1)
@@ -161,7 +161,7 @@ impl<'a> StmtParser<'a> {
                                 input.len()
                             },
                         );
-                        crate::error::ParseError::with_position(err.to_string(), position)
+                        ParseError::with_position(err.to_string(), position)
                     };
                     errors.push(parse_err);
 
@@ -918,7 +918,7 @@ impl<'a> StmtParser<'a> {
     }
 
     /// Get the current token span if available
-    fn current_span(&self) -> Option<crate::error::Span> {
+    fn current_span(&self) -> Option<Span> {
         if let Some(spans) = &self.token_spans {
             if self.pos < spans.len() {
                 Some(spans[self.pos].clone())

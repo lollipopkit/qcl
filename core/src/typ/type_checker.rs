@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::{
     expr::Expr,
     val::{Type, Val},
-    type_system::{TypeRegistry, TypeInferenceEngine},
+    typ::type_system::{TypeRegistry, TypeInferenceEngine},
 };
 
 /// Type checking error with location information

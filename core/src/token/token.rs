@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use anyhow::{Result, anyhow};
-use crate::error::Position;
+use crate::token::{ParseError, Position, Span};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
@@ -87,7 +87,7 @@ pub struct Tokenizer {
     idx: usize,
     len: usize,
     pub tokens: Vec<Token>,
-    pub token_spans: Vec<crate::error::Span>,
+    pub token_spans: Vec<Span>,
     line: u32,
     column: u32,
     input: String,
@@ -110,7 +110,7 @@ impl Tokenizer {
     }
 
     /// Tokenize with enhanced error information (line/column span) for LSP
-    pub fn tokenize_enhanced(s: &str) -> std::result::Result<Vec<Token>, crate::error::ParseError> {
+    pub fn tokenize_enhanced(s: &str) -> std::result::Result<Vec<Token>, ParseError> {
         let mut t = Tokenizer::new_enhanced(s);
         match t.parse() {
             Ok(()) => Ok(t.tokens),
@@ -124,7 +124,7 @@ impl Tokenizer {
     /// Tokenize and return tokens with precise spans aligned by index
     pub fn tokenize_enhanced_with_spans(
         s: &str,
-    ) -> std::result::Result<(Vec<Token>, Vec<crate::error::Span>), crate::error::ParseError> {
+    ) -> std::result::Result<(Vec<Token>, Vec<Span>), ParseError> {
         let mut t = Tokenizer::new_enhanced(s);
         match t.parse() {
             Ok(()) => Ok((t.tokens, t.token_spans)),
@@ -133,9 +133,9 @@ impl Tokenizer {
     }
 
     /// Get enhanced error message with position information for LSP
-    pub fn enhanced_error(&self, msg: &str) -> crate::error::ParseError {
-        let position = crate::error::Position::new(self.line, self.column, self.idx);
-        crate::error::ParseError::with_position(msg.to_string(), position)
+    pub fn enhanced_error(&self, msg: &str) -> ParseError {
+        let position = Position::new(self.line, self.column, self.idx);
+        ParseError::with_position(msg.to_string(), position)
     }
 
     /// Create a tokenizer with enhanced error reporting
@@ -153,8 +153,8 @@ impl Tokenizer {
     }
 
     /// Get current position
-    pub fn current_position(&self) -> crate::error::Position {
-        crate::error::Position::new(self.line, self.column, self.idx)
+    pub fn current_position(&self) -> Position {
+        Position::new(self.line, self.column, self.idx)
     }
 
     fn eof(&self) -> bool {
@@ -476,7 +476,7 @@ impl Tokenizer {
     }
 
     fn parse_keywords(&mut self) -> Result<()> {
-        fn match_kw(t: &mut Tokenizer, kw: &str) -> Option<crate::error::Span> {
+        fn match_kw(t: &mut Tokenizer, kw: &str) -> Option<Span> {
             let start = t.current_position();
             if t.expect(kw) {
                 // Check if the next character is part of an identifier
@@ -492,7 +492,7 @@ impl Tokenizer {
                     }
                 }
                 let end = t.current_position();
-                Some(crate::error::Span::new(start, end))
+                Some(Span::new(start, end))
             } else {
                 None
             }
@@ -1110,14 +1110,14 @@ impl Tokenizer {
     fn push_with_span(
         &mut self,
         token: Token,
-        start: crate::error::Position,
-        end: crate::error::Position,
+        start: Position,
+        end: Position,
     ) {
         self.tokens.push(token);
-        self.token_spans.push(crate::error::Span::new(start, end));
+        self.token_spans.push(Span::new(start, end));
     }
 
-    fn push_span_only(&mut self, token: Token, span: crate::error::Span) {
+    fn push_span_only(&mut self, token: Token, span: Span) {
         self.tokens.push(token);
         self.token_spans.push(span);
     }

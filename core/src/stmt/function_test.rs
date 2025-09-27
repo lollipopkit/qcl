@@ -2,8 +2,7 @@
 mod tests {
     use crate::{
         expr::Expr,
-        stmt::{Environment, Stmt},
-        stmt_parser::StmtParser,
+        stmt::{Environment, Stmt, stmt_parser::StmtParser},
         token::Tokenizer,
         val::Val,
     };

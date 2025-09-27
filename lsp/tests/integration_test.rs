@@ -1,5 +1,5 @@
 use qcl_core::{
-    ast::Parser as ExprParser, import::ImportStmt, stmt::Stmt, stmt_parser::StmtParser,
+    ast::Parser as ExprParser, stmt::{Stmt, stmt_parser::StmtParser, ImportStmt},
     token::Tokenizer,
 };
 use std::collections::{HashMap, HashSet};
@@ -140,12 +140,12 @@ impl QclAnalyzer {
                         ImportStmt::Module { module } => module.clone(),
                         ImportStmt::File { path } => path.clone(),
                         ImportStmt::Items { source, .. } => match source {
-                            qcl_core::import::ImportSource::Module(name) => name.clone(),
-                            qcl_core::import::ImportSource::File(path) => path.clone(),
+                            qcl_core::stmt::ImportSource::Module(name) => name.clone(),
+                            qcl_core::stmt::ImportSource::File(path) => path.clone(),
                         },
                         ImportStmt::Namespace { source, .. } => match source {
-                            qcl_core::import::ImportSource::Module(name) => name.clone(),
-                            qcl_core::import::ImportSource::File(path) => path.clone(),
+                            qcl_core::stmt::ImportSource::Module(name) => name.clone(),
+                            qcl_core::stmt::ImportSource::File(path) => path.clone(),
                         },
                         ImportStmt::ModuleAlias { module, .. } => module.clone(),
                     };
@@ -263,7 +263,7 @@ impl TestLanguageServer {
         })
     }
 
-    fn first_non_ws_token_index(content: &str, spans: &[qcl_core::error::Span]) -> Option<usize> {
+    fn first_non_ws_token_index(content: &str, spans: &[qcl_core::token::Span]) -> Option<usize> {
         for (i, sp) in spans.iter().enumerate() {
             let start = sp.start.offset;
             let end = sp.end.offset.min(content.len());
