@@ -812,100 +812,43 @@ impl Tokenizer {
                 let start = self.current_position();
                 self.advance_char(); // Consume the first |
 
-                // Check if this is || (logical OR) - if so, we need to handle it specially
+                // Check if this is || (could be logical OR or empty-closure)
                 if self.idx < self.len && self.chars[self.idx] == '|' {
                     self.advance_char(); // Consume the second |
                     let end = self.current_position();
 
-                    // Look ahead to see if this might be a closure rather than logical OR
-                    // A closure would have: | ... | expr
-                    // Logical OR would have: || expr
-                    let mut pos = self.idx;
-                    let mut might_be_closure;
-                        // For || case, this could be an empty closure or logical OR
-                    // The key distinction:
-                    // - Logical OR: || expr (typically appears in expressions with other operators)
-                    // - Empty closure: || expr (appears at start or in assignment contexts)
-                    // - Closure with params: |x| expr, |x, y| expr
-
-                    // Look at the context around the || to make the decision
-                    let mut content_pos = pos;
-                    while content_pos < self.len && self.chars[content_pos].is_whitespace() {
-                        content_pos += 1;
+                    // Disambiguate by looking behind at the previous non-whitespace char.
+                    // If the previous significant char indicates we're in the middle of an
+                    // expression (identifier, literal, closing bracket/paren/brace), treat as OR.
+                    // If we're at expression start or after a delimiter like '=', '(', '{', ',', ';',
+                    // treat as an empty-parameter closure "|| expr".
+                    let mut prev_idx = start.offset.saturating_sub(1);
+                    while prev_idx > 0 && self.chars[prev_idx].is_whitespace() {
+                        prev_idx = prev_idx.saturating_sub(1);
                     }
-
-                    if content_pos < self.len {
-                        let next_char = self.chars[content_pos];
-
-                        // If what follows looks like an expression that would typically follow logical OR,
-                        // then treat it as logical OR
-                        if next_char == '@' || next_char == '!' || next_char == '(' ||
-                           (next_char.is_alphanumeric() &&
-                            (content_pos + 1 < self.len && self.chars[content_pos + 1] == '.')) {
-                            // Patterns like:
-                            // || @user      - logical OR
-                            // || !expr      - logical OR
-                            // || (expr      - logical OR
-                            // || obj.prop  - logical OR
-                            might_be_closure = false;
-                        }
-                        // If what follows looks like a standalone expression or literal,
-                        // it might be a closure
-                        else if next_char.is_alphanumeric() || next_char.is_ascii_digit() ||
-                                 next_char == '[' || next_char == '{' {
-                            // For now, be conservative and treat as logical OR in most cases
-                            // except when we're clearly at the start of an input
-                            might_be_closure = self.idx <= 2; // Only closure if near start
-                        }
-                        else {
-                            // Other cases, treat as logical OR
-                            might_be_closure = false;
-                        }
+                    let prev_char = if start.offset == 0 {
+                        None
                     } else {
-                        // End of input, treat as closure
-                        might_be_closure = true;
-                    }
+                        Some(self.chars[prev_idx])
+                    };
 
-                    if !might_be_closure {
-                        // Skip whitespace and check for patterns with parameters
-                        while pos < self.len && self.chars[pos].is_whitespace() {
-                            pos += 1;
-                        }
+                    let is_after_expr = matches!(
+                        prev_char,
+                        Some(')' | ']' | '}' | '"' | '\'' | '`')
+                    ) || matches!(prev_char, Some(c) if c.is_alphanumeric());
 
-                        // If we see alphanumeric content, it might be a closure with parameters
-                        if pos < self.len {
-                            println!("DEBUG: Looking at char '{}' at position {}", self.chars[pos], pos);
-                            if self.chars[pos].is_alphabetic() || self.chars[pos] == '_' {
-                                // Potential parameter name - check if there's a closing | later
-                                // Look ahead for closing | (simplified check)
-                                let mut found_closing_pipe = false;
+                    let is_after_delim = matches!(
+                        prev_char,
+                        None | Some('=' | '(' | '{' | ',' | ';' | ':')
+                    );
 
-                                for i in pos..self.len {
-                                    let c = self.chars[i];
-                                    if c == '|' {
-                                        // Found closing pipe of closure
-                                        found_closing_pipe = true;
-                                        break;
-                                    } else if c == '=' && i + 1 < self.len && self.chars[i + 1] == '>' {
-                                        // Found arrow, this looks like a closure
-                                        found_closing_pipe = true;
-                                        break;
-                                    }
-                                }
-
-                                might_be_closure = found_closing_pipe;
-                            }
-                        }
-                    }
-
-                    if might_be_closure {
-                        // This is likely a closure, emit two Pipe tokens
-                        // Each pipe gets its own span covering just that character
+                    if is_after_delim && !is_after_expr {
+                        // Empty-parameter closure context: emit two Pipe tokens with spans
                         let mid_pos = Position::new(start.line, start.column + 1, start.offset + 1);
                         self.push_with_span(Token::Pipe, start, mid_pos.clone());
                         self.push_with_span(Token::Pipe, mid_pos, end);
                     } else {
-                        // This is logical OR, emit Or token
+                        // Logical OR
                         self.push_with_span(Token::Or, start, end);
                     }
                 } else {
