@@ -96,7 +96,7 @@ match age {
 ```
 
 ### 7. Destructuring Assignment
-**Status:** Basic pattern matching in for loops exists
+**Status:** ✅ **COMPLETED**
 **Priority:** Medium
 **Complexity:** Medium
 **Description:** Assign multiple variables from structures
@@ -105,6 +105,7 @@ let [x, y, z] = [1, 2, 3];
 let {"name": name, "age": age} = user;
 let (a, b) = (1, 2);
 ```
+**Implementation:** Complete with full pattern matching support, string iteration, and comprehensive tests (15 test cases)
 
 ### 8. Method Call Syntax Sugar
 **Status:** Only function calls implemented
@@ -130,18 +131,6 @@ let evens = [x for x in numbers if x % 2 == 0];
 let lookup = {k: v.upper() for (k, v) in pairs};
 ```
 
-### 10. Pipe Operator
-**Status:** Not implemented
-**Priority:** Medium-Low
-**Complexity:** Medium
-**Description:** Function chaining operator
-```qcl
-let result = value
-    |> func1()
-    |> func2(arg)
-    |> func3();
-```
-
 ### 11. Null Propagation Extensions
 **Status:** Basic `?.` implemented
 **Priority:** Medium-Low
@@ -150,19 +139,6 @@ let result = value
 ```qcl
 let result = obj?.method()?.field?.value;
 obj?.method(arg)?;  // null-safe method call
-```
-
-### 12. Error Propagation Operator (?)
-**Status:** `?` only used for optional types
-**Priority:** Medium-Low
-**Complexity:** High
-**Description:** Early return for Result/Option types
-```qcl
-fn parseNumber(s: String) -> Result<Int, String> {
-    let trimmed = s.trim()?;
-    let num = trimmed.parseInt()?;
-    return Ok(num);
-}
 ```
 
 ## Low Priority (Advanced Features)
@@ -211,25 +187,6 @@ fn map<T, U>(list: List<T>, f: fn(T) -> U) -> List<U> {
 }
 ```
 
-### 16. Raw String Literals
-**Status:** Not implemented
-**Priority:** Low
-**Complexity:** Low
-**Description:** Escape-free string literals
-```qcl
-let path = r"C:\Users\file.txt";    // no need to escape backslashes
-let regex = r"\d{3}-\d{3}-\d{4}";   // no need to escape regex
-```
-
-### 17. Character Literals
-**Status:** Not implemented
-**Priority:** Low
-**Complexity:** Low
-**Description:** Single character values
-```qcl
-let ch = 'a';
-let newline = '\n';
-```
 
 ## Implementation Strategy
 
@@ -247,7 +204,6 @@ let newline = '\n';
 
 ### Phase 3: Advanced Features (Medium Impact)
 9. **List/Map Comprehensions** - Functional programming support
-10. **Pipe Operator** - Function composition
 11. **Null Propagation Extensions** - Safety improvements
 12. **Range Patterns in Match** - Completes pattern matching
 
@@ -273,16 +229,12 @@ let newline = '\n';
 
 ### Medium-Low Priority
 - [ ] List/Map comprehensions
-- [ ] Pipe operator (`|>`)
 - [ ] Null propagation extensions
-- [ ] Error propagation operator (`?`)
 
 ### Low Priority
 - [ ] Struct definitions
 - [ ] Enum types
 - [ ] Generic function syntax
-- [ ] Raw string literals (`r"..."`)
-- [ ] Character literals (`'c'`)
 
 ## Implementation Notes
 

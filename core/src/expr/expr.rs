@@ -343,40 +343,43 @@ impl Pattern {
             }
             Pattern::Wildcard => Ok(true),
             Pattern::List { patterns, rest } => {
-                if let Val::List(list) = value {
-                    let list_items = list.as_ref();
-
-                    // Check if we have enough elements for non-rest patterns
-                    if patterns.len() > list_items.len() && rest.is_none() {
-                        return Ok(false);
+                let list_items = match value {
+                    Val::List(list) => list.as_ref().clone(),
+                    Val::Str(s) => {
+                        // Convert string to list of character strings for destructuring
+                        s.chars().map(|c| Val::Str(c.to_string().into())).collect()
                     }
+                    _ => return Ok(false),
+                };
 
-                    // Match each pattern against corresponding list element
-                    for (i, pattern) in patterns.iter().enumerate() {
-                        if i >= list_items.len() {
-                            return Ok(false);
-                        }
-                        if !pattern.matches_impl(&list_items[i], bindings, ctx, env)? {
-                            return Ok(false);
-                        }
-                    }
-
-                    // Bind rest elements if specified
-                    if let Some(rest_name) = rest {
-                        let rest_items: Vec<Val> = list_items.iter()
-                            .skip(patterns.len())
-                            .cloned()
-                            .collect();
-                        bindings.push((rest_name.clone(), Val::List(Arc::new(rest_items))));
-                    } else if patterns.len() != list_items.len() {
-                        // No rest pattern but lengths don't match
-                        return Ok(false);
-                    }
-
-                    Ok(true)
-                } else {
-                    Ok(false)
+                // Check if we have enough elements for non-rest patterns
+                if patterns.len() > list_items.len() && rest.is_none() {
+                    return Ok(false);
                 }
+
+                // Match each pattern against corresponding list element
+                for (i, pattern) in patterns.iter().enumerate() {
+                    if i >= list_items.len() {
+                        return Ok(false);
+                    }
+                    if !pattern.matches_impl(&list_items[i], bindings, ctx, env)? {
+                        return Ok(false);
+                    }
+                }
+
+                // Bind rest elements if specified
+                if let Some(rest_name) = rest {
+                    let rest_items: Vec<Val> = list_items.iter()
+                        .skip(patterns.len())
+                        .cloned()
+                        .collect();
+                    bindings.push((rest_name.clone(), Val::List(Arc::new(rest_items))));
+                } else if patterns.len() != list_items.len() {
+                    // No rest pattern but lengths don't match
+                    return Ok(false);
+                }
+
+                Ok(true)
             }
             Pattern::Map { patterns, rest } => {
                 if let Val::Map(map) = value {
@@ -1819,6 +1822,7 @@ impl Display for Expr {
         }
     }
 }
+
 
 impl From<Val> for Expr {
     fn from(val: Val) -> Self {

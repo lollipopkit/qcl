@@ -585,13 +585,8 @@ impl<'a> StmtParser<'a> {
     fn parse_let_stmt(&mut self) -> Result<Stmt> {
         self.expect_token(Token::Let)?;
 
-        let name = if let Token::Id(id) = &self.tokens[self.pos] {
-            let name = id.clone();
-            self.pos += 1;
-            name
-        } else {
-            return Err(anyhow!(self.err("Expected variable name after 'let'")));
-        };
+        // Parse pattern instead of just variable name
+        let pattern = self.parse_pattern()?;
 
         // Check for optional type annotation
         let type_annotation = if !self.eof() && self.tokens[self.pos] == Token::Colon {
@@ -607,7 +602,7 @@ impl<'a> StmtParser<'a> {
         self.expect_token(Token::Semicolon)?;
 
         Ok(Stmt::Let {
-            name,
+            pattern,
             type_annotation,
             value: Box::new(value),
             span: self.current_span(),

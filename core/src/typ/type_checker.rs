@@ -746,7 +746,7 @@ mod tests {
 
         // Test let statement with type annotation
         let let_stmt = Stmt::Let {
-            name: "x".to_string(),
+            pattern: crate::expr::Pattern::Variable("x".to_string()),
             type_annotation: Some(Type::Int),
             value: Box::new(Expr::Val(Val::Int(42))),
             span: None,
@@ -757,7 +757,7 @@ mod tests {
 
         // Test type mismatch
         let let_stmt_mismatch = Stmt::Let {
-            name: "y".to_string(),
+            pattern: crate::expr::Pattern::Variable("y".to_string()),
             type_annotation: Some(Type::String),
             value: Box::new(Expr::Val(Val::Int(42))), // Int assigned to String
             span: None,
@@ -774,7 +774,7 @@ mod tests {
 
         // First declare a variable
         let let_stmt = Stmt::Let {
-            name: "x".to_string(),
+            pattern: crate::expr::Pattern::Variable("x".to_string()),
             type_annotation: Some(Type::Int),
             value: Box::new(Expr::Val(Val::Int(42))),
             span: None,
@@ -808,7 +808,7 @@ mod tests {
         let if_stmt = Stmt::If {
             condition: Box::new(Expr::Val(Val::Bool(true))),
             then_stmt: Box::new(Stmt::Let {
-                name: "x".to_string(),
+                pattern: crate::expr::Pattern::Variable("x".to_string()),
                 type_annotation: None,
                 value: Box::new(Expr::Val(Val::Int(42))),
                 span: None,
@@ -821,7 +821,7 @@ mod tests {
         let if_stmt_invalid = Stmt::If {
             condition: Box::new(Expr::Val(Val::Int(42))), // Int instead of Bool
             then_stmt: Box::new(Stmt::Let {
-                name: "x".to_string(),
+                pattern: crate::expr::Pattern::Variable("x".to_string()),
                 type_annotation: None,
                 value: Box::new(Expr::Val(Val::Int(42))),
                 span: None,

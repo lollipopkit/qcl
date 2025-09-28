@@ -103,21 +103,26 @@ impl QclAnalyzer {
     fn analyze_statements(&self, statements: &[Box<Stmt>], result: &mut AnalysisResult) {
         for (i, stmt) in statements.iter().enumerate() {
             match stmt.as_ref() {
-                Stmt::Let { name, .. } => {
-                    result.symbols.push(DocumentSymbol {
-                        name: name.clone(),
-                        detail: Some("Variable declaration".to_string()),
-                        kind: SymbolKind::VARIABLE,
-                        tags: None,
-                        #[allow(deprecated)]
-                        deprecated: None,
-                        range: Range::new(Position::new(i as u32, 0), Position::new(i as u32, 100)),
-                        selection_range: Range::new(
-                            Position::new(i as u32, 0),
-                            Position::new(i as u32, 100),
-                        ),
-                        children: None,
-                    });
+                Stmt::Let { pattern, .. } => {
+                    // Extract variable names from pattern and create symbols for each
+                    if let Some(variables) = qcl_lsp::analyzer::extract_variables_from_pattern(pattern) {
+                        for var_name in variables {
+                            result.symbols.push(DocumentSymbol {
+                                name: var_name.clone(),
+                                detail: Some("Variable declaration".to_string()),
+                                kind: SymbolKind::VARIABLE,
+                                tags: None,
+                                #[allow(deprecated)]
+                                deprecated: None,
+                                range: Range::new(Position::new(i as u32, 0), Position::new(i as u32, 100)),
+                                selection_range: Range::new(
+                                    Position::new(i as u32, 0),
+                                    Position::new(i as u32, 100),
+                                ),
+                                children: None,
+                            });
+                        }
+                    }
                 }
                 Stmt::Function { name, params, .. } => {
                     result.symbols.push(DocumentSymbol {

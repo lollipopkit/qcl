@@ -1100,21 +1100,26 @@ impl QclAnalyzer {
     fn analyze_statements(&self, statements: &[Box<Stmt>], result: &mut AnalysisResult) {
         for (i, stmt) in statements.iter().enumerate() {
             match stmt.as_ref() {
-                Stmt::Let { name, .. } => {
-                    result.symbols.push(DocumentSymbol {
-                        name: name.clone(),
-                        detail: Some("Variable declaration".to_string()),
-                        kind: SymbolKind::VARIABLE,
-                        tags: None,
-                        #[allow(deprecated)]
-                        deprecated: None,
-                        range: Range::new(Position::new(i as u32, 0), Position::new(i as u32, 100)),
-                        selection_range: Range::new(
-                            Position::new(i as u32, 0),
-                            Position::new(i as u32, 100),
-                        ),
-                        children: None,
-                    });
+                Stmt::Let { pattern, .. } => {
+                    // Extract variable names from pattern and create symbols for each
+                    if let Some(variables) = extract_variables_from_pattern(pattern) {
+                        for var_name in variables {
+                            result.symbols.push(DocumentSymbol {
+                                name: var_name.clone(),
+                                detail: Some("Variable declaration".to_string()),
+                                kind: SymbolKind::VARIABLE,
+                                tags: None,
+                                #[allow(deprecated)]
+                                deprecated: None,
+                                range: Range::new(Position::new(i as u32, 0), Position::new(i as u32, 100)),
+                                selection_range: Range::new(
+                                    Position::new(i as u32, 0),
+                                    Position::new(i as u32, 100),
+                                ),
+                                children: None,
+                            });
+                        }
+                    }
                 }
                 Stmt::Function { name, params, .. } => {
                     result.symbols.push(DocumentSymbol {
@@ -1996,6 +2001,59 @@ impl QclAnalyzer {
                 ))
         });
         diagnostics.dedup_by(|a, b| a.range == b.range && a.message == b.message);
+    }
+}
+
+/// Helper function to extract variable names from a pattern for LSP analysis
+pub fn extract_variables_from_pattern(pattern: &qcl_core::expr::Pattern) -> Option<Vec<String>> {
+    let mut variables = Vec::new();
+
+    fn collect_vars(pattern: &qcl_core::expr::Pattern, vars: &mut Vec<String>) {
+        match pattern {
+            qcl_core::expr::Pattern::Variable(name) => {
+                vars.push(name.clone());
+            }
+            qcl_core::expr::Pattern::List { patterns, rest } => {
+                for pattern in patterns {
+                    collect_vars(pattern, vars);
+                }
+                if let Some(rest_var) = rest {
+                    vars.push(rest_var.clone());
+                }
+            }
+            qcl_core::expr::Pattern::Map { patterns, rest } => {
+                for (_, pattern) in patterns {
+                    collect_vars(pattern, vars);
+                }
+                if let Some(rest_var) = rest {
+                    vars.push(rest_var.clone());
+                }
+            }
+            qcl_core::expr::Pattern::Or(patterns) => {
+                for pattern in patterns {
+                    collect_vars(pattern, vars);
+                }
+            }
+            qcl_core::expr::Pattern::Guard { pattern, .. } => {
+                collect_vars(pattern, vars);
+            }
+            // Other pattern types don't bind variables
+            qcl_core::expr::Pattern::Literal(_)
+            | qcl_core::expr::Pattern::Wildcard
+            | qcl_core::expr::Pattern::Range { .. } => {}
+        }
+    }
+
+    collect_vars(pattern, &mut variables);
+
+    // Remove duplicates (can happen with OR patterns)
+    variables.sort();
+    variables.dedup();
+
+    if variables.is_empty() {
+        None
+    } else {
+        Some(variables)
     }
 }
 

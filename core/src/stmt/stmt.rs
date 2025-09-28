@@ -78,9 +78,9 @@ pub enum Stmt {
         iterable: Box<Expr>,
         body: Box<Stmt>,
     },
-    /// let name [: type] = value;
+    /// let pattern [: type] = value; (supports both single variables and destructuring patterns)
     Let {
-        name: String,
+        pattern: crate::expr::Pattern,
         type_annotation: Option<Type>,
         value: Box<Expr>,
         span: Option<Span>,
@@ -408,7 +408,7 @@ impl Stmt {
                 Ok(ControlFlow::None)
             }
             Stmt::Let {
-                name,
+                pattern,
                 type_annotation,
                 value,
                 span,
@@ -419,8 +419,7 @@ impl Stmt {
                 if let Some(expected_type) = type_annotation {
                     if let Err(_e) = expected_type.validate(&val) {
                         let error_msg = format!(
-                            "Type mismatch in variable '{}': expected {}, got {}",
-                            name,
+                            "Type mismatch in pattern: expected {}, got {}",
                             expected_type.display(),
                             val.type_name()
                         );
@@ -435,7 +434,30 @@ impl Stmt {
                     }
                 }
 
-                env.define(name.clone(), val);
+                // Handle pattern matching and variable binding
+                let bindings = match pattern.matches(&val, ctx, Some(env))? {
+                    Some(bindings) => bindings,
+                    None => {
+                        let error_msg = format!(
+                            "Pattern does not match value: {} does not match {}",
+                            pattern,
+                            val
+                        );
+                        return if let Some(span) = span {
+                            Err(anyhow::anyhow!(ParseError::with_span(
+                                error_msg,
+                                span.clone()
+                            )))
+                        } else {
+                            Err(anyhow::anyhow!(error_msg))
+                        };
+                    }
+                };
+
+                // Bind all pattern variables
+                for (name, bound_val) in bindings {
+                    env.define(name, bound_val);
+                }
                 Ok(ControlFlow::None)
             }
             Stmt::Assign {
@@ -522,7 +544,7 @@ impl Stmt {
     pub fn type_check(&self, type_checker: &mut TypeChecker) -> Result<()> {
         match self {
             Stmt::Let {
-                name,
+                pattern,
                 type_annotation,
                 value,
                 span,
@@ -535,8 +557,7 @@ impl Stmt {
                     && !expr_type.is_assignable_to(expected_type)
                 {
                     let error_msg = format!(
-                        "Type mismatch in let statement: variable '{}' expected type {}, but expression has type {}",
-                        name,
+                        "Type mismatch in let statement: pattern expected type {}, but expression has type {}",
                         expected_type.display(),
                         expr_type.display()
                     );
@@ -550,9 +571,13 @@ impl Stmt {
                     };
                 }
 
-                // 将变量类型添加到类型检查器的作用域中
-                let var_type = type_annotation.clone().unwrap_or(expr_type);
-                type_checker.add_local_type(name.clone(), var_type);
+                // Extract variables from pattern and add their types to the type checker
+                if let Some(pattern_vars) = extract_pattern_variables(pattern) {
+                    let var_type = type_annotation.clone().unwrap_or(expr_type);
+                    for var_name in pattern_vars {
+                        type_checker.add_local_type(var_name, var_type.clone());
+                    }
+                }
 
                 Ok(())
             }
@@ -1086,15 +1111,15 @@ impl Display for Stmt {
                 )
             }
             Stmt::Let {
-                name,
+                pattern,
                 type_annotation,
                 value,
                 span: _,
             } => {
                 if let Some(typ) = type_annotation {
-                    write!(f, "let {}: {:?} = {};", name, typ, value)
+                    write!(f, "let {}: {:?} = {};", pattern, typ, value)
                 } else {
-                    write!(f, "let {} = {};", name, value)
+                    write!(f, "let {} = {};", pattern, value)
                 }
             }
             Stmt::Assign {
@@ -1214,6 +1239,59 @@ fn format_import_stmt(import: &ImportStmt) -> String {
         ImportStmt::ModuleAlias { module, alias } => {
             format!("import {} as {}", module, alias)
         }
+    }
+}
+
+/// Helper method to extract variable names from a pattern for type checking
+fn extract_pattern_variables(pattern: &crate::expr::Pattern) -> Option<Vec<String>> {
+    let mut variables = Vec::new();
+
+    fn collect_vars(pattern: &crate::expr::Pattern, vars: &mut Vec<String>) {
+        match pattern {
+            crate::expr::Pattern::Variable(name) => {
+                vars.push(name.clone());
+            }
+            crate::expr::Pattern::List { patterns, rest } => {
+                for pattern in patterns {
+                    collect_vars(pattern, vars);
+                }
+                if let Some(rest_var) = rest {
+                    vars.push(rest_var.clone());
+                }
+            }
+            crate::expr::Pattern::Map { patterns, rest } => {
+                for (_, pattern) in patterns {
+                    collect_vars(pattern, vars);
+                }
+                if let Some(rest_var) = rest {
+                    vars.push(rest_var.clone());
+                }
+            }
+            crate::expr::Pattern::Or(patterns) => {
+                for pattern in patterns {
+                    collect_vars(pattern, vars);
+                }
+            }
+            crate::expr::Pattern::Guard { pattern, .. } => {
+                collect_vars(pattern, vars);
+            }
+            // Other pattern types don't bind variables
+            crate::expr::Pattern::Literal(_)
+            | crate::expr::Pattern::Wildcard
+            | crate::expr::Pattern::Range { .. } => {}
+        }
+    }
+
+    collect_vars(pattern, &mut variables);
+
+    // Remove duplicates (can happen with OR patterns)
+    variables.sort();
+    variables.dedup();
+
+    if variables.is_empty() {
+        None
+    } else {
+        Some(variables)
     }
 }
 
