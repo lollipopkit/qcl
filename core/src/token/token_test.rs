@@ -4,7 +4,7 @@ mod tests {
 
     #[test]
     fn basic() {
-        let t1 = Tokenizer::tokenize(r#"1.3+*/@ %==  "str1" 'str2' true false nil "#);
+        let t1 = Tokenizer::tokenize(r#"1.3+*/@ % ==  "str1" 'str2' true false nil "#);
         let e1 = vec![
             Token::Float(1.3),
             Token::Add,
@@ -18,6 +18,19 @@ mod tests {
             Token::Bool(true),
             Token::Bool(false),
             Token::Nil,
+        ];
+        assert_eq!(t1.unwrap(), e1);
+    }
+
+    #[test]
+    fn test_compound_assignment_tokens() {
+        let t1 = Tokenizer::tokenize("+= -= *= /= %=");
+        let e1 = vec![
+            Token::AddAssign,
+            Token::SubAssign,
+            Token::MulAssign,
+            Token::DivAssign,
+            Token::ModAssign,
         ];
         assert_eq!(t1.unwrap(), e1);
     }

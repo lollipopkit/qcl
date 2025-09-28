@@ -17,6 +17,11 @@ pub enum Token {
     Comma,     // ,
     Semicolon, // ;
     Assign,    // =
+    AddAssign, // +=
+    SubAssign, // -=
+    MulAssign, // *=
+    DivAssign, // /=
+    ModAssign, // %=
     Nil,       // nil
     Eq,        // ==
     Ne,        // !=
@@ -901,10 +906,16 @@ impl Tokenizer {
                     return self.parse_num();
                 }
                 let start = self.current_position();
-                self.advance_char();
-                let end = self.current_position();
-                self.push_with_span(Token::Add, start, end);
-                Ok(())
+                if self.expect("+=") {
+                    let end = self.current_position();
+                    self.push_with_span(Token::AddAssign, start, end);
+                    Ok(())
+                } else {
+                    self.advance_char();
+                    let end = self.current_position();
+                    self.push_with_span(Token::Add, start, end);
+                    Ok(())
+                }
             }
             '-' => {
                 let next = self.chars.get(self.idx + 1);
@@ -919,6 +930,10 @@ impl Tokenizer {
                     let end = self.current_position();
                     self.push_with_span(Token::FnArrow, start, end);
                     Ok(())
+                } else if self.expect("-=") {
+                    let end = self.current_position();
+                    self.push_with_span(Token::SubAssign, start, end);
+                    Ok(())
                 } else {
                     self.advance_char();
                     let end = self.current_position();
@@ -928,10 +943,16 @@ impl Tokenizer {
             }
             '*' => {
                 let start = self.current_position();
-                self.advance_char();
-                let end = self.current_position();
-                self.push_with_span(Token::Mul, start, end);
-                Ok(())
+                if self.expect("*=") {
+                    let end = self.current_position();
+                    self.push_with_span(Token::MulAssign, start, end);
+                    Ok(())
+                } else {
+                    self.advance_char();
+                    let end = self.current_position();
+                    self.push_with_span(Token::Mul, start, end);
+                    Ok(())
+                }
             }
             '/' => {
                 if self.expect("//") {
@@ -942,18 +963,29 @@ impl Tokenizer {
                     self.skip_block_comment()?;
                 } else {
                     let start = self.current_position();
-                    self.advance_char();
-                    let end = self.current_position();
-                    self.push_with_span(Token::Div, start, end);
+                    if self.expect("/=") {
+                        let end = self.current_position();
+                        self.push_with_span(Token::DivAssign, start, end);
+                    } else {
+                        self.advance_char();
+                        let end = self.current_position();
+                        self.push_with_span(Token::Div, start, end);
+                    }
                 }
                 Ok(())
             }
             '%' => {
                 let start = self.current_position();
-                self.advance_char();
-                let end = self.current_position();
-                self.push_with_span(Token::Mod, start, end);
-                Ok(())
+                if self.expect("%=") {
+                    let end = self.current_position();
+                    self.push_with_span(Token::ModAssign, start, end);
+                    Ok(())
+                } else {
+                    self.advance_char();
+                    let end = self.current_position();
+                    self.push_with_span(Token::Mod, start, end);
+                    Ok(())
+                }
             }
             '@' => self.parse_at_list(),
             '=' => {

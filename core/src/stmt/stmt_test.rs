@@ -893,4 +893,144 @@ mod tests {
         let result = program.execute(&ctx).expect("Failed to execute");
         assert_eq!(result, Val::Int(6));
     }
+
+    // Compound assignment tests
+    #[test]
+    fn test_compound_assignment_add() {
+        let program = parse_program(
+            r#"
+            let x = 10;
+            x += 5;
+            return x;
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Int(15));
+    }
+
+    #[test]
+    fn test_compound_assignment_sub() {
+        let program = parse_program(
+            r#"
+            let x = 10;
+            x -= 3;
+            return x;
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Int(7));
+    }
+
+    #[test]
+    fn test_compound_assignment_mul() {
+        let program = parse_program(
+            r#"
+            let x = 5;
+            x *= 3;
+            return x;
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Int(15));
+    }
+
+    #[test]
+    fn test_compound_assignment_div() {
+        let program = parse_program(
+            r#"
+            let x = 15;
+            x /= 3;
+            return x;
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Int(5));
+    }
+
+    #[test]
+    fn test_compound_assignment_mod() {
+        let program = parse_program(
+            r#"
+            let x = 17;
+            x %= 5;
+            return x;
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Int(2));
+    }
+
+    #[test]
+    fn test_compound_assignment_with_expressions() {
+        let program = parse_program(
+            r#"
+            let x = 10;
+            let y = 3;
+            x += y * 2;
+            return x;
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Int(16));
+    }
+
+    #[test]
+    fn test_compound_assignment_string() {
+        let program = parse_program(
+            r#"
+            let s = "hello";
+            s += " world";
+            return s;
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Str("hello world".into()));
+    }
+
+    #[test]
+    fn test_compound_assignment_float() {
+        let program = parse_program(
+            r#"
+            let x = 1.5;
+            x *= 2.0;
+            return x;
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Float(3.0));
+    }
+
+    #[test]
+    fn test_compound_assignment_undefined_variable() {
+        let program = parse_program("undefined_var += 5;");
+        let ctx = empty_context();
+        let result = program.execute(&ctx);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Undefined variable"));
+    }
+
+    #[test]
+    fn test_compound_assignment_multiple_operations() {
+        let program = parse_program(
+            r#"
+            let x = 10;
+            x += 5;   // x = 15
+            x *= 2;   // x = 30
+            x -= 10;  // x = 20
+            x /= 4;   // x = 5
+            return x;
+        "#,
+        );
+        let ctx = empty_context();
+        let result = program.execute(&ctx).expect("Failed to execute");
+        assert_eq!(result, Val::Int(5));
+    }
 }

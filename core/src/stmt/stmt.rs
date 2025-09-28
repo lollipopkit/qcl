@@ -1,5 +1,6 @@
 use crate::{
     expr::Expr,
+    op::BinOp,
     stmt::{ImportContext, ImportStmt, ModuleResolver},
     token::{ParseError, Span},
     typ::TypeChecker,
@@ -74,6 +75,13 @@ pub enum Stmt {
     /// name = value; (赋值语句)
     Assign {
         name: String,
+        value: Box<Expr>,
+        span: Option<Span>,
+    },
+    /// name op= value; (复合赋值语句, 如 x += 5)
+    CompoundAssign {
+        name: String,
+        op: BinOp,
         value: Box<Expr>,
         span: Option<Span>,
     },
@@ -347,6 +355,27 @@ impl Stmt {
                 env.assign(name, val)?;
                 Ok(ControlFlow::None)
             }
+            Stmt::CompoundAssign {
+                name,
+                op,
+                value,
+                span: _,
+            } => {
+                // Get current value of variable
+                let current_val = env.get(name).cloned().ok_or_else(|| {
+                    anyhow!("Undefined variable for compound assignment: {}", name)
+                })?;
+
+                // Evaluate the right-hand side
+                let rhs_val = value.eval_with_env(ctx, Some(env))?;
+
+                // Perform the operation
+                let result_val = op.eval_vals(&current_val, &rhs_val)?;
+
+                // Assign the result back
+                env.assign(name, result_val)?;
+                Ok(ControlFlow::None)
+            }
             Stmt::Define { name, value } => {
                 let val = value.eval_with_env(ctx, Some(env))?;
                 env.define(name.clone(), val);
@@ -460,6 +489,39 @@ impl Stmt {
                 } else {
                     return Err(anyhow::anyhow!(
                         "Cannot assign to undefined variable '{}'",
+                        name
+                    ));
+                }
+
+                Ok(())
+            }
+            Stmt::CompoundAssign { name, op: _, value, span } => {
+                // 检查表达式的类型
+                let expr_type = value.type_check(type_checker)?;
+
+                // 获取变量的已声明类型
+                if let Some(var_type) = type_checker.get_local_type(name) {
+                    // 检查操作类型兼容性 (var_type op expr_type -> var_type)
+                    // 简化：假设所有算术操作都是类型兼容的
+                    if !expr_type.is_assignable_to(var_type) && !var_type.is_assignable_to(&expr_type) {
+                        let error_msg = format!(
+                            "Type mismatch in compound assignment: variable '{}' has type {}, but right-hand side has type {}",
+                            name,
+                            var_type.display(),
+                            expr_type.display()
+                        );
+                        return if let Some(span) = span {
+                            Err(anyhow::anyhow!(ParseError::with_span(
+                                error_msg,
+                                span.clone()
+                            )))
+                        } else {
+                            Err(anyhow::anyhow!(error_msg))
+                        };
+                    }
+                } else {
+                    return Err(anyhow::anyhow!(
+                        "Cannot compound assign to undefined variable '{}'",
                         name
                     ));
                 }
@@ -884,6 +946,22 @@ impl Display for Stmt {
                 span: _,
             } => {
                 write!(f, "{} = {};", name, value)
+            }
+            Stmt::CompoundAssign {
+                name,
+                op,
+                value,
+                span: _,
+            } => {
+                let op_str = match op {
+                    BinOp::Add => "+=",
+                    BinOp::Sub => "-=",
+                    BinOp::Mul => "*=",
+                    BinOp::Div => "/=",
+                    BinOp::Mod => "%=",
+                    _ => "?=", // Should not happen for compound assignment
+                };
+                write!(f, "{} {} {};", name, op_str, value)
             }
             Stmt::Define { name, value } => {
                 write!(f, "{} = {};", name, value)

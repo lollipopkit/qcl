@@ -1385,6 +1385,11 @@ fn describe_token_hover(tokens: &[CoreToken], _spans: &[CoreSpan], idx: usize) -
         T::Pipe => "Operator: |".to_string(),
         T::Question => "Operator: ?".to_string(),
         T::FnArrow => "Operator: ->".to_string(),
+        T::AddAssign => "Operator: +=".to_string(),
+        T::SubAssign => "Operator: -=".to_string(),
+        T::MulAssign => "Operator: *=".to_string(),
+        T::DivAssign => "Operator: /=".to_string(),
+        T::ModAssign => "Operator: %=".to_string(),
     }
 }
 

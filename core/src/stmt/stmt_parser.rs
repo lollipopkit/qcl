@@ -1,6 +1,7 @@
 use crate::{
     ast::Parser as ExprParser,
     expr::Expr,
+    op::BinOp,
     stmt::{ImportItem, ImportSource, ImportStmt},
     stmt::{ForPattern, Program, Stmt},
     token::{Token, Span, ParseError, Position, offset_to_position},
@@ -261,6 +262,16 @@ impl<'a> StmtParser<'a> {
                 } else if self.peek_ahead(1) == Some(&Token::Assign) {
                     // 赋值 (id = expr;)
                     self.parse_assign_stmt_with_id(id.clone())
+                } else if matches!(
+                    self.peek_ahead(1),
+                    Some(&Token::AddAssign)
+                        | Some(&Token::SubAssign)
+                        | Some(&Token::MulAssign)
+                        | Some(&Token::DivAssign)
+                        | Some(&Token::ModAssign)
+                ) {
+                    // 复合赋值 (id += expr;)
+                    self.parse_compound_assign_stmt_with_id(id.clone())
                 } else {
                     // 作为表达式语句处理
                     self.parse_expr_stmt()
@@ -555,6 +566,33 @@ impl<'a> StmtParser<'a> {
 
         Ok(Stmt::Assign {
             name,
+            value: Box::new(value),
+            span: self.current_span(),
+        })
+    }
+
+    /// 解析复合赋值语句: id += expr;
+    fn parse_compound_assign_stmt_with_id(&mut self, name: String) -> Result<Stmt> {
+        // 我们已经在parse_statement中匹配了Id，现在跳过它并继续解析复合赋值
+        self.pos += 1; // 跳过已匹配的 Id token
+
+        // 获取复合赋值操作符
+        let op = match &self.tokens[self.pos] {
+            Token::AddAssign => BinOp::Add,
+            Token::SubAssign => BinOp::Sub,
+            Token::MulAssign => BinOp::Mul,
+            Token::DivAssign => BinOp::Div,
+            Token::ModAssign => BinOp::Mod,
+            _ => return Err(anyhow!("Expected compound assignment operator")),
+        };
+        self.pos += 1; // 跳过复合赋值操作符
+
+        let value = self.parse_expression()?;
+        self.expect_token(Token::Semicolon)?;
+
+        Ok(Stmt::CompoundAssign {
+            name,
+            op,
             value: Box::new(value),
             span: self.current_span(),
         })
