@@ -1305,14 +1305,18 @@ impl Expr {
                 let base = (*base_box).fold_constants();
                 let field = (*field_box).fold_constants();
                 if let (Expr::Val(base_val), Expr::Val(field_val)) = (&base, &field) {
-                    // Direct access to constant structure, e.g. [1,2,3].1 or {"k":10}.k
+                    // Important: preserve Access when the field is a string literal so that
+                    // subsequent call syntax (e.g. foo.bar()) can be intercepted for meta-method dispatch.
+                    // This avoids turning `foo.bar` into a concrete value (e.g. Int), which would
+                    // later cause `foo.bar()` to attempt calling a non-function value.
+                    if matches!(field_val, Val::Str(_)) {
+                        return Expr::Access(Box::new(base.clone()), Box::new(field.clone()));
+                    }
+
+                    // For non-string fields (e.g. numeric indices), fold direct access where possible
                     if let Some(res_val) = base_val.access(field_val) {
                         return Expr::Val(res_val);
                     } else {
-                        // Preserve Access when field is a string literal to allow potential method dispatch later
-                        if matches!(field_val, Val::Str(_)) {
-                            return Expr::Access(Box::new(base.clone()), Box::new(field.clone()));
-                        }
                         return Expr::Val(Val::Nil);
                     }
                 }
@@ -1322,6 +1326,12 @@ impl Expr {
                 let base = (*base_box).fold_constants();
                 let field = (*field_box).fold_constants();
                 if let (Expr::Val(base_val), Expr::Val(field_val)) = (&base, &field) {
+                    // Preserve OptionalAccess when field is a string literal to allow potential
+                    // optional method-call sugar like `obj?.method()` to be handled later.
+                    if matches!(field_val, Val::Str(_)) {
+                        return Expr::OptionalAccess(Box::new(base.clone()), Box::new(field.clone()));
+                    }
+
                     // Direct access to constant structure with optional chaining
                     if base_val == &Val::Nil {
                         return Expr::Val(Val::Nil);
