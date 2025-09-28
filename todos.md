@@ -262,11 +262,11 @@ let newline = '\n';
 ### High Priority
 - [x] Match expressions ✅ **COMPLETED**
 - [x] Compound assignment operators (`+=`, `-=`, etc.) ✅ **COMPLETED**
-- [ ] If let expressions
-- [ ] While let loops
+- [x] If let expressions ✅ **COMPLETED**
+- [x] While let loops ✅ **COMPLETED**
 
 ### Medium Priority
-- [ ] Enhanced string interpolation
+- [x] Enhanced string interpolation ✅ **COMPLETED**
 - [ ] Range patterns in match
 - [ ] Destructuring assignment
 - [ ] Method call syntax sugar

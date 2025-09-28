@@ -12,7 +12,7 @@ mod tests {
         let expr = Expr::parse_cached("spawn(42)")?;
 
         // Initialize runtime for testing
-        crate::runtime::init_runtime()?;
+        crate::rt::init_runtime()?;
 
         let ctx = Val::Nil;
         let result = expr.eval(&ctx)?;
@@ -28,7 +28,7 @@ mod tests {
     async fn test_channel_creation() -> Result<()> {
         let expr = Expr::parse_cached("chan(10)")?;
 
-        crate::runtime::init_runtime()?;
+        crate::rt::init_runtime()?;
 
         let ctx = Val::Nil;
         let result = expr.eval(&ctx)?;

@@ -303,6 +303,27 @@ impl Tokenizer {
                 self.advance_char(); // skip '{'
                 in_expr = true;
                 brace_depth = 1;
+            } else if !in_expr
+                && c == '{'
+                && self.idx + 1 < self.len
+                && self.chars[self.idx + 1] != '}'
+                && self.chars[self.idx + 1] != '{'
+            {
+                // Start of enhanced interpolation: {variable}
+                is_template = true;
+                content.push_str("{");
+                self.advance_char(); // skip '{'
+                in_expr = true;
+                brace_depth = 1;
+            } else if !in_expr
+                && c == '{'
+                && self.idx + 1 < self.len
+                && self.chars[self.idx + 1] == '{'
+            {
+                // Escaped {{ - treat as literal {
+                content.push('{');
+                self.advance_char(); // skip first {
+                self.advance_char(); // skip second {
             } else if in_expr {
                 // Collect expression content with brace balancing
                 content.push(c);

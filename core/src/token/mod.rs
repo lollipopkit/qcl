@@ -1,6 +1,8 @@
 mod token;
-mod token_test;
 mod error;
+
+#[cfg(test)]
+mod token_test;
 
 pub use token::*;
 pub use error::*;

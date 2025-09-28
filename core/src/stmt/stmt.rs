@@ -54,9 +54,22 @@ pub enum Stmt {
         then_stmt: Box<Stmt>,
         else_stmt: Option<Box<Stmt>>,
     },
+    /// if let pattern = expression { then_stmt } [else else_stmt]
+    IfLet {
+        pattern: crate::expr::Pattern,
+        value: Box<Expr>,
+        then_stmt: Box<Stmt>,
+        else_stmt: Option<Box<Stmt>>,
+    },
     /// while (condition) body
     While {
         condition: Box<Expr>,
+        body: Box<Stmt>,
+    },
+    /// while let pattern = expression { body }
+    WhileLet {
+        pattern: crate::expr::Pattern,
+        value: Box<Expr>,
         body: Box<Stmt>,
     },
     /// for pattern in iterable { body }
@@ -257,6 +270,40 @@ impl Stmt {
                     Ok(ControlFlow::None)
                 }
             }
+            Stmt::IfLet {
+                pattern,
+                value,
+                then_stmt,
+                else_stmt,
+            } => {
+                // 求值表达式
+                let val = value.eval_with_env(ctx, Some(env))?;
+
+                // 尝试模式匹配
+                env.push_scope(); // 为模式变量绑定创建新作用域
+                let match_result = pattern.matches(&val, ctx, Some(env))?;
+
+                if let Some(bindings) = match_result {
+                    // 绑定变量到环境
+                    for (name, val) in bindings {
+                        env.define(name, val);
+                    }
+
+                    // 执行then分支
+                    let result = then_stmt.execute(env, ctx);
+                    env.pop_scope();
+                    result
+                } else {
+                    env.pop_scope(); // 清理未使用的作用域
+
+                    // 执行else分支（如果有）
+                    if let Some(else_stmt) = else_stmt {
+                        else_stmt.execute(env, ctx)
+                    } else {
+                        Ok(ControlFlow::None)
+                    }
+                }
+            }
             Stmt::While { condition, body } => {
                 loop {
                     let cond_val = condition.eval_with_env(ctx, Some(env))?;
@@ -275,6 +322,51 @@ impl Stmt {
                         ControlFlow::Continue => continue,
                         ControlFlow::Return(val) => return Ok(ControlFlow::Return(val)),
                         ControlFlow::None => {}
+                    }
+                }
+                Ok(ControlFlow::None)
+            }
+            Stmt::WhileLet {
+                pattern,
+                value,
+                body,
+            } => {
+                loop {
+                    // 求值表达式
+                    let val = value.eval_with_env(ctx, Some(env))?;
+
+                    // 尝试模式匹配
+                    env.push_scope(); // 为模式变量绑定创建新作用域
+                    let match_result = pattern.matches(&val, ctx, Some(env))?;
+
+                    if let Some(bindings) = match_result {
+                        // 模式匹配成功，绑定变量到环境
+                        for (name, val) in bindings {
+                            env.define(name, val);
+                        }
+
+                        // 执行循环体
+                        match body.execute(env, ctx)? {
+                            ControlFlow::Break => {
+                                env.pop_scope();
+                                break;
+                            }
+                            ControlFlow::Continue => {
+                                env.pop_scope();
+                                continue;
+                            }
+                            ControlFlow::Return(val) => {
+                                env.pop_scope();
+                                return Ok(ControlFlow::Return(val));
+                            }
+                            ControlFlow::None => {
+                                env.pop_scope();
+                            }
+                        }
+                    } else {
+                        // 模式匹配失败，退出循环
+                        env.pop_scope();
+                        break;
                     }
                 }
                 Ok(ControlFlow::None)
@@ -577,6 +669,32 @@ impl Stmt {
 
                 Ok(())
             }
+            Stmt::IfLet {
+                pattern: _,
+                value,
+                then_stmt,
+                else_stmt,
+            } => {
+                // 检查值表达式的类型
+                let _value_type = value.type_check(type_checker)?;
+
+                // 为 then 分支创建新作用域，以便模式变量绑定
+                type_checker.push_scope();
+
+                // TODO: 根据模式添加变量类型，这需要更复杂的模式类型推导
+                // 现在简化为检查 then 分支
+                then_stmt.type_check(type_checker)?;
+
+                // 弹出作用域
+                type_checker.pop_scope();
+
+                // 检查 else 分支（如果有）
+                if let Some(else_stmt) = else_stmt {
+                    else_stmt.type_check(type_checker)?;
+                }
+
+                Ok(())
+            }
             Stmt::While { condition, body } => {
                 // 条件表达式必须是 Bool 类型
                 let cond_type = condition.type_check(type_checker)?;
@@ -589,6 +707,26 @@ impl Stmt {
 
                 // 检查循环体
                 body.type_check(type_checker)?;
+
+                Ok(())
+            }
+            Stmt::WhileLet {
+                pattern: _,
+                value,
+                body,
+            } => {
+                // 检查值表达式的类型
+                let _value_type = value.type_check(type_checker)?;
+
+                // 为循环体创建新作用域，以便模式变量绑定
+                type_checker.push_scope();
+
+                // TODO: 根据模式添加变量类型，这需要更复杂的模式类型推导
+                // 现在简化为检查循环体
+                body.type_check(type_checker)?;
+
+                // 弹出作用域
+                type_checker.pop_scope();
 
                 Ok(())
             }
@@ -912,8 +1050,27 @@ impl Display for Stmt {
                     write!(f, "if ({}) {}", condition, then_stmt)
                 }
             }
+            Stmt::IfLet {
+                pattern,
+                value,
+                then_stmt,
+                else_stmt,
+            } => {
+                if let Some(else_stmt) = else_stmt {
+                    write!(f, "if let {} = {} {} else {}", pattern, value, then_stmt, else_stmt)
+                } else {
+                    write!(f, "if let {} = {} {}", pattern, value, then_stmt)
+                }
+            }
             Stmt::While { condition, body } => {
                 write!(f, "while ({}) {}", condition, body)
+            }
+            Stmt::WhileLet {
+                pattern,
+                value,
+                body,
+            } => {
+                write!(f, "while let {} = {} {}", pattern, value, body)
             }
             Stmt::For {
                 pattern,

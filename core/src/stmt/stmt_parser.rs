@@ -284,41 +284,100 @@ impl<'a> StmtParser<'a> {
     /// 解析 if 语句
     fn parse_if_stmt(&mut self) -> Result<Stmt> {
         self.expect_token(Token::If)?;
-        self.expect_token(Token::LParen)?;
 
-        let condition = self.parse_expression()?;
+        // Check if this is an "if let" statement
+        if !self.eof() && self.tokens[self.pos] == Token::Let {
+            self.pos += 1; // consume 'let'
 
-        self.expect_token(Token::RParen)?;
-        let then_stmt = Box::new(self.parse_statement()?);
+            // Parse the pattern
+            let pattern = self.parse_pattern()?;
 
-        let else_stmt = if !self.eof() && self.tokens[self.pos] == Token::Else {
-            self.pos += 1;
-            Some(Box::new(self.parse_statement()?))
+            // Expect '='
+            self.expect_token(Token::Assign)?;
+
+            // Parse the value expression (stop at LBrace for if let body)
+            let value = self.parse_expression_with_options(true)?;
+
+            // Parse then statement (no parentheses for if let)
+            let then_stmt = Box::new(self.parse_statement()?);
+
+            // Parse optional else statement
+            let else_stmt = if !self.eof() && self.tokens[self.pos] == Token::Else {
+                self.pos += 1;
+                Some(Box::new(self.parse_statement()?))
+            } else {
+                None
+            };
+
+            Ok(Stmt::IfLet {
+                pattern,
+                value: Box::new(value),
+                then_stmt,
+                else_stmt,
+            })
         } else {
-            None
-        };
+            // Regular if statement
+            self.expect_token(Token::LParen)?;
 
-        Ok(Stmt::If {
-            condition: Box::new(condition),
-            then_stmt,
-            else_stmt,
-        })
+            let condition = self.parse_expression()?;
+
+            self.expect_token(Token::RParen)?;
+            let then_stmt = Box::new(self.parse_statement()?);
+
+            let else_stmt = if !self.eof() && self.tokens[self.pos] == Token::Else {
+                self.pos += 1;
+                Some(Box::new(self.parse_statement()?))
+            } else {
+                None
+            };
+
+            Ok(Stmt::If {
+                condition: Box::new(condition),
+                then_stmt,
+                else_stmt,
+            })
+        }
     }
 
     /// 解析 while 语句
     fn parse_while_stmt(&mut self) -> Result<Stmt> {
         self.expect_token(Token::While)?;
-        self.expect_token(Token::LParen)?;
 
-        let condition = self.parse_expression()?;
+        // Check if this is a "while let" statement
+        if !self.eof() && self.tokens[self.pos] == Token::Let {
+            self.pos += 1; // consume 'let'
 
-        self.expect_token(Token::RParen)?;
-        let body = Box::new(self.parse_statement()?);
+            // Parse the pattern
+            let pattern = self.parse_pattern()?;
 
-        Ok(Stmt::While {
-            condition: Box::new(condition),
-            body,
-        })
+            // Expect '='
+            self.expect_token(Token::Assign)?;
+
+            // Parse the value expression (stop at LBrace for while let body)
+            let value = self.parse_expression_with_options(true)?;
+
+            // Parse body statement (no parentheses for while let)
+            let body = Box::new(self.parse_statement()?);
+
+            Ok(Stmt::WhileLet {
+                pattern,
+                value: Box::new(value),
+                body,
+            })
+        } else {
+            // Regular while statement
+            self.expect_token(Token::LParen)?;
+
+            let condition = self.parse_expression()?;
+
+            self.expect_token(Token::RParen)?;
+            let body = Box::new(self.parse_statement()?);
+
+            Ok(Stmt::While {
+                condition: Box::new(condition),
+                body,
+            })
+        }
     }
 
     /// 解析 for 语句
@@ -1133,5 +1192,47 @@ impl<'a> StmtParser<'a> {
         } else {
             None
         }
+    }
+
+    /// Parse a pattern for if let expressions
+    /// Delegates to the AST parser's pattern parsing functionality
+    fn parse_pattern(&mut self) -> Result<crate::expr::Pattern> {
+        // Find the end of the pattern by looking for the '=' token
+        let start_pos = self.pos;
+        let mut end_pos = start_pos;
+        let mut depth = 0;
+
+        while end_pos < self.len {
+            match &self.tokens[end_pos] {
+                Token::LParen | Token::LBrace | Token::LBracket => {
+                    depth += 1;
+                    end_pos += 1;
+                }
+                Token::RParen | Token::RBrace | Token::RBracket => {
+                    depth -= 1;
+                    end_pos += 1;
+                }
+                Token::Assign if depth == 0 => {
+                    break; // Found the '=' at top level, pattern ends here
+                }
+                _ => {
+                    end_pos += 1;
+                }
+            }
+        }
+
+        if end_pos == start_pos {
+            return Err(anyhow!(self.err("Expected pattern before '='")));
+        }
+
+        // Use AST parser to parse the pattern
+        let pattern_tokens = &self.tokens[start_pos..end_pos];
+        let mut ast_parser = ExprParser::new(pattern_tokens);
+        let pattern = ast_parser.parse_pattern()?;
+
+        // Update position
+        self.pos = end_pos;
+
+        Ok(pattern)
     }
 }

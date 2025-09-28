@@ -503,6 +503,26 @@ impl TypeChecker {
                         return Err(Self::type_err("Template string expression must be string-coercible", Some(Type::String), Some(expr_type), Some(*expr.clone())));
                     }
                 }
+                crate::expr::TemplateStringPart::Enhanced(spec) => {
+                    // For enhanced parts, tokenize and check the expression
+                    let tokens = match crate::token::Tokenizer::tokenize_enhanced(spec) {
+                        Ok(tokens) => tokens,
+                        Err(_) => return Err(Self::type_err("Invalid enhanced template specification", Some(Type::String), None, None)),
+                    };
+
+                    if !tokens.is_empty() {
+                        let mut parser = crate::ast::Parser::new(&tokens);
+                        let expr = match parser.parse() {
+                            Ok(expr) => expr,
+                            Err(_) => return Err(Self::type_err("Invalid enhanced template expression", Some(Type::String), None, None)),
+                        };
+
+                        let expr_type = self.check_expr(&expr)?;
+                        if !expr_type.is_assignable_to(&Type::String) {
+                            return Err(Self::type_err("Enhanced template expression must be string-coercible", Some(Type::String), Some(expr_type), Some(expr)));
+                        }
+                    }
+                }
             }
         }
 

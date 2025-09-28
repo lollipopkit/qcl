@@ -61,8 +61,155 @@ pub struct SelectCase {
 pub enum TemplateStringPart {
     /// String literal part
     Literal(String),
-    /// Interpolated expression part
+    /// Interpolated expression part (original ${expr} syntax)
     Expr(Box<Expr>),
+    /// Enhanced interpolation with formatting: {variable:format}
+    Enhanced(String),
+}
+
+impl Expr {
+    /// Format enhanced template string specification
+    fn format_enhanced(spec: &str, ctx: &Val, env: Option<&crate::stmt::Environment>) -> Result<String> {
+        // Parse the spec: variable[:format]
+        let (var_part, format_part) = if let Some(colon_pos) = spec.find(':') {
+            (&spec[..colon_pos], Some(&spec[colon_pos + 1..]))
+        } else {
+            (spec, None)
+        };
+
+        // Evaluate the variable/expression
+        let tokens = Tokenizer::tokenize_enhanced(var_part)?;
+        if tokens.is_empty() {
+            return Err(anyhow!("Empty variable specification"));
+        }
+
+        let mut parser = crate::ast::Parser::new(&tokens);
+        let expr = parser.parse()?;
+        let value = expr.eval_with_env(ctx, env)?;
+
+        // Apply formatting if specified
+        if let Some(fmt) = format_part {
+            Self::apply_format(&value, fmt)
+        } else {
+            Ok(Self::value_to_string(&value))
+        }
+    }
+
+    /// Apply formatting to a value
+    fn apply_format(value: &Val, format: &str) -> Result<String> {
+
+        match value {
+            Val::Int(i) => Self::format_int(*i, format),
+            Val::Float(f) => Self::format_float(*f, format),
+            Val::Bool(b) => Self::format_bool(*b, format),
+            Val::Str(s) => Self::format_str(s.as_ref(), format),
+            _ => Ok(Self::value_to_string(value)),
+        }
+    }
+
+    /// Format integer with format specifier
+    fn format_int(value: i64, format: &str) -> Result<String> {
+        match format {
+            // Decimal with width and padding (04d, 05d, etc.)
+            fmt if fmt.starts_with('0') && fmt.len() > 1 && fmt.ends_with('d') => {
+                if let Ok(width) = fmt[1..fmt.len()-1].parse::<usize>() {
+                    Ok(format!("{:0width$}", value, width = width))
+                } else {
+                    Ok(value.to_string())
+                }
+            }
+            // Decimal with width (4d, 5d, etc.)
+            fmt if fmt.ends_with('d') && fmt.len() > 1 => {
+                if let Ok(width) = fmt[..fmt.len()-1].parse::<usize>() {
+                    Ok(format!("{:width$}", value, width = width))
+                } else {
+                    Ok(value.to_string())
+                }
+            }
+            // Hexadecimal
+            "x" => Ok(format!("{:x}", value)),
+            "X" => Ok(format!("{:X}", value)),
+            // Octal
+            "o" => Ok(format!("{:o}", value)),
+            // Binary
+            "b" => Ok(format!("{:b}", value)),
+            // Default decimal
+            "d" | "" => Ok(value.to_string()),
+            // Invalid format
+            _ => Err(anyhow!("Invalid integer format specifier: {}", format)),
+        }
+    }
+
+    /// Format float with format specifier
+    fn format_float(value: f64, format: &str) -> Result<String> {
+        match format {
+            // Fixed precision
+            fmt if fmt.starts_with('.') => {
+                if let Ok(precision) = fmt[1..].parse::<usize>() {
+                    Ok(format!("{:.*}", precision, value))
+                } else {
+                    Ok(value.to_string())
+                }
+            }
+            // Scientific notation
+            "e" => Ok(format!("{:e}", value)),
+            "E" => Ok(format!("{:E}", value)),
+            // Default
+            "f" | "" => Ok(value.to_string()),
+            // Invalid format
+            _ => Err(anyhow!("Invalid float format specifier: {}", format)),
+        }
+    }
+
+    /// Format boolean with format specifier
+    fn format_bool(value: bool, format: &str) -> Result<String> {
+        match format {
+            "b" => Ok(value.to_string()),
+            "s" => Ok(if value { "true" } else { "false" }.to_string()),
+            "d" => Ok(if value { "1" } else { "0" }.to_string()),
+            "" => Ok(value.to_string()),
+            _ => Err(anyhow!("Invalid boolean format specifier: {}", format)),
+        }
+    }
+
+    /// Format string with format specifier
+    fn format_str(value: &str, format: &str) -> Result<String> {
+        match format {
+            // String with minimum width (left-padded with spaces)
+            fmt if fmt.parse::<usize>().is_ok() => {
+                let width = fmt.parse::<usize>().unwrap();
+                Ok(format!("{:<width$}", value, width = width))
+            }
+            // String with minimum width (right-padded with spaces)
+            fmt if fmt.ends_with('s') && fmt[..fmt.len()-1].parse::<usize>().is_ok() => {
+                let width = fmt[..fmt.len()-1].parse::<usize>().unwrap();
+                Ok(format!("{:>width$}", value, width = width))
+            }
+            // Default
+            "s" | "" => Ok(value.to_string()),
+            // Invalid format
+            _ => Err(anyhow!("Invalid string format specifier: {}", format)),
+        }
+    }
+
+    /// Convert any value to string (default formatting)
+    fn value_to_string(value: &Val) -> String {
+        match value {
+            Val::Str(s) => s.as_ref().to_string(),
+            Val::Int(i) => i.to_string(),
+            Val::Float(f) => f.to_string(),
+            Val::Bool(b) => b.to_string(),
+            Val::Nil => "nil".to_string(),
+            Val::List(l) => format!("{:?}", l),
+            Val::Map(m) => format!("{:?}", m),
+            #[cfg(feature = "concurrency")]
+            Val::Task { .. } => format!("{:?}", value),
+            #[cfg(feature = "concurrency")]
+            Val::Channel { .. } => format!("{:?}", value),
+            Val::Closure { .. } => "[Closure]".to_string(),
+            Val::RustFunction(_) => "[Function]".to_string(),
+        }
+    }
 }
 
 /// Pattern matching pattern for match expressions
@@ -902,6 +1049,10 @@ impl Expr {
                             };
                             result.push_str(&str_val);
                         }
+                        TemplateStringPart::Enhanced(spec) => {
+                            let formatted = Self::format_enhanced(&spec, ctx, env)?;
+                            result.push_str(&formatted);
+                        }
                     }
                 }
                 Ok(Val::Str(Arc::from(result)))
@@ -1091,6 +1242,17 @@ impl Expr {
                         TemplateStringPart::Literal(_) => {}
                         TemplateStringPart::Expr(expr) => {
                             expr.collect_ctx_names(names);
+                        }
+                        TemplateStringPart::Enhanced(spec) => {
+                            // For enhanced parts, tokenize and collect context from the expression
+                            if let Ok(tokens) = Tokenizer::tokenize_enhanced(spec) {
+                                if !tokens.is_empty() {
+                                    let mut parser = crate::ast::Parser::new(&tokens);
+                                    if let Ok(expr) = parser.parse() {
+                                        expr.collect_ctx_names(names);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -1428,9 +1590,13 @@ impl Expr {
                                 TemplateStringPart::Expr(Box::new(folded_expr))
                             }
                         }
+                        TemplateStringPart::Enhanced(spec) => {
+                            // Enhanced parts cannot be folded at compile time due to runtime evaluation
+                            TemplateStringPart::Enhanced(spec)
+                        }
                     })
                     .collect();
-                
+
                 // If all parts are literals, fold to a single string constant
                 if folded_parts.iter().all(|part| matches!(part, TemplateStringPart::Literal(_))) {
                     let result = folded_parts.into_iter()
@@ -1444,7 +1610,7 @@ impl Expr {
                         .collect::<String>();
                     return Expr::Val(Val::Str(Arc::from(result)));
                 }
-                
+
                 Expr::TemplateString(folded_parts)
             }
             Expr::Closure { params, body } => {
@@ -1620,11 +1786,16 @@ impl Display for Expr {
                             let escaped = s
                                 .replace("\\", "\\\\")
                                 .replace("\"", "\\\"")
-                                .replace("$", "\\$");
+                                .replace("$", "\\$")
+                                .replace("{", "\\{")
+                                .replace("}", "\\}");
                             write!(f, "{}", escaped)?;
                         }
                         TemplateStringPart::Expr(expr) => {
                             write!(f, "${{{}}}", expr)?;
+                        }
+                        TemplateStringPart::Enhanced(spec) => {
+                            write!(f, "{{{}}}", spec)?;
                         }
                     }
                 }

@@ -718,7 +718,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a pattern for match expressions
-    fn parse_pattern(&mut self) -> Result<crate::expr::Pattern> {
+    pub fn parse_pattern(&mut self) -> Result<crate::expr::Pattern> {
         self.parse_or_pattern()
     }
 
@@ -1018,63 +1018,97 @@ impl<'a> Parser<'a> {
         let mut parts = Vec::new();
         let mut current_literal = String::new();
         let mut in_expr = false;
+        let mut in_enhanced_expr = false;
         let mut expr_start = 0;
         let mut pos = 0;
-        
+
         while pos < content.len() {
             let c = content.chars().nth(pos).unwrap();
-            
-            if in_expr {
+
+            if in_expr || in_enhanced_expr {
                 if c == '}' {
                     // End of expression
                     let expr_content = &content[expr_start..pos];
                     if !expr_content.is_empty() {
-                        // Tokenize and parse the expression
-                        let expr_tokens = match Tokenizer::tokenize_enhanced(expr_content) {
-                            Ok(tokens) => tokens,
-                            Err(e) => return Err(anyhow!(self.err(&format!("Failed to parse template expression: {}", e)))),
-                        };
-                        
-                        if !expr_tokens.is_empty() {
-                            let mut expr_parser = Parser::new(&expr_tokens);
-                            match expr_parser.parse_expr() {
-                                Ok(expr) => parts.push(TemplateStringPart::Expr(Box::new(expr))),
+                        if in_enhanced_expr {
+                            // Enhanced syntax with formatting: {variable:format}
+                            parts.push(TemplateStringPart::Enhanced(expr_content.to_string()));
+                        } else {
+                            // Original ${expr} syntax
+                            let expr_tokens = match Tokenizer::tokenize_enhanced(expr_content) {
+                                Ok(tokens) => tokens,
                                 Err(e) => return Err(anyhow!(self.err(&format!("Failed to parse template expression: {}", e)))),
+                            };
+
+                            if !expr_tokens.is_empty() {
+                                let mut expr_parser = Parser::new(&expr_tokens);
+                                match expr_parser.parse_expr() {
+                                    Ok(expr) => parts.push(TemplateStringPart::Expr(Box::new(expr))),
+                                    Err(e) => return Err(anyhow!(self.err(&format!("Failed to parse template expression: {}", e)))),
+                                }
                             }
                         }
                     }
                     in_expr = false;
+                    in_enhanced_expr = false;
                     pos += 1; // skip the '}'
                 } else {
                     pos += 1;
                 }
+            } else if c == '{' {
+                // Check if this is an escaped {{ or start of an expression
+                if pos + 1 < content.len() && content.chars().nth(pos + 1) == Some('{') {
+                    // Escaped {{
+                    current_literal.push('{');
+                    pos += 2;
+                } else if pos + 1 < content.len() && content.chars().nth(pos + 1) == Some('}') {
+                    // Empty {} - just a literal
+                    current_literal.push('{');
+                    current_literal.push('}');
+                    pos += 2;
+                } else {
+                    // Start of enhanced expression
+                    pos += 1; // skip '{'
+
+                    // Push the current literal if not empty
+                    if !current_literal.is_empty() {
+                        parts.push(TemplateStringPart::Literal(std::mem::take(&mut current_literal)));
+                    }
+
+                    in_enhanced_expr = true;
+                    expr_start = pos;
+                }
             } else if c == '$' && pos + 1 < content.len() && content.chars().nth(pos + 1) == Some('{') {
-                // Start of expression
+                // Start of original ${expr} syntax
                 pos += 2; // skip '${'
-                
+
                 // Push the current literal if not empty
                 if !current_literal.is_empty() {
                     parts.push(TemplateStringPart::Literal(std::mem::take(&mut current_literal)));
                 }
-                
+
                 in_expr = true;
                 expr_start = pos;
+            } else if c == '}' && pos + 1 < content.len() && content.chars().nth(pos + 1) == Some('}') {
+                // Escaped }}
+                current_literal.push('}');
+                pos += 2;
             } else {
                 current_literal.push(c);
                 pos += 1;
             }
         }
-        
+
         // Push any remaining literal content
         if !current_literal.is_empty() {
             parts.push(TemplateStringPart::Literal(current_literal));
         }
-        
+
         // If we're still in an expression, it's an error
-        if in_expr {
+        if in_expr || in_enhanced_expr {
             return Err(anyhow!(self.err("Unclosed template expression")));
         }
-        
+
         Ok(Expr::TemplateString(parts))
     }
 
