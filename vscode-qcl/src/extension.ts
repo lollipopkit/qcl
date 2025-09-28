@@ -5,7 +5,9 @@ import {
   LanguageClient,
   LanguageClientOptions,
   ServerOptions,
-  TransportKind
+  TransportKind,
+  RevealOutputChannelOn,
+  State as ClientState,
 } from 'vscode-languageclient/node';
 import type { Middleware } from 'vscode-languageclient/node';
 
@@ -189,10 +191,17 @@ export function activate(context: vscode.ExtensionContext) {
         enableSemanticTokens: true
       }
     },
-    outputChannelName: (outputChannelEnabled || isVerbose) ? 'QCL Language Server' : undefined,
+    // Never auto-reveal the output unless user explicitly opens it
+    revealOutputChannelOn: RevealOutputChannelOn.Never,
     traceOutputChannel: traceLevel !== 'off' ? vscode.window.createOutputChannel('QCL Language Server Trace') : undefined,
     middleware
   };
+
+  // Create and attach an output channel only when enabled/verbose
+  if (outputChannelEnabled || isVerbose) {
+    const outputChannel = vscode.window.createOutputChannel('QCL Language Server');
+    clientOptions.outputChannel = outputChannel;
+  }
 
   client = new LanguageClient(
     'qcl',
@@ -213,13 +222,13 @@ export function activate(context: vscode.ExtensionContext) {
     
     // Update status bar based on state
     switch (event.newState) {
-      case 1: // Starting
+      case ClientState.Starting:
         updateStatusBar('starting');
         break;
-      case 2: // Running
+      case ClientState.Running:
         updateStatusBar('running');
         break;
-      case 3: // Stopped
+      case ClientState.Stopped:
         updateStatusBar('stopped');
         break;
     }
@@ -272,14 +281,15 @@ export function activate(context: vscode.ExtensionContext) {
 
 function getServerPath(): string | undefined {
   // Try to find the qcl-lsp executable in different locations
+  const exe = process.platform === 'win32' ? '.exe' : '';
   const possiblePaths = [
     // Check common build output directories
-    path.join(__dirname, '..', '..', 'target', 'debug', 'qcl-lsp'),
-    path.join(__dirname, '..', 'target', 'debug', 'qcl-lsp'),
-    path.join(__dirname, '..', '..', 'target', 'release', 'qcl-lsp'),
-    path.join(__dirname, '..', 'target', 'release', 'qcl-lsp'),
+    path.join(__dirname, '..', '..', 'target', 'debug', `qcl-lsp${exe}`),
+    path.join(__dirname, '..', 'target', 'debug', `qcl-lsp${exe}`),
+    path.join(__dirname, '..', '..', 'target', 'release', `qcl-lsp${exe}`),
+    path.join(__dirname, '..', 'target', 'release', `qcl-lsp${exe}`),
     // Common user install
-    expandHome('~/.cargo/bin/qcl-lsp'),
+    expandHome(`~/.cargo/bin/qcl-lsp${exe}`),
   ];
 
   // Reduce noisy logs unless verbose
@@ -290,8 +300,11 @@ function getServerPath(): string | undefined {
     if (!possiblePath) continue;
     try {
       if (fs.existsSync(possiblePath)) {
-        // Test if the file is executable
-        fs.accessSync(possiblePath, fs.constants.F_OK | fs.constants.X_OK);
+        // Test if the file is executable (skip X_OK on Windows)
+        const mode = process.platform === 'win32'
+          ? fs.constants.F_OK
+          : (fs.constants.F_OK | fs.constants.X_OK);
+        fs.accessSync(possiblePath, mode);
         return possiblePath;
       }
     } catch {
@@ -300,7 +313,7 @@ function getServerPath(): string | undefined {
   }
 
   // Fall back to PATH resolution by returning command name
-  return 'qcl-lsp';
+  return process.platform === 'win32' ? 'qcl-lsp.exe' : 'qcl-lsp';
 }
 
 function expandHome(p: string): string {

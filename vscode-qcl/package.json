@@ -3,6 +3,7 @@
   "displayName": "QCL Language Support",
   "description": "Language support for QCL (Query Check Language) with LSP integration",
   "version": "0.0.1",
+  "publisher": "lollipopkit",
   "author": {
     "name": "lollipopkit",
     "email": "a@lpkt.cn",
@@ -25,33 +26,6 @@
     "onCommand:qcl.startServer",
     "onCommand:qcl.showStatusBarMenu"
   ],
-  "capabilities": {
-    "semanticTokensProvider": {
-      "legend": {
-        "tokenTypes": [
-          "comment",
-          "keyword",
-          "variable",
-          "function",
-          "string",
-          "number",
-          "operator",
-          "parameter",
-          "property",
-          "namespace",
-          "type"
-        ],
-        "tokenModifiers": [
-          "declaration",
-          "definition",
-          "readonly",
-          "static"
-        ]
-      },
-      "full": true,
-      "range": true
-    }
-  },
   "contributes": {
     "commands": [
       {
