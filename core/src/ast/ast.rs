@@ -1030,65 +1030,34 @@ impl<'a> Parser<'a> {
         let mut parts = Vec::new();
         let mut current_literal = String::new();
         let mut in_expr = false;
-        let mut in_enhanced_expr = false;
         let mut expr_start = 0;
         let mut pos = 0;
 
         while pos < content.len() {
             let c = content.chars().nth(pos).unwrap();
 
-            if in_expr || in_enhanced_expr {
+            if in_expr {
                 if c == '}' {
-                    // End of expression
+                    // End of ${...} expression
                     let expr_content = &content[expr_start..pos];
                     if !expr_content.is_empty() {
-                        if in_enhanced_expr {
-                            // Enhanced syntax with formatting: {variable:format}
-                            parts.push(TemplateStringPart::Enhanced(expr_content.to_string()));
-                        } else {
-                            // Original ${expr} syntax
-                            let expr_tokens = match Tokenizer::tokenize_enhanced(expr_content) {
-                                Ok(tokens) => tokens,
-                                Err(e) => return Err(anyhow!(self.err(&format!("Failed to parse template expression: {}", e)))),
-                            };
+                        let expr_tokens = match Tokenizer::tokenize_enhanced(expr_content) {
+                            Ok(tokens) => tokens,
+                            Err(e) => return Err(anyhow!(self.err(&format!("Failed to parse template expression: {}", e)))),
+                        };
 
-                            if !expr_tokens.is_empty() {
-                                let mut expr_parser = Parser::new(&expr_tokens);
-                                match expr_parser.parse_expr() {
-                                    Ok(expr) => parts.push(TemplateStringPart::Expr(Box::new(expr))),
-                                    Err(e) => return Err(anyhow!(self.err(&format!("Failed to parse template expression: {}", e)))),
-                                }
+                        if !expr_tokens.is_empty() {
+                            let mut expr_parser = Parser::new(&expr_tokens);
+                            match expr_parser.parse_expr() {
+                                Ok(expr) => parts.push(TemplateStringPart::Expr(Box::new(expr))),
+                                Err(e) => return Err(anyhow!(self.err(&format!("Failed to parse template expression: {}", e)))),
                             }
                         }
                     }
                     in_expr = false;
-                    in_enhanced_expr = false;
                     pos += 1; // skip the '}'
                 } else {
                     pos += 1;
-                }
-            } else if c == '{' {
-                // Check if this is an escaped {{ or start of an expression
-                if pos + 1 < content.len() && content.chars().nth(pos + 1) == Some('{') {
-                    // Escaped {{
-                    current_literal.push('{');
-                    pos += 2;
-                } else if pos + 1 < content.len() && content.chars().nth(pos + 1) == Some('}') {
-                    // Empty {} - just a literal
-                    current_literal.push('{');
-                    current_literal.push('}');
-                    pos += 2;
-                } else {
-                    // Start of enhanced expression
-                    pos += 1; // skip '{'
-
-                    // Push the current literal if not empty
-                    if !current_literal.is_empty() {
-                        parts.push(TemplateStringPart::Literal(std::mem::take(&mut current_literal)));
-                    }
-
-                    in_enhanced_expr = true;
-                    expr_start = pos;
                 }
             } else if c == '$' && pos + 1 < content.len() && content.chars().nth(pos + 1) == Some('{') {
                 // Start of original ${expr} syntax
@@ -1101,10 +1070,6 @@ impl<'a> Parser<'a> {
 
                 in_expr = true;
                 expr_start = pos;
-            } else if c == '}' && pos + 1 < content.len() && content.chars().nth(pos + 1) == Some('}') {
-                // Escaped }}
-                current_literal.push('}');
-                pos += 2;
             } else {
                 current_literal.push(c);
                 pos += 1;
@@ -1117,7 +1082,7 @@ impl<'a> Parser<'a> {
         }
 
         // If we're still in an expression, it's an error
-        if in_expr || in_enhanced_expr {
+        if in_expr {
             return Err(anyhow!(self.err("Unclosed template expression")));
         }
 

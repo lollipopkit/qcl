@@ -317,11 +317,18 @@ impl<'a> StmtParser<'a> {
             })
         } else {
             // Regular if statement
-            self.expect_token(Token::LParen)?;
+            let condition = if !self.eof() && self.tokens[self.pos] == Token::LParen {
+                // Standard form: if (cond) stmt
+                self.pos += 1; // consume '('
+                let cond = self.parse_expression()?;
+                self.expect_token(Token::RParen)?;
+                cond
+            } else {
+                // Also support: if cond { ... } (without parentheses)
+                // Stop parsing the condition at '{' when at top-level
+                self.parse_expression_with_options(true)?
+            };
 
-            let condition = self.parse_expression()?;
-
-            self.expect_token(Token::RParen)?;
             let then_stmt = Box::new(self.parse_statement()?);
 
             let else_stmt = if !self.eof() && self.tokens[self.pos] == Token::Else {
@@ -585,10 +592,41 @@ impl<'a> StmtParser<'a> {
     fn parse_let_stmt(&mut self) -> Result<Stmt> {
         self.expect_token(Token::Let)?;
 
-        // Parse pattern instead of just variable name
-        let pattern = self.parse_pattern()?;
+        // Parse pattern for let statement until a top-level ':' (type annotation)
+        // or '=' (assignment). Do NOT stop on ':' inside nested structures.
+        let start_pos = self.pos;
+        let mut end_pos = start_pos;
+        let mut paren: i32 = 0;
+        let mut bracket: i32 = 0;
+        let mut brace: i32 = 0;
 
-        // Check for optional type annotation
+        while end_pos < self.len {
+            match &self.tokens[end_pos] {
+                Token::LParen => { paren += 1; end_pos += 1; }
+                Token::RParen => { if paren > 0 { paren -= 1; } end_pos += 1; }
+                Token::LBracket => { bracket += 1; end_pos += 1; }
+                Token::RBracket => { if bracket > 0 { bracket -= 1; } end_pos += 1; }
+                Token::LBrace => { brace += 1; end_pos += 1; }
+                Token::RBrace => { if brace > 0 { brace -= 1; } end_pos += 1; }
+                Token::Assign if paren == 0 && bracket == 0 && brace == 0 => { break; }
+                Token::Colon if paren == 0 && bracket == 0 && brace == 0 => { break; }
+                _ => { end_pos += 1; }
+            }
+        }
+
+        if end_pos == start_pos {
+            return Err(anyhow!(self.err("Expected pattern after 'let'")));
+        }
+
+        // Use AST parser to parse the pattern
+        let pattern_tokens = &self.tokens[start_pos..end_pos];
+        let mut ast_parser = ExprParser::new(pattern_tokens);
+        let pattern = ast_parser.parse_pattern()?;
+
+        // Update position
+        self.pos = end_pos;
+
+        // Optional type annotation at top-level
         let type_annotation = if !self.eof() && self.tokens[self.pos] == Token::Colon {
             self.pos += 1; // consume ':'
             Some(self.parse_type_annotation()?)
@@ -1002,21 +1040,62 @@ impl<'a> StmtParser<'a> {
     /// Parse a type annotation, handling union types and other complex type syntax
     fn parse_type_annotation(&mut self) -> Result<Type> {
         let mut type_tokens = Vec::new();
-        
-        // Collect tokens that make up the type annotation until we hit '='
-        while !self.eof() && self.tokens[self.pos] != Token::Assign {
-            type_tokens.push(&self.tokens[self.pos]);
-            self.pos += 1;
+
+        // Collect tokens that make up the type annotation until we hit a token that can't be part of a type
+        while !self.eof() {
+            match &self.tokens[self.pos] {
+                Token::Id(_) => {
+                    type_tokens.push(&self.tokens[self.pos]);
+                    self.pos += 1;
+                }
+                Token::Lt => // For generic types like List<Int>
+                {
+                    type_tokens.push(&self.tokens[self.pos]);
+                    self.pos += 1;
+                }
+                Token::Gt => // For generic types like List<Int>
+                {
+                    type_tokens.push(&self.tokens[self.pos]);
+                    self.pos += 1;
+                }
+                Token::Comma => // For generic types like Map<String, Int>
+                {
+                    type_tokens.push(&self.tokens[self.pos]);
+                    self.pos += 1;
+                }
+                Token::LParen | Token::RParen => // For function types
+                {
+                    type_tokens.push(&self.tokens[self.pos]);
+                    self.pos += 1;
+                }
+                Token::Arrow => // For function types
+                {
+                    type_tokens.push(&self.tokens[self.pos]);
+                    self.pos += 1;
+                }
+                Token::Question => // For optional types
+                {
+                    type_tokens.push(&self.tokens[self.pos]);
+                    self.pos += 1;
+                }
+                Token::Pipe => // For union types
+                {
+                    type_tokens.push(&self.tokens[self.pos]);
+                    self.pos += 1;
+                }
+                // Stop at any other token (like =, ;, etc.)
+                _ => break,
+            }
         }
-        
+
         if type_tokens.is_empty() {
             return Err(anyhow!(self.err("Expected type annotation")));
         }
-        
+
         // Convert tokens back to string and parse
         let type_str = self.tokens_to_type_string(&type_tokens);
-        Type::parse(&type_str)
-            .ok_or_else(|| anyhow!(self.err(&format!("Invalid type: {}", type_str))))
+        let parsed_type = Type::parse(&type_str);
+        parsed_type.ok_or_else(|| anyhow!(self.err(&format!("Invalid type: {}", type_str))))
     }
     
     /// Convert a sequence of tokens back to a type string for parsing

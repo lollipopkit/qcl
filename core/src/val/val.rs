@@ -561,6 +561,8 @@ impl Val {
                 }
                 l.get(*i as usize).cloned()
             }
+            (Val::List(l), Val::Str(s)) if s.as_ref() == "len" => Some(Val::Int(l.len() as i64)),
+            (Val::Str(s), Val::Str(field)) if field.as_ref() == "len" => Some(Val::Int(s.len() as i64)),
             (Val::Object { fields, .. }, Val::Str(s)) => fields.get(s.as_ref()).cloned(),
             (Val::Task { value, .. }, Val::Str(s)) if s.as_ref() == "value" => match value {
                 Some(v) => Some((**v).clone()),

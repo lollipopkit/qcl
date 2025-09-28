@@ -335,9 +335,43 @@ impl Stmt {
                     // 求值表达式
                     let val = value.eval_with_env(ctx, Some(env))?;
 
+                    // 在 while let/if let 语境下，变量模式不匹配 nil
+                    if let crate::expr::Pattern::Variable(_) = pattern {
+                        if val == Val::Nil {
+                            break;
+                        }
+                    }
+
+                    // 对列表前缀匹配做放宽：允许 [a] 匹配 [a, b, ...]
+                    // 同时记录是否为“放宽”匹配，以便在循环体执行后，
+                    // 如果 value 是变量，则将其自动推进到 rest（与显式 [a, ..rest] 写法一致）。
+                    let (pattern_for_match, prefix_relaxed) = match pattern {
+                        crate::expr::Pattern::List { patterns, rest } if rest.is_none() => {
+                            (
+                                crate::expr::Pattern::List {
+                                    patterns: patterns.clone(),
+                                    rest: Some("__whilelet_rest".to_string()),
+                                },
+                                true,
+                            )
+                        }
+                        _ => (pattern.clone(), false),
+                    };
+
+                    // 如果 value 是形如 x[0] 的访问表达式，则在匹配失败时尝试“向前推进” x，
+                    // 即将 x 赋值为其余切片 (从索引 1 开始)。这样可支持诸如
+                    // `while let val if guard = x[0] { ... x = [x[1]]; }` 的按需过滤场景。
+                    let scan_head_var: Option<String> = match value.as_ref() {
+                        crate::expr::Expr::Access(obj, field) => match (obj.as_ref(), field.as_ref()) {
+                            (crate::expr::Expr::Var(name), crate::expr::Expr::Val(Val::Int(i))) if *i == 0 => Some(name.clone()),
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+
                     // 尝试模式匹配
                     env.push_scope(); // 为模式变量绑定创建新作用域
-                    let match_result = pattern.matches(&val, ctx, Some(env))?;
+                    let match_result = pattern_for_match.matches(&val, ctx, Some(env))?;
 
                     if let Some(bindings) = match_result {
                         // 模式匹配成功，绑定变量到环境
@@ -345,14 +379,32 @@ impl Stmt {
                             env.define(name, val);
                         }
 
+                        // 如果是前缀放宽匹配，且 value 是变量，记录 rest 以便在循环体执行后推进该变量
+                        let mut pending_prefix_advance: Option<(String, Val)> = None;
+                        if prefix_relaxed {
+                            if let crate::expr::Expr::Var(var_name) = value.as_ref() {
+                                if let Some(rest_val) = env.get("__whilelet_rest").cloned() {
+                                    pending_prefix_advance = Some((var_name.clone(), rest_val));
+                                }
+                            }
+                        }
+
                         // 执行循环体
-                        match body.execute(env, ctx)? {
+                        let exec_result = body.execute(env, ctx)?;
+
+                        match exec_result {
                             ControlFlow::Break => {
                                 env.pop_scope();
                                 break;
                             }
                             ControlFlow::Continue => {
+                                // 对于 continue，若存在需要的前缀推进，则在退出子作用域前记录，
+                                // 并在退出后应用到外层环境。
+                                let advance = pending_prefix_advance.clone();
                                 env.pop_scope();
+                                if let Some((name, rest_val)) = advance {
+                                    let _ = env.assign(&name, rest_val); // 忽略错误：若变量已被覆盖则不影响
+                                }
                                 continue;
                             }
                             ControlFlow::Return(val) => {
@@ -360,12 +412,32 @@ impl Stmt {
                                 return Ok(ControlFlow::Return(val));
                             }
                             ControlFlow::None => {
+                                // 正常执行结束，若存在需要的前缀推进，则在退出子作用域后应用
+                                let advance = pending_prefix_advance.clone();
                                 env.pop_scope();
+                                if let Some((name, rest_val)) = advance {
+                                    let _ = env.assign(&name, rest_val);
+                                }
                             }
                         }
                     } else {
                         // 模式匹配失败，退出循环
                         env.pop_scope();
+
+                        // 针对 x[0] 的场景：在不匹配时尝试推进 x 到其余切片后继续尝试
+                        if let Some(var_name) = scan_head_var {
+                            if let Some(current) = env.get(&var_name).cloned() {
+                                if let Val::List(list) = current {
+                                    if list.len() > 0 {
+                                        let tail: Vec<Val> = list.iter().skip(1).cloned().collect();
+                                        let _ = env.assign(&var_name, Val::List(Arc::new(tail)));
+                                        // 不立即 break，继续下一轮尝试
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+
                         break;
                     }
                 }
@@ -515,8 +587,25 @@ impl Stmt {
                 Ok(ControlFlow::None)
             }
             Stmt::Expr(expr) => {
-                // 执行表达式，忽略返回值
-                expr.eval_with_env(ctx, Some(env))?;
+                // 执行表达式
+                let value = expr.eval_with_env(ctx, Some(env))?;
+
+                // Heuristic: if this is a method call like `var.method(...)` and
+                // the method is known to return an updated receiver (e.g. List.push),
+                // assign the result back to the variable to simulate mutating methods.
+                if let crate::expr::Expr::CallExpr(callee, _args) = expr.as_ref() {
+                    if let crate::expr::Expr::Access(obj_expr, field_expr) = callee.as_ref() {
+                        if let crate::expr::Expr::Var(var_name) = obj_expr.as_ref() {
+                            if let crate::expr::Expr::Val(Val::Str(method)) = field_expr.as_ref() {
+                                // For now, treat 'push' as mutating for Lists
+                                if method.as_ref() == "push" {
+                                    let _ = env.assign(var_name, value.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+
                 Ok(ControlFlow::None)
             }
             Stmt::Block { statements } => {

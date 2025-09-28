@@ -76,6 +76,19 @@ cond ? then : else
 @ . ()
 ```
 
+### Template Strings
+- Interpolation is supported only with `${...}` inside normal quoted strings.
+- Examples:
+```
+"Hello, ${@user.name}!"
+"Sum: ${1 + 2}"
+"First: ${@list.0}"
+```
+- Notes:
+- Bare `{...}` is not supported and is treated as literal braces.
+- Escape sequences inside strings: `\n`, `\r`, `\t`, `\\`, `\"`, `\'`.
+- To include a literal `${`, write `\$` then `{` or split it, e.g., `"$" + "{"`.
+
 ## Expressions
 
 ### Primary

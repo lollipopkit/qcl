@@ -4,14 +4,37 @@ mod tests {
         stmt::StmtParser,
         val::Val,
         token::Tokenizer,
+        val::methods,
     };
     use std::sync::Arc;
 
+    // Simple list push function for testing
+    fn list_push(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val, anyhow::Error> {
+        if args.len() != 2 {
+            return Err(anyhow::anyhow!("push() takes exactly 2 arguments"));
+        }
+
+        match &args[0] {
+            Val::List(list) => {
+                let mut new_list = Vec::clone(&**list);
+                new_list.push(args[1].clone());
+                Ok(Val::List(Arc::new(new_list)))
+            }
+            _ => Err(anyhow::anyhow!("push() first argument must be a list")),
+        }
+    }
+
     fn parse_and_execute_stmt(stmt_code: &str, ctx: &Val) -> Result<Val, anyhow::Error> {
+        // Register list methods for testing
+        methods::register_method("List", "push", list_push);
+
         let tokens = Tokenizer::tokenize(stmt_code)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        program.execute(ctx)
+
+        // Use execute_with_env with a new environment
+        let mut env = crate::stmt::Environment::new();
+        program.execute_with_env(ctx, &mut env)
     }
 
     #[test]

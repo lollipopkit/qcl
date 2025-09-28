@@ -13,8 +13,6 @@ mod if_let_test;
 #[cfg(test)]
 mod while_let_test;
 #[cfg(test)]
-mod enhanced_string_test;
-#[cfg(test)]
 mod destructuring_test;
 #[cfg(test)]
 mod rust_function_test;
