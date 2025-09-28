@@ -267,7 +267,7 @@ let newline = '\n';
 
 ### Medium Priority
 - [x] Enhanced string interpolation ✅ **COMPLETED**
-- [ ] Range patterns in match
+- [x] Range patterns in match ✅ **COMPLETED**
 - [ ] Destructuring assignment
 - [ ] Method call syntax sugar
 

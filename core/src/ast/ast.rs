@@ -782,9 +782,21 @@ impl<'a> Parser<'a> {
                 }
             }
             Token::Float(f) => {
-                let val = Val::Float(*f);
+                let start_val = *f;
                 self.pos += 1;
-                Ok(crate::expr::Pattern::Literal(val))
+                // Check if this is a range pattern
+                if !self.eof() && (self.tokens[self.pos] == Token::Range || self.tokens[self.pos] == Token::RangeInclusive) {
+                    let inclusive = self.tokens[self.pos] == Token::RangeInclusive;
+                    self.pos += 1;
+                    let end_expr = Box::new(self.parse_conditional()?);
+                    Ok(crate::expr::Pattern::Range {
+                        start: Box::new(Expr::Val(Val::Float(start_val))),
+                        end: end_expr,
+                        inclusive,
+                    })
+                } else {
+                    Ok(crate::expr::Pattern::Literal(Val::Float(start_val)))
+                }
             }
             Token::Str(s) => {
                 let val = Val::Str(Arc::from(s.clone()));

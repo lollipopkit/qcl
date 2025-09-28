@@ -307,4 +307,95 @@ mod tests {
         let result = match_expr.eval_with_env(&ctx, Some(&env)).unwrap();
         assert_eq!(result, Val::Str(Arc::from("Alice")));
     }
+
+    #[test]
+    fn test_float_range_pattern() {
+        let match_expr = Expr::Match {
+            value: Box::new(Expr::Val(Val::Float(85.5))),
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Range {
+                        start: Box::new(Expr::Val(Val::Float(0.0))),
+                        end: Box::new(Expr::Val(Val::Float(60.0))),
+                        inclusive: false,
+                    },
+                    body: Box::new(Expr::Val(Val::Str(Arc::from("fail")))),
+                },
+                MatchArm {
+                    pattern: Pattern::Range {
+                        start: Box::new(Expr::Val(Val::Float(60.0))),
+                        end: Box::new(Expr::Val(Val::Float(80.0))),
+                        inclusive: false,
+                    },
+                    body: Box::new(Expr::Val(Val::Str(Arc::from("pass")))),
+                },
+                MatchArm {
+                    pattern: Pattern::Range {
+                        start: Box::new(Expr::Val(Val::Float(80.0))),
+                        end: Box::new(Expr::Val(Val::Float(100.0))),
+                        inclusive: true,
+                    },
+                    body: Box::new(Expr::Val(Val::Str(Arc::from("excellent")))),
+                },
+                MatchArm {
+                    pattern: Pattern::Wildcard,
+                    body: Box::new(Expr::Val(Val::Str(Arc::from("invalid")))),
+                },
+            ],
+        };
+
+        let env = Environment::new();
+        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let result = match_expr.eval_with_env(&ctx, Some(&env)).unwrap();
+        assert_eq!(result, Val::Str(Arc::from("excellent")));
+
+        // Test boundary cases
+        let boundary_tests = vec![
+            (59.9, "fail"),   // Just below 60
+            (60.0, "pass"),   // Exactly 60 (exclusive range start)
+            (79.9, "pass"),   // Just below 80
+            (80.0, "excellent"), // Exactly 80 (inclusive range start)
+            (100.0, "excellent"), // Exactly 100 (inclusive range end)
+            (100.1, "invalid"), // Above 100
+        ];
+
+        for (value, expected) in boundary_tests {
+            let match_expr = Expr::Match {
+                value: Box::new(Expr::Val(Val::Float(value))),
+                arms: vec![
+                    MatchArm {
+                        pattern: Pattern::Range {
+                            start: Box::new(Expr::Val(Val::Float(0.0))),
+                            end: Box::new(Expr::Val(Val::Float(60.0))),
+                            inclusive: false,
+                        },
+                        body: Box::new(Expr::Val(Val::Str(Arc::from("fail")))),
+                    },
+                    MatchArm {
+                        pattern: Pattern::Range {
+                            start: Box::new(Expr::Val(Val::Float(60.0))),
+                            end: Box::new(Expr::Val(Val::Float(80.0))),
+                            inclusive: false,
+                        },
+                        body: Box::new(Expr::Val(Val::Str(Arc::from("pass")))),
+                    },
+                    MatchArm {
+                        pattern: Pattern::Range {
+                            start: Box::new(Expr::Val(Val::Float(80.0))),
+                            end: Box::new(Expr::Val(Val::Float(100.0))),
+                            inclusive: true,
+                        },
+                        body: Box::new(Expr::Val(Val::Str(Arc::from("excellent")))),
+                    },
+                    MatchArm {
+                        pattern: Pattern::Wildcard,
+                        body: Box::new(Expr::Val(Val::Str(Arc::from("invalid")))),
+                    },
+                ],
+            };
+
+            let result = match_expr.eval_with_env(&ctx, Some(&env)).unwrap();
+            assert_eq!(result, Val::Str(Arc::from(expected)), "Value {} should match {}", value, expected);
+        }
+    }
 }
