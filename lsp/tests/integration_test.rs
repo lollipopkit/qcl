@@ -362,6 +362,7 @@ impl TestLanguageServer {
             T::MulAssign => "Operator: *=".to_string(),
             T::DivAssign => "Operator: /=".to_string(),
             T::ModAssign => "Operator: %=".to_string(),
+            T::Match => "Keyword: match".to_string(),
         }
     }
 

@@ -1,222 +1,323 @@
-# QCL Rust Syntax Sugars Implementation TODO
+# QCL Rust Syntax Sugar Implementation TODOs
 
-## Priority 1: Critical Implementation
+This document lists unimplemented Rust-like syntax sugar features for the QCL language, prioritized by importance and implementation complexity.
 
-### 1. `..=` Inclusive Range Operator
-- **Status**: Only exclusive `..` ranges implemented
-- **File**: `core/src/ast.rs:180` (TODO comment exists)
-- **Importance**: Fundamental for iteration and slice operations
-- **Test Plan**:
-  ```rust
-  #[test]
-  fn test_inclusive_range() {
-      test_expr("1..=5", Ok(val!(5))); // Should evaluate to range 1-5
-      test_expr("for i in 1..=5 { print(i); }", Ok(val!()));
-  }
-  ```
+## High Priority (Core Language Features)
 
-### 2. `|param| expr` Closure Syntax
-- **Status**: `|` currently used for union types
-- **Importance**: Essential for functional programming patterns
-- **Test Plan**:
-  ```rust
-  #[test]
-  fn test_closure_syntax() {
-      test_expr("let add = |x, y| x + y; add(2, 3)", Ok(val!(5)));
-      test_expr("[1, 2, 3].map(|x| x * 2)", Ok(val!([2, 4, 6])));
-  }
-  ```
+### 1. Match Expressions
+**Status:** Not implemented (only `select/case` for concurrency exists)
+**Priority:** Critical
+**Complexity:** High
+**Description:** Implement Rust-style pattern matching with `match` expressions
+```qcl
+let result = match value {
+    1 => "one",
+    2 | 3 => "two or three",
+    x if x > 10 => "big number",
+    [first, ..rest] => "array destructuring",
+    {"key": val} => "object destructuring",
+    _ => "default"
+};
+```
+**Implementation:**
+- Add `Match` token and expression type
+- Extend parser to handle match syntax
+- Implement pattern matching evaluation
+- Add comprehensive pattern matching tests
 
-### 3. `?` Error Propagation Operator
-- **Status**: `?` only used for optional types currently
-- **Importance**: Critical for error handling ergonomics
-- **Test Plan**:
-  ```rust
-  #[test]
-  fn test_error_propagation() {
-      test_expr("fn may_fail() -> Result<int, string> { if @cond { Ok(42) } else { Err(\"fail\") } } may_fail()?", Ok(val!(42)));
-  }
-  ```
+### 2. Compound Assignment Operators
+**Status:** Not implemented
+**Priority:** High
+**Complexity:** Low
+**Description:** Shorthand assignment operators
+```qcl
+x += 5;   // x = x + 5
+y -= 3;   // y = y - 3
+z *= 2;   // z = z * 2
+w /= 4;   // w = w / 4
+```
+**Implementation:**
+- Add compound assignment tokens (`+=`, `-=`, `*=`, `/=`, `%=`)
+- Add `CompoundAssign` statement type
+- Implement evaluation logic
 
-### 4. `match` Expressions
-- **Status**: Only `select/case` for concurrency exists
-- **Importance**: Fundamental Rust control flow construct
-- **Test Plan**:
-  ```rust
-  #[test]
-  fn test_match_expression() {
-      test_expr("match x { 1 => \"one\", 2 => \"two\", _ => \"other\" }", Ok(val!(\"one\")));
-      test_expr("match @opt { Some(v) => v, None => 0 }", Ok(val!(42)));
-  }
-  ```
+### 3. If Let Expressions
+**Status:** Not implemented
+**Priority:** High
+**Complexity:** Medium
+**Description:** Conditional binding with pattern matching
+```qcl
+if let [first, ..rest] = some_list {
+    print(first);
+}
 
-## Priority 2: High Importance
+if let {"name": name} = user {
+    print(name);
+}
+```
 
-### 5. Method Call Syntax
-- **Status**: Functions called as `func(args)` not `obj.method(args)`
-- **Importance**: Improves code readability and OO patterns
-- **Test Plan**:
-  ```rust
-  #[test]
-  fn test_method_call_syntax() {
-      test_expr("\"hello\".length()", Ok(val!(5)));
-      test_expr("[1, 2, 3].push(4)", Ok(val!([1, 2, 3, 4])));
-  }
-  ```
+### 4. While Let Loops
+**Status:** Not implemented
+**Priority:** High
+**Complexity:** Medium
+**Description:** Loop with pattern matching condition
+```qcl
+while let [item, ..rest] = queue {
+    process(item);
+    queue = rest;
+}
+```
 
-### 6. Struct Literals with Field Shorthand
-- **Status**: No struct syntax, only map literals
-- **Importance**: Important for data modeling
-- **Test Plan**:
-  ```rust
-  #[test]
-  fn test_struct_literals() {
-      test_expr("struct Point { x: int, y: int } Point { x: 1, y: 2 }", Ok(val!({\"x\": 1, \"y\": 2})));
-      test_expr("let x = 1; let y = 2; Point { x, y }", Ok(val!({\"x\": 1, \"y\": 2})));
-  }
-  ```
+## Medium Priority (Quality of Life)
 
-### 7. `if let`/`while let` Expressions
-- **Status**: Not implemented
-- **Importance**: Common pattern matching shorthand
-- **Test Plan**:
-  ```rust
-  #[test]
-  fn test_if_let_expression() {
-      test_expr("if let Some(v) = @opt { v * 2 } else { 0 }", Ok(val!(84)));
-      test_expr("while let Some(v) = @iterator { print(v); }", Ok(val!()));
-  }
-  ```
+### 5. Enhanced String Interpolation
+**Status:** Basic template strings implemented
+**Priority:** Medium
+**Complexity:** Low
+**Description:** More advanced template string features
+```qcl
+let name = "Alice";
+let greeting = f"Hello {name}!";           // f-string syntax
+let formatted = f"Value: {value:2}";       // format specifiers
+```
 
-## Priority 3: Medium Importance
+### 6. Range Patterns in Match
+**Status:** Basic ranges implemented but not in patterns
+**Priority:** Medium
+**Complexity:** Medium
+**Description:** Match against ranges
+```qcl
+match age {
+    0..=12 => "child",
+    13..=19 => "teenager",
+    20..=64 => "adult",
+    65.. => "senior"
+}
+```
 
-### 8. `&` Borrow Operator
-- **Status**: Only used for `&&` logical AND
-- **Importance**: Would enable reference semantics
-- **Test Plan**:
-  ```rust
-  #[test]
-  fn test_borrow_operator() {
-      test_expr("let x = 42; let y = &x; *y", Ok(val!(42)));
-  }
-  ```
+### 7. Destructuring Assignment
+**Status:** Basic pattern matching in for loops exists
+**Priority:** Medium
+**Complexity:** Medium
+**Description:** Assign multiple variables from structures
+```qcl
+let [x, y, z] = [1, 2, 3];
+let {"name": name, "age": age} = user;
+let (a, b) = (1, 2);
+```
 
-### 9. `*` Dereference Operator
-- **Status**: Only used for multiplication
-- **Importance**: Needed for pointer operations
-- **Test Plan**:
-  ```rust
-  #[test]
-  fn test_dereference_operator() {
-      test_expr("let x = 42; let y = &x; *y", Ok(val!(42)));
-  }
-  ```
+### 8. Method Call Syntax Sugar
+**Status:** Only function calls implemented
+**Priority:** Medium
+**Complexity:** Medium
+**Description:** Method-style calls on values
+```qcl
+"hello".length()        // instead of length("hello")
+[1, 2, 3].push(4)      // instead of push([1, 2, 3], 4)
+numbers.map(|x| x * 2) // instead of map(numbers, |x| x * 2)
+```
 
-### 10. Turbofish Syntax `::<T>`
-- **Status**: Not implemented
-- **Importance**: Needed for explicit type annotation
-- **Test Plan**:
-  ```rust
-  #[test]
-  fn test_turbofish_syntax() {
-      test_expr("Vec::<int>::new()", Ok(val!([])));
-      test_expr("0.5::<float>", Ok(val!(0.5)));
-  }
-  ```
+## Medium-Low Priority (Convenience Features)
 
-### 11. Enum Variants with Data
-- **Status**: No enum syntax
-- **Importance**: Important for algebraic data types
-- **Test Plan**:
-  ```rust
-  #[test]
-  fn test_enum_syntax() {
-      test_expr("enum Option<T> { Some(T), None } Option::Some(42)", Ok(val!(42)));
-      test_expr("match @opt { Option::Some(v) => v, Option::None => 0 }", Ok(val!(42)));
-  }
-  ```
+### 9. List/Map Comprehensions
+**Status:** Not implemented
+**Priority:** Medium-Low
+**Complexity:** High
+**Description:** Functional-style collection construction
+```qcl
+let squares = [x * x for x in 1..10];
+let evens = [x for x in numbers if x % 2 == 0];
+let lookup = {k: v.upper() for (k, v) in pairs};
+```
 
-## Priority 4: Low Importance
+### 10. Pipe Operator
+**Status:** Not implemented
+**Priority:** Medium-Low
+**Complexity:** Medium
+**Description:** Function chaining operator
+```qcl
+let result = value
+    |> func1()
+    |> func2(arg)
+    |> func3();
+```
 
-### 12. Generic Parameters in Functions/Structs
-- **Status**: Type system supports generics but no function syntax
-- **Importance**: Needed for reusable code
-- **Test Plan**:
-  ```rust
-  #[test]
-  fn test_generic_functions() {
-      test_expr("fn id<T>(x: T) -> T { x } id::<int>(42)", Ok(val!(42)));
-  }
-  ```
+### 11. Null Propagation Extensions
+**Status:** Basic `?.` implemented
+**Priority:** Medium-Low
+**Complexity:** Low
+**Description:** Enhanced null-safe operations
+```qcl
+let result = obj?.method()?.field?.value;
+obj?.method(arg)?;  // null-safe method call
+```
 
-### 13. Lifetime Syntax `'a`
-- **Status**: Type variables use `'T` but not for lifetimes
-- **Importance**: Advanced type system feature
-- **Test Plan**:
-  ```rust
-  #[test]
-  fn test_lifetime_syntax() {
-      test_expr("fn borrow<'a>(x: &'a int) -> &'a int { x }", Ok(val!(42)));
-  }
-  ```
+### 12. Error Propagation Operator (?)
+**Status:** `?` only used for optional types
+**Priority:** Medium-Low
+**Complexity:** High
+**Description:** Early return for Result/Option types
+```qcl
+fn parseNumber(s: String) -> Result<Int, String> {
+    let trimmed = s.trim()?;
+    let num = trimmed.parseInt()?;
+    return Ok(num);
+}
+```
 
-### 14. Raw String Literals `r"..."`
-- **Status**: Not implemented
-- **Importance**: Quality of life feature
-- **Test Plan**:
-  ```rust
-  #[test]
-  fn test_raw_string_literals() {
-      test_expr(r#"r"C:\path\to\file""#, Ok(val!("C:\\path\\to\\file")));
-  }
-  ```
+## Low Priority (Advanced Features)
 
-### 15. Character Literals `'c'`
-- **Status**: Not implemented
-- **Importance**: Can use strings instead
-- **Test Plan**:
-  ```rust
-  #[test]
-  fn test_character_literals() {
-      test_expr("'a'", Ok(val!("a")));
-      test_expr("'\n'", Ok(val!("\n")));
-  }
-  ```
+### 13. Struct Definitions
+**Status:** Only map literals exist
+**Priority:** Low
+**Complexity:** High
+**Description:** Named struct types
+```qcl
+struct Point {
+    x: Float,
+    y: Float
+}
+
+let p = Point { x: 1.0, y: 2.0 };
+let Point { x, y } = p;  // destructuring
+```
+
+### 14. Enum Types
+**Status:** Not implemented
+**Priority:** Low
+**Complexity:** High
+**Description:** Algebraic data types
+```qcl
+enum Option<T> {
+    Some(T),
+    None
+}
+
+let value = Option::Some(42);
+match value {
+    Option::Some(x) => x,
+    Option::None => 0
+}
+```
+
+### 15. Generic Function Syntax
+**Status:** Type system supports generics but no syntax
+**Priority:** Low
+**Complexity:** High
+**Description:** Generic functions and types
+```qcl
+fn map<T, U>(list: List<T>, f: fn(T) -> U) -> List<U> {
+    // implementation
+}
+```
+
+### 16. Raw String Literals
+**Status:** Not implemented
+**Priority:** Low
+**Complexity:** Low
+**Description:** Escape-free string literals
+```qcl
+let path = r"C:\Users\file.txt";    // no need to escape backslashes
+let regex = r"\d{3}-\d{3}-\d{4}";   // no need to escape regex
+```
+
+### 17. Character Literals
+**Status:** Not implemented
+**Priority:** Low
+**Complexity:** Low
+**Description:** Single character values
+```qcl
+let ch = 'a';
+let newline = '\n';
+```
+
+## Implementation Strategy
+
+### Phase 1: Quick Wins (High Impact, Low Complexity)
+1. **Compound Assignment Operators** - Easy to implement, commonly used
+2. **Raw String Literals** - Simple tokenizer enhancement
+3. **Character Literals** - Basic tokenizer addition
+4. **Enhanced String Interpolation** - Build on existing template strings
+
+### Phase 2: Core Language Features (High Impact, Medium-High Complexity)
+5. **Match Expressions** - Foundation for pattern matching
+6. **If Let/While Let** - Essential control flow
+7. **Destructuring Assignment** - Core language feature
+8. **Method Call Syntax** - Major ergonomic improvement
+
+### Phase 3: Advanced Features (Medium Impact)
+9. **List/Map Comprehensions** - Functional programming support
+10. **Pipe Operator** - Function composition
+11. **Null Propagation Extensions** - Safety improvements
+12. **Range Patterns in Match** - Completes pattern matching
+
+### Phase 4: Type System Extensions (Lower Priority)
+13. **Error Propagation Operator** - Requires Result types
+14. **Struct Definitions** - Major type system addition
+15. **Enum Types** - Algebraic data types
+16. **Generic Function Syntax** - Advanced type features
 
 ## Implementation Progress
 
-- [ ] `..=` inclusive range operator
-- [ ] `|param| expr` closure syntax
-- [ ] `?` error propagation operator
-- [ ] `match` expressions
-- [ ] Method call syntax
-- [ ] Struct literals
-- [ ] `if let`/`while let` expressions
-- [ ] `&` borrow operator
-- [ ] `*` dereference operator
-- [ ] Turbofish syntax `::<T>`
-- [ ] Enum variants with data
-- [ ] Generic parameters in functions
-- [ ] Lifetime syntax `'a`
-- [ ] Raw string literals
-- [ ] Character literals
+### High Priority
+- [x] Match expressions ✅ **COMPLETED**
+- [x] Compound assignment operators (`+=`, `-=`, etc.) ✅ **COMPLETED**
+- [ ] If let expressions
+- [ ] While let loops
+
+### Medium Priority
+- [ ] Enhanced string interpolation
+- [ ] Range patterns in match
+- [ ] Destructuring assignment
+- [ ] Method call syntax sugar
+
+### Medium-Low Priority
+- [ ] List/Map comprehensions
+- [ ] Pipe operator (`|>`)
+- [ ] Null propagation extensions
+- [ ] Error propagation operator (`?`)
+
+### Low Priority
+- [ ] Struct definitions
+- [ ] Enum types
+- [ ] Generic function syntax
+- [ ] Raw string literals (`r"..."`)
+- [ ] Character literals (`'c'`)
 
 ## Implementation Notes
 
-1. **Parser Changes**: Most syntax sugars will require updates to:
-   - `core/src/token.rs` (tokenizer)
-   - `core/src/ast.rs` (AST nodes)
-   - `core/src/expr.rs` (expression parsing)
-   - `core/src/stmt.rs` (statement parsing)
+### Parser Changes
+Most syntax sugars will require updates to:
+- `core/src/token/token.rs` - Add new tokens
+- `core/src/ast/ast.rs` - Add new AST node types
+- `core/src/expr/expr.rs` - Add new expression types
+- `core/src/stmt/stmt.rs` - Add new statement types
 
-2. **Type System**: Some features require type system extensions in:
-   - `core/src/val.rs` (value types)
-   - `core/src/op.rs` (operations)
+### Type System Extensions
+Some features require extensions in:
+- `core/src/val/val.rs` - New value types (Result, Option, etc.)
+- `core/src/op/op.rs` - New operations
+- `core/src/typ/typ.rs` - New type definitions
 
-3. **Testing Strategy**: For each feature:
-   - Add `#[test]` functions in appropriate `*_test.rs` files
-   - Use existing `test_expr!` and `test_stmt!` macros
-   - Run `cargo test` to verify implementation
-   - Ensure all existing tests still pass
+### Testing Strategy
+For each feature:
+1. Create unit tests in appropriate `*_test.rs` files
+2. Test parsing, evaluation, and error cases
+3. Use existing test infrastructure (`test_expr!`, `test_stmt!`)
+4. Run `cargo test` to verify implementation
+5. Ensure all existing tests continue to pass
+6. Add integration tests with other features
 
-4. **Compatibility**: Maintain backward compatibility with existing QCL code
+### Compatibility
+- Maintain backward compatibility with existing QCL code
+- Ensure new syntax doesn't conflict with existing tokens
+- Consider deprecation path for conflicting features
+- Document breaking changes if unavoidable
+
+## Next Steps
+
+1. **Start with Compound Assignment Operators** - lowest complexity, highest value
+2. **Implement comprehensive tests** for each feature before moving to the next
+3. **Run full test suite** after each implementation
+4. **Update documentation** for each completed feature
+5. **Consider performance impact** of new features on existing code

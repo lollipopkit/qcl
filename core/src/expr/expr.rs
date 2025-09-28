@@ -65,6 +65,268 @@ pub enum TemplateStringPart {
     Expr(Box<Expr>),
 }
 
+/// Pattern matching pattern for match expressions
+#[derive(Debug, Clone, PartialEq)]
+pub enum Pattern {
+    /// Literal pattern: matches exact values (1, "hello", true)
+    Literal(Val),
+    /// Variable pattern: binds any value to a variable (x)
+    Variable(String),
+    /// Wildcard pattern: matches anything, no binding (_)
+    Wildcard,
+    /// Array/List destructuring pattern: [first, second, ..rest]
+    List {
+        patterns: Vec<Pattern>,
+        rest: Option<String>, // Variable to bind rest of list
+    },
+    /// Map/Object destructuring pattern: {"key": pattern, "other": var}
+    Map {
+        patterns: Vec<(String, Pattern)>,
+        rest: Option<String>, // Variable to bind remaining fields
+    },
+    /// Multiple patterns with | (pattern1 | pattern2)
+    Or(Vec<Pattern>),
+    /// Pattern with guard condition (pattern if guard_expr)
+    Guard {
+        pattern: Box<Pattern>,
+        guard: Box<Expr>,
+    },
+    /// Range pattern: 1..10, 'a'..='z'
+    Range {
+        start: Box<Expr>,
+        end: Box<Expr>,
+        inclusive: bool,
+    },
+}
+
+/// Match arm: pattern => expression
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub body: Box<Expr>,
+}
+
+impl std::fmt::Display for Pattern {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Pattern::Literal(val) => write!(f, "{}", val),
+            Pattern::Variable(name) => write!(f, "{}", name),
+            Pattern::Wildcard => write!(f, "_"),
+            Pattern::List { patterns, rest } => {
+                write!(f, "[")?;
+                for (i, pattern) in patterns.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", pattern)?;
+                }
+                if let Some(rest_name) = rest {
+                    if !patterns.is_empty() {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "..{}", rest_name)?;
+                }
+                write!(f, "]")
+            }
+            Pattern::Map { patterns, rest } => {
+                write!(f, "{{")?;
+                for (i, (key, pattern)) in patterns.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "\"{}\": {}", key, pattern)?;
+                }
+                if let Some(rest_name) = rest {
+                    if !patterns.is_empty() {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "..{}", rest_name)?;
+                }
+                write!(f, "}}")
+            }
+            Pattern::Or(patterns) => {
+                for (i, pattern) in patterns.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " | ")?;
+                    }
+                    write!(f, "{}", pattern)?;
+                }
+                Ok(())
+            }
+            Pattern::Guard { pattern, guard } => {
+                write!(f, "{} if {}", pattern, guard)
+            }
+            Pattern::Range { start, end, inclusive } => {
+                let op = if *inclusive { "..=" } else { ".." };
+                write!(f, "{}{}{}", start, op, end)
+            }
+        }
+    }
+}
+
+impl Pattern {
+    /// Check if this pattern matches a value, returning bindings if it matches
+    /// Returns Ok(Some(bindings)) on match, Ok(None) on no match, Err on error
+    pub fn matches(
+        &self,
+        value: &Val,
+        ctx: &Val,
+        env: Option<&crate::stmt::Environment>,
+    ) -> Result<Option<Vec<(String, Val)>>> {
+        let mut bindings = Vec::new();
+        if self.matches_impl(value, &mut bindings, ctx, env)? {
+            Ok(Some(bindings))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn matches_impl(
+        &self,
+        value: &Val,
+        bindings: &mut Vec<(String, Val)>,
+        ctx: &Val,
+        env: Option<&crate::stmt::Environment>,
+    ) -> Result<bool> {
+        match self {
+            Pattern::Literal(pattern_val) => Ok(value == pattern_val),
+            Pattern::Variable(name) => {
+                bindings.push((name.clone(), value.clone()));
+                Ok(true)
+            }
+            Pattern::Wildcard => Ok(true),
+            Pattern::List { patterns, rest } => {
+                if let Val::List(list) = value {
+                    let list_items = list.as_ref();
+
+                    // Check if we have enough elements for non-rest patterns
+                    if patterns.len() > list_items.len() && rest.is_none() {
+                        return Ok(false);
+                    }
+
+                    // Match each pattern against corresponding list element
+                    for (i, pattern) in patterns.iter().enumerate() {
+                        if i >= list_items.len() {
+                            return Ok(false);
+                        }
+                        if !pattern.matches_impl(&list_items[i], bindings, ctx, env)? {
+                            return Ok(false);
+                        }
+                    }
+
+                    // Bind rest elements if specified
+                    if let Some(rest_name) = rest {
+                        let rest_items: Vec<Val> = list_items.iter()
+                            .skip(patterns.len())
+                            .cloned()
+                            .collect();
+                        bindings.push((rest_name.clone(), Val::List(Arc::new(rest_items))));
+                    } else if patterns.len() != list_items.len() {
+                        // No rest pattern but lengths don't match
+                        return Ok(false);
+                    }
+
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
+            Pattern::Map { patterns, rest } => {
+                if let Val::Map(map) = value {
+                    let map_ref = map.as_ref();
+
+                    // Match each pattern against corresponding map field
+                    for (key, pattern) in patterns {
+                        if let Some(field_val) = map_ref.get(key) {
+                            if !pattern.matches_impl(field_val, bindings, ctx, env)? {
+                                return Ok(false);
+                            }
+                        } else {
+                            return Ok(false); // Required key not found
+                        }
+                    }
+
+                    // Bind remaining fields if specified
+                    if let Some(rest_name) = rest {
+                        let matched_keys: std::collections::HashSet<&String> =
+                            patterns.iter().map(|(k, _)| k).collect();
+                        let rest_map: std::collections::HashMap<String, Val> = map_ref
+                            .iter()
+                            .filter(|(k, _)| !matched_keys.contains(k))
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect();
+                        bindings.push((rest_name.clone(), Val::Map(Arc::new(rest_map))));
+                    }
+
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
+            Pattern::Or(patterns) => {
+                for pattern in patterns {
+                    let mut temp_bindings = Vec::new();
+                    if pattern.matches_impl(value, &mut temp_bindings, ctx, env)? {
+                        bindings.extend(temp_bindings);
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            }
+            Pattern::Guard { pattern, guard } => {
+                let mut temp_bindings = Vec::new();
+                if pattern.matches_impl(value, &mut temp_bindings, ctx, env)? {
+                    // Create temporary environment with pattern bindings for guard evaluation
+                    let guard_env = if let Some(env) = env {
+                        let mut new_env = env.clone();
+                        new_env.push_scope();
+                        for (name, val) in &temp_bindings {
+                            new_env.define(name.clone(), val.clone());
+                        }
+                        Some(new_env)
+                    } else if !temp_bindings.is_empty() {
+                        return Err(anyhow!("Guard conditions with bindings require evaluation environment"));
+                    } else {
+                        None
+                    };
+
+                    let guard_result = guard.eval_with_env(ctx, guard_env.as_ref().or(env))?;
+                    if let Val::Bool(true) = guard_result {
+                        bindings.extend(temp_bindings);
+                        Ok(true)
+                    } else {
+                        Ok(false)
+                    }
+                } else {
+                    Ok(false)
+                }
+            }
+            Pattern::Range { start, end, inclusive } => {
+                let start_val = start.eval_with_env(ctx, env)?;
+                let end_val = end.eval_with_env(ctx, env)?;
+
+                match (value, &start_val, &end_val) {
+                    (Val::Int(v), Val::Int(s), Val::Int(e)) => {
+                        if *inclusive {
+                            Ok(*v >= *s && *v <= *e)
+                        } else {
+                            Ok(*v >= *s && *v < *e)
+                        }
+                    }
+                    (Val::Float(v), Val::Float(s), Val::Float(e)) => {
+                        if *inclusive {
+                            Ok(*v >= *s && *v <= *e)
+                        } else {
+                            Ok(*v >= *s && *v < *e)
+                        }
+                    }
+                    _ => Ok(false),
+                }
+            }
+        }
+    }
+}
+
 /// Details:
 /// - @expr
 ///   + All accessible objects of `@` expr are maps actually.
@@ -155,6 +417,11 @@ pub enum Expr {
     Closure {
         params: Vec<String>,
         body: Box<Expr>,
+    },
+    /// Match expression: match value { pattern => expr, ... }
+    Match {
+        value: Box<Expr>,
+        arms: Vec<MatchArm>,
     },
     Val(Val),
 }
@@ -639,6 +906,32 @@ impl Expr {
                 }
                 Ok(Val::Str(Arc::from(result)))
             }
+            Expr::Match { value, arms } => {
+                let match_val = value.eval_with_env(ctx, env)?;
+
+                for arm in arms {
+                    if let Some(bindings) = Pattern::matches(&arm.pattern, &match_val, ctx, env)? {
+                        // Create new environment with pattern bindings
+                        let new_env = if let Some(env) = env {
+                            let mut new_env = env.clone();
+                            new_env.push_scope();
+                            for (name, val) in bindings {
+                                new_env.define(name, val);
+                            }
+                            Some(new_env)
+                        } else if !bindings.is_empty() {
+                            // Need environment for bindings but none provided
+                            return Err(anyhow!("Pattern bindings require evaluation environment"));
+                        } else {
+                            None
+                        };
+
+                        return arm.body.eval_with_env(ctx, new_env.as_ref().or(env));
+                    }
+                }
+
+                Err(anyhow!("No pattern matched in match expression"))
+            }
             // Remove the problematic string-to-variable resolution
             // String literals should always be treated as string literals
             Expr::Closure { params, body } => {
@@ -804,6 +1097,16 @@ impl Expr {
             }
             Expr::Closure { params: _, body } => {
                 body.collect_ctx_names(names);
+            }
+            Expr::Match { value, arms } => {
+                value.collect_ctx_names(names);
+                for arm in arms {
+                    arm.body.collect_ctx_names(names);
+                    // Collect from guard patterns if they contain context references
+                    if let Pattern::Guard { guard, .. } = &arm.pattern {
+                        guard.collect_ctx_names(names);
+                    }
+                }
             }
             // Only collect string values when they are actual context names, not field names
             Expr::Val(_) => {} // Receive operator: collect from inner expression
@@ -1151,6 +1454,22 @@ impl Expr {
                     body: Box::new(body.fold_constants()),
                 }
             }
+            Expr::Match { value, arms } => {
+                // Match expressions cannot be fully folded without runtime evaluation
+                // but we can fold the value and arm bodies
+                let folded_value = Box::new(value.fold_constants());
+                let folded_arms = arms
+                    .into_iter()
+                    .map(|arm| MatchArm {
+                        pattern: arm.pattern, // Patterns contain runtime values, don't fold
+                        body: Box::new(arm.body.fold_constants()),
+                    })
+                    .collect();
+                Expr::Match {
+                    value: folded_value,
+                    arms: folded_arms,
+                }
+            }
         }
     }
 }
@@ -1314,6 +1633,16 @@ impl Display for Expr {
             Expr::Closure { params, body } => {
                 let params_str = params.join(", ");
                 write!(f, "|{}| {}", params_str, body)
+            }
+            Expr::Match { value, arms } => {
+                write!(f, "match {} {{", value)?;
+                for (i, arm) in arms.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{} => {}", arm.pattern, arm.body)?;
+                }
+                write!(f, "}}")
             }
             Expr::Val(val) => write!(f, "{}", val),
         }

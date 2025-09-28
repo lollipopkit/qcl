@@ -1390,6 +1390,7 @@ fn describe_token_hover(tokens: &[CoreToken], _spans: &[CoreSpan], idx: usize) -
         T::MulAssign => "Operator: *=".to_string(),
         T::DivAssign => "Operator: /=".to_string(),
         T::ModAssign => "Operator: %=".to_string(),
+        T::Match => "Keyword: match".to_string(),
     }
 }
 

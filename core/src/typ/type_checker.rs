@@ -155,6 +155,30 @@ impl TypeChecker {
                 let ret_type = self.check_expr(body)?;
                 Ok(Type::Function { params: param_types, return_type: Box::new(ret_type) })
             }
+            Expr::Match { value, arms } => {
+                // Check the matched value type
+                let _value_type = self.check_expr(value)?;
+
+                if arms.is_empty() {
+                    return Err(Self::type_err("Match expression must have at least one arm", None, None, Some(expr.clone())));
+                }
+
+                // Check all arms have compatible types
+                let mut result_type: Option<Type> = None;
+                for arm in arms {
+                    // TODO: Add pattern type checking against value_type
+                    let arm_type = self.check_expr(&arm.body)?;
+
+                    if let Some(existing_type) = &result_type {
+                        // Add constraint that all arms should return the same type
+                        self.inference_engine.add_constraint(existing_type.clone(), arm_type.clone());
+                    } else {
+                        result_type = Some(arm_type);
+                    }
+                }
+
+                result_type.ok_or_else(|| Self::type_err("Match expression has no arms", None, None, Some(expr.clone())))
+            }
             Expr::Paren(expr) => self.check_expr(expr),
         }
     }

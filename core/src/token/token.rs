@@ -49,6 +49,7 @@ pub enum Token {
     Return,   // return
     Fn,       // fn (function definition)
     For,      // for (for loop)
+    Match,    // match (pattern matching)
     Range,    // .. (range operator)
     RangeInclusive, // ..= (inclusive range operator)
     // Concurrency keywords
@@ -602,6 +603,10 @@ impl Tokenizer {
             self.push_span_only(Token::For, sp);
             return Ok(());
         }
+        if let Some(sp) = match_kw(self, "match") {
+            self.push_span_only(Token::Match, sp);
+            return Ok(());
+        }
         // Concurrency keywords
         if let Some(sp) = match_kw(self, "spawn") {
             self.push_span_only(Token::Spawn, sp);
@@ -1076,7 +1081,7 @@ impl Tokenizer {
                 // Keywords: true false nil if else while let break continue return goto fn for as ...
                 // Also: go, select/case/default
                 // NOTE: include starting letters for all keywords so they route to parse_keywords.
-                't' | 'f' | 'n' | 'i' | 'e' | 'w' | 'l' | 'b' | 'c' | 'g' | 's' | 'd' | 'a' => {
+                't' | 'f' | 'n' | 'i' | 'e' | 'w' | 'l' | 'b' | 'c' | 'g' | 's' | 'd' | 'a' | 'm' => {
                     self.parse_keywords()?;
                 }
                 _ => {

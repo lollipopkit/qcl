@@ -466,6 +466,7 @@ impl<'a> Parser<'a> {
             Token::Send => self.parse_send(),
             Token::Recv => self.parse_recv(),
             Token::Select => self.parse_select(),
+            Token::Match => self.parse_match(),
             Token::LParen => self.parse_paren(),
             Token::Pipe => self.parse_closure(),
             Token::Id(id) => {
@@ -664,6 +665,243 @@ impl<'a> Parser<'a> {
             cases,
             default_case,
         })
+    }
+
+    /// Parse match expression: match value { pattern => expr, ... }
+    fn parse_match(&mut self) -> Result<Expr> {
+        if self.tokens[self.pos] != Token::Match {
+            let msg = format!("Expecting 'match', found {:?}", self.tokens[self.pos]);
+            return Err(anyhow!(self.err(&msg)));
+        }
+        self.pos += 1;
+
+        // Parse the value to match against - use lower precedence to stop at {
+        let value = Box::new(self.parse_conditional()?);
+
+        if self.eof() || self.tokens[self.pos] != Token::LBrace {
+            return Err(anyhow!(self.err("Expecting '{' after match value")));
+        }
+        self.pos += 1;
+
+        let mut arms = Vec::new();
+
+        while !self.eof() && self.tokens[self.pos] != Token::RBrace {
+            // Parse pattern
+            let pattern = self.parse_pattern()?;
+
+            if self.eof() || self.tokens[self.pos] != Token::Arrow {
+                return Err(anyhow!(self.err("Expecting '=>' after pattern")));
+            }
+            self.pos += 1;
+
+            // Parse body expression
+            let body = Box::new(self.parse_conditional()?);
+
+            arms.push(crate::expr::MatchArm { pattern, body });
+
+            // Handle optional comma/semicolon between arms
+            if !self.eof() && (self.tokens[self.pos] == Token::Comma || self.tokens[self.pos] == Token::Semicolon) {
+                self.pos += 1;
+            }
+        }
+
+        if self.eof() || self.tokens[self.pos] != Token::RBrace {
+            return Err(anyhow!(self.err("Expecting '}' to close match expression")));
+        }
+        self.pos += 1;
+
+        if arms.is_empty() {
+            return Err(anyhow!(self.err("Match expression must have at least one arm")));
+        }
+
+        Ok(Expr::Match { value, arms })
+    }
+
+    /// Parse a pattern for match expressions
+    fn parse_pattern(&mut self) -> Result<crate::expr::Pattern> {
+        self.parse_or_pattern()
+    }
+
+    /// Parse OR pattern: pattern1 | pattern2
+    fn parse_or_pattern(&mut self) -> Result<crate::expr::Pattern> {
+        let mut patterns = vec![self.parse_guard_pattern()?];
+
+        while !self.eof() && self.tokens[self.pos] == Token::Pipe {
+            self.pos += 1; // Skip |
+            patterns.push(self.parse_guard_pattern()?);
+        }
+
+        if patterns.len() == 1 {
+            Ok(patterns.into_iter().next().unwrap())
+        } else {
+            Ok(crate::expr::Pattern::Or(patterns))
+        }
+    }
+
+    /// Parse pattern with optional guard: pattern if expr
+    fn parse_guard_pattern(&mut self) -> Result<crate::expr::Pattern> {
+        let pattern = self.parse_primary_pattern()?;
+
+        if !self.eof() && self.tokens[self.pos] == Token::If {
+            self.pos += 1; // Skip if
+            let guard = Box::new(self.parse_conditional()?);
+            Ok(crate::expr::Pattern::Guard {
+                pattern: Box::new(pattern),
+                guard,
+            })
+        } else {
+            Ok(pattern)
+        }
+    }
+
+    /// Parse primary pattern: literals, variables, destructuring
+    fn parse_primary_pattern(&mut self) -> Result<crate::expr::Pattern> {
+        if self.eof() {
+            return Err(anyhow!(self.err("Unexpected end of input in pattern")));
+        }
+
+        match &self.tokens[self.pos] {
+            // Literal patterns
+            Token::Int(i) => {
+                let start_val = *i;
+                self.pos += 1;
+
+                // Check if this is a range pattern
+                if !self.eof() && (self.tokens[self.pos] == Token::Range || self.tokens[self.pos] == Token::RangeInclusive) {
+                    let inclusive = self.tokens[self.pos] == Token::RangeInclusive;
+                    self.pos += 1;
+                    let end_expr = Box::new(self.parse_conditional()?);
+
+                    Ok(crate::expr::Pattern::Range {
+                        start: Box::new(Expr::Val(Val::Int(start_val))),
+                        end: end_expr,
+                        inclusive,
+                    })
+                } else {
+                    Ok(crate::expr::Pattern::Literal(Val::Int(start_val)))
+                }
+            }
+            Token::Float(f) => {
+                let val = Val::Float(*f);
+                self.pos += 1;
+                Ok(crate::expr::Pattern::Literal(val))
+            }
+            Token::Str(s) => {
+                let val = Val::Str(Arc::from(s.clone()));
+                self.pos += 1;
+                Ok(crate::expr::Pattern::Literal(val))
+            }
+            Token::Bool(b) => {
+                let val = Val::Bool(*b);
+                self.pos += 1;
+                Ok(crate::expr::Pattern::Literal(val))
+            }
+            Token::Nil => {
+                self.pos += 1;
+                Ok(crate::expr::Pattern::Literal(Val::Nil))
+            }
+
+            // Wildcard pattern
+            Token::Id(name) if name == "_" => {
+                self.pos += 1;
+                Ok(crate::expr::Pattern::Wildcard)
+            }
+
+            // Variable pattern
+            Token::Id(name) => {
+                let name = name.clone();
+                self.pos += 1;
+                Ok(crate::expr::Pattern::Variable(name))
+            }
+
+            // List pattern: [pattern1, pattern2, ..rest]
+            Token::LBracket => {
+                self.pos += 1; // Skip [
+                let mut patterns = Vec::new();
+                let mut rest = None;
+
+                while !self.eof() && self.tokens[self.pos] != Token::RBracket {
+                    if self.tokens[self.pos] == Token::Range {
+                        // Rest pattern: ..rest
+                        self.pos += 1; // Skip ..
+                        if let Token::Id(rest_name) = &self.tokens[self.pos] {
+                            rest = Some(rest_name.clone());
+                            self.pos += 1;
+                        } else {
+                            return Err(anyhow!(self.err("Expecting identifier after '..' in list pattern")));
+                        }
+                        break;
+                    } else {
+                        patterns.push(self.parse_pattern()?);
+
+                        if !self.eof() && self.tokens[self.pos] == Token::Comma {
+                            self.pos += 1; // Skip comma
+                        }
+                    }
+                }
+
+                if self.eof() || self.tokens[self.pos] != Token::RBracket {
+                    return Err(anyhow!(self.err("Expecting ']' to close list pattern")));
+                }
+                self.pos += 1;
+
+                Ok(crate::expr::Pattern::List { patterns, rest })
+            }
+
+            // Map pattern: {"key": pattern, "other": var, ..rest}
+            Token::LBrace => {
+                self.pos += 1; // Skip {
+                let mut patterns = Vec::new();
+                let mut rest = None;
+
+                while !self.eof() && self.tokens[self.pos] != Token::RBrace {
+                    if self.tokens[self.pos] == Token::Range {
+                        // Rest pattern: ..rest
+                        self.pos += 1; // Skip ..
+                        if let Token::Id(rest_name) = &self.tokens[self.pos] {
+                            rest = Some(rest_name.clone());
+                            self.pos += 1;
+                        } else {
+                            return Err(anyhow!(self.err("Expecting identifier after '..' in map pattern")));
+                        }
+                        break;
+                    } else {
+                        // Parse key: pattern
+                        let key = match &self.tokens[self.pos] {
+                            Token::Str(s) => s.clone(),
+                            Token::Id(s) => s.clone(),
+                            _ => return Err(anyhow!(self.err("Expecting string or identifier as map key"))),
+                        };
+                        self.pos += 1;
+
+                        if self.eof() || self.tokens[self.pos] != Token::Colon {
+                            return Err(anyhow!(self.err("Expecting ':' after map key in pattern")));
+                        }
+                        self.pos += 1;
+
+                        let pattern = self.parse_pattern()?;
+                        patterns.push((key, pattern));
+
+                        if !self.eof() && self.tokens[self.pos] == Token::Comma {
+                            self.pos += 1; // Skip comma
+                        }
+                    }
+                }
+
+                if self.eof() || self.tokens[self.pos] != Token::RBrace {
+                    return Err(anyhow!(self.err("Expecting '}' to close map pattern")));
+                }
+                self.pos += 1;
+
+                Ok(crate::expr::Pattern::Map { patterns, rest })
+            }
+
+            // Unknown pattern
+            _ => {
+                let msg = format!("Unexpected token in pattern: {:?}", self.tokens[self.pos]);
+                Err(anyhow!(self.err(&msg)))
+            }
+        }
     }
 
     /// Parse a select case: case pattern => expr;
@@ -872,6 +1110,7 @@ impl<'a> Parser<'a> {
                 Token::Send => self.parse_send(),
                 Token::Recv => self.parse_recv(),
                 Token::Select => self.parse_select(),
+                Token::Match => self.parse_match(),
                 _ => {
                     let msg = format!("Unexpected token: {:?}", self.tokens[self.pos]);
                     Err(anyhow!(self.err(&msg)))
