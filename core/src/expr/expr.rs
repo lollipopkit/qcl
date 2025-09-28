@@ -1293,12 +1293,15 @@ impl Display for Expr {
                 write!(f, "}}")
             }
             Expr::TemplateString(parts) => {
-                write!(f, "`")?;
+                write!(f, "\"")?;
                 for part in parts {
                     match part {
                         TemplateStringPart::Literal(s) => {
-                            // Escape backticks and dollar signs in literals
-                            let escaped = s.replace("`", "\\`").replace("$", "\\$");
+                            // Escape backslashes, quotes and dollar signs in literals
+                            let escaped = s
+                                .replace("\\", "\\\\")
+                                .replace("\"", "\\\"")
+                                .replace("$", "\\$");
                             write!(f, "{}", escaped)?;
                         }
                         TemplateStringPart::Expr(expr) => {
@@ -1306,7 +1309,7 @@ impl Display for Expr {
                         }
                     }
                 }
-                write!(f, "`")
+                write!(f, "\"")
             }
             Expr::Closure { params, body } => {
                 let params_str = params.join(", ");

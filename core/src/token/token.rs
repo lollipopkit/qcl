@@ -57,11 +57,7 @@ pub enum Token {
     Arrow,         // =>
     LeftArrow,     // <-
     NullishCoalescing, // ??
-    TemplateString(String),   // `...` template string content
-    TemplateStringStart,     // ` (backtick for template string start)
-    TemplateStringEnd,       // ` (backtick for template string end)
-    TemplateStringExprStart, // ${
-    TemplateStringExprEnd,   // }
+    TemplateString(String),   // Formatted string content with ${...}
     // Import keywords
     Import,      // import
     From,        // from
@@ -266,79 +262,43 @@ impl Tokenizer {
     }
 
     fn parse_str(&mut self) -> Result<()> {
-        let mut s = String::new();
+        // Supports formatted strings inside '"' or '\'' using ${...}
+        let mut content = String::new();
         let start_pos = self.current_position();
         let quote = self.chars[self.idx];
         self.advance_char(); // skip opening quote
 
-        while !self.eof() {
-            let c = self.chars[self.idx];
-            if c == quote {
-                self.advance_char(); // skip closing quote
-                let end_pos = self.current_position();
-                self.push_with_span(Token::Str(s), start_pos, end_pos);
-                return Ok(());
-            }
-            
-            // Handle escape sequences
-            if c == '\\' && self.idx + 1 < self.len {
-                self.advance_char(); // skip backslash
-                if !self.eof() {
-                    let escaped_char = self.chars[self.idx];
-                    match escaped_char {
-                        'n' => s.push('\n'),
-                        'r' => s.push('\r'),
-                        't' => s.push('\t'),
-                        '\\' => s.push('\\'),
-                        '\'' => s.push('\''),
-                        '"' => s.push('"'),
-                        '0' => s.push('\0'),
-                        _ => {
-                            // For unknown escape sequences, keep the backslash and the character
-                            s.push('\\');
-                            s.push(escaped_char);
-                        }
-                    }
-                    self.advance_char();
-                } else {
-                    return Err(anyhow!(self.err("Incomplete escape sequence at end of string")));
-                }
-            } else {
-                s.push(c);
-                self.advance_char();
-            }
-        }
-
-        Err(anyhow!(self.err("String not closed")))
-    }
-
-    fn parse_template_string(&mut self) -> Result<()> {
-        let start_pos = self.current_position();
-        self.advance_char(); // skip opening backtick
-        
-        let mut content = String::new();
         let mut in_expr = false;
         let mut brace_depth = 0;
-        
+        let mut is_template = false;
+
         while !self.eof() {
             let c = self.chars[self.idx];
-            
-            if c == '`' && !in_expr {
-                // End of template string
-                self.advance_char(); // skip closing backtick
-                
-                // Return the entire template content as a single token
-                // The parsing of template expressions will be handled at a higher level
-                self.push_with_span(Token::TemplateString(content), start_pos.clone(), self.current_position());
+
+            if !in_expr && c == quote {
+                // End of string
+                self.advance_char(); // skip closing quote
+                let end_pos = self.current_position();
+                if is_template {
+                    self.push_with_span(Token::TemplateString(content), start_pos, end_pos);
+                } else {
+                    self.push_with_span(Token::Str(content), start_pos, end_pos);
+                }
                 return Ok(());
-            } else if c == '$' && !in_expr && self.idx + 1 < self.len && self.chars[self.idx + 1] == '{' {
-                // Start of expression ${...}
-                content.push_str("${"); // Add the ${ markers to content
-                self.advance_char(); // skip $
-                self.advance_char(); // skip {
+            } else if !in_expr
+                && c == '$'
+                && self.idx + 1 < self.len
+                && self.chars[self.idx + 1] == '{'
+            {
+                // Start of interpolation: ${...}
+                is_template = true;
+                content.push_str("${");
+                self.advance_char(); // skip '$'
+                self.advance_char(); // skip '{'
                 in_expr = true;
                 brace_depth = 1;
             } else if in_expr {
+                // Collect expression content with brace balancing
                 content.push(c);
                 if c == '{' {
                     brace_depth += 1;
@@ -361,26 +321,95 @@ impl Tokenizer {
                         '\\' => content.push('\\'),
                         '\'' => content.push('\''),
                         '"' => content.push('"'),
-                        '`' => content.push('`'),
                         '$' => content.push('$'),
                         '0' => content.push('\0'),
                         _ => {
+                            // For unknown escape sequences, keep the backslash and the character
                             content.push('\\');
                             content.push(escaped_char);
                         }
                     }
                     self.advance_char();
                 } else {
-                    return Err(anyhow!(self.err("Incomplete escape sequence at end of template string")));
+                    return Err(anyhow!(self.err("Incomplete escape sequence at end of string")));
                 }
             } else {
                 content.push(c);
                 self.advance_char();
             }
         }
-        
-        Err(anyhow!(self.err("Template string not closed")))
+
+        Err(anyhow!(self.err("String not closed")))
     }
+
+    /// Parse Rust-style raw string literals: r"...", r#"..."#, r##"..."##, ...
+    /// - Supports multi-line
+    /// - No escapes or interpolation; contents are verbatim
+    /// Attempts to parse at current 'r'; if pattern doesn't match, restores cursor and returns Err.
+    fn parse_raw_str(&mut self) -> Result<()> {
+        let start_pos = self.current_position();
+
+        // Save to restore if not a raw string
+        let save_idx = self.idx;
+        let save_line = self.line;
+        let save_col = self.column;
+
+        if self.eof() || self.chars[self.idx] != 'r' {
+            return Err(anyhow!(self.err("Expect 'r' for raw string")));
+        }
+
+        // Count hashes after 'r'
+        let mut i = self.idx + 1;
+        let mut hashes: usize = 0;
+        while i < self.len && self.chars[i] == '#' {
+            hashes += 1;
+            i += 1;
+        }
+        if i >= self.len || self.chars[i] != '"' {
+            // Not a valid raw string start; restore and signal
+            self.idx = save_idx;
+            self.line = save_line;
+            self.column = save_col;
+            return Err(anyhow!("not a raw string start"));
+        }
+
+        // Consume r + #* + opening quote
+        self.advance_char(); // 'r'
+        for _ in 0..hashes { self.advance_char(); }
+        self.advance_char(); // '"'
+
+        let mut content = String::new();
+        while !self.eof() {
+            let c = self.chars[self.idx];
+            if c == '"' {
+                // Check for closing delimiter '"' followed by exactly `hashes` '#'
+                let mut j = self.idx + 1;
+                let mut k = 0usize;
+                while k < hashes && j < self.len && self.chars[j] == '#' {
+                    k += 1;
+                    j += 1;
+                }
+                if k == hashes {
+                    // Consume closing
+                    self.advance_char(); // '"'
+                    for _ in 0..hashes { self.advance_char(); }
+                    let end_pos = self.current_position();
+                    self.push_with_span(Token::Str(content), start_pos, end_pos);
+                    return Ok(());
+                }
+                // Not a terminator; include '"'
+                content.push('"');
+                self.advance_char();
+            } else {
+                content.push(c);
+                self.advance_char();
+            }
+        }
+
+        Err(anyhow!(self.err("Raw string not closed")))
+    }
+
+    // Note: backtick-delimited template strings are not supported anymore.
 
     /// eg.:
     /// - @a -> [At, Id("a")]
@@ -673,8 +702,8 @@ impl Tokenizer {
 
     fn parse_punctuations(&mut self) -> Result<()> {
         let c = self.chars[self.idx];
-        match c {
-            '(' => {
+            match c {
+                '(' => {
                 let start = self.current_position();
                 self.advance_char();
                 let end = self.current_position();
@@ -1002,8 +1031,12 @@ impl Tokenizer {
                 '"' | '\'' => {
                     self.parse_str()?;
                 }
-                '`' => {
-                    self.parse_template_string()?;
+                // Try Rust-style raw strings when encountering 'r'
+                'r' => {
+                    if let Err(_) = self.parse_raw_str() {
+                        // Fallback to keywords/identifiers starting with 'r'
+                        self.parse_keywords()?;
+                    }
                 }
                 '0'..='9' => {
                     self.parse_num()?;
@@ -1011,7 +1044,7 @@ impl Tokenizer {
                 // Keywords: true false nil if else while let break continue return goto fn for as ...
                 // Also: go, select/case/default
                 // NOTE: include starting letters for all keywords so they route to parse_keywords.
-                't' | 'f' | 'n' | 'i' | 'e' | 'w' | 'l' | 'b' | 'c' | 'r' | 'g' | 's' | 'd' | 'a' => {
+                't' | 'f' | 'n' | 'i' | 'e' | 'w' | 'l' | 'b' | 'c' | 'g' | 's' | 'd' | 'a' => {
                     self.parse_keywords()?;
                 }
                 _ => {
@@ -1051,7 +1084,6 @@ impl Tokenizer {
                 | '!'
                 | '>'
                 | '<'
-                | '`'
         )
     }
 }

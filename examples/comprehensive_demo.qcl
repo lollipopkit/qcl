@@ -59,13 +59,16 @@ let person = {
 };
 
 // Accessing data structures
-let first_num = numbers[0];                    // List index access
-let person_name = person["name"];             // Map key access
+let first_num = numbers.0;                    // List index access
+let person_name = person.name;             // Map key access
 let person_age = person.age;                  // Dot notation access
-let first_skill = person.skills[0];           // Nested access
+let first_skill = person.skills.0;           // Nested access
 
 // Template strings with interpolation
 let greeting = "Hello, ${person.name}!";
+// Define variables used in interpolation example
+let a = 2;
+let b = 3;
 let formatted = "The sum of ${a} and ${b} is ${a + b}";
 
 // =============================================================================
@@ -101,7 +104,8 @@ for _ in 0..3 {
 }
 
 // Tuple destructuring for map iteration
-for (key, value) in {"a": 1, "b": 2} {
+let map = {"a": 1, "b": 2};
+for (key, value) in map {
     println("Key: ${key}, Value: ${value}");
 }
 
@@ -141,17 +145,17 @@ fn add(a, b) {
 
 // Function without explicit return (last expression is returned)
 fn multiply(x, y) {
-    x * y
+    x * y;
 }
 
-// Function with type annotation
+// Function with type annotation on params and return type
 fn calculate_area(width: Int, height: Int) -> Int {
-    width * height
+    width * height;
 }
 
 // Higher-order function
 fn apply_twice(f, x) {
-    f(f(x))
+    f(f(x));
 }
 
 // Closure (anonymous function)
@@ -482,8 +486,8 @@ fn calculate_stats(data) {
     }
     
     let sum = 0;
-    let min = data[0];
-    let max = data[0];
+    let min = data.0;
+    let max = data.0;
     
     for value in data {
         sum = sum + value;
@@ -515,11 +519,8 @@ fn count_words(text) {
     
     for word in word_list {
         if (string.len(word) > 0) {
-            if (frequency[word] ?? nil) {
-                frequency[word] = frequency[word] + 1;
-            } else {
-                frequency[word] = 1;
-            }
+            let current = frequency.get(word) ?? 0;
+            frequency = frequency + { word: current + 1 };
         }
     }
     
@@ -554,7 +555,7 @@ fn add_business_days(start_timestamp, days) {
 }
 
 let business_date = add_business_days(now, 5);
-println("5 business days from now: ${datetime.format(business_date, "%Y-%m-%d")}");
+println('5 business days from now: ${datetime.format(business_date, "%Y-%m-%d")}');
 
 // =============================================================================
 // 17. CONCURRENCY EXAMPLES (if enabled)

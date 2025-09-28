@@ -5,6 +5,10 @@
 ```
 "Hello, World!"
 'Hello, World!'
+// Raw strings (Rust-like), support multi-line and no escapes/interpolation
+r"Hello"
+r#"He said "hi""#
+r##"a "# quote"##
 ```
 
 - `Int`: 64-bit signed

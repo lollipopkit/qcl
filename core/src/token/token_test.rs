@@ -138,6 +138,29 @@ mod tests {
     }
 
     #[test]
+    fn raw_string_hash_levels() {
+        let t = Tokenizer::tokenize(r###"r##"a "# quote"##"###).unwrap();
+        assert_eq!(t, vec![Token::Str("a \"# quote".to_string())]);
+    }
+
+    #[test]
+    fn raw_string_multiline_and_verbatim() {
+        let t = Tokenizer::tokenize(r#"r"line1
+line2""#).unwrap();
+        assert_eq!(t, vec![Token::Str("line1\nline2".to_string())]);
+
+        // No escapes or interpolation in raw strings
+        let t = Tokenizer::tokenize(r#"r"${x}\n""#).unwrap();
+        assert_eq!(t, vec![Token::Str("${x}\\n".to_string())]);
+    }
+
+    #[test]
+    fn raw_string_unclosed_errors() {
+        let t = Tokenizer::tokenize(r#"r"abc"#);
+        assert!(t.is_err());
+    }
+
+    #[test]
     fn num() {
         let t = Tokenizer::tokenize("1.2.3");
         assert!(t.is_err());

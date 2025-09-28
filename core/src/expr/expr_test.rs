@@ -613,50 +613,50 @@ mod test {
     #[cfg(feature = "json")]
     fn template_strings() {
         // Basic template string with no interpolation
-        expect("`Hello, World!`", "Hello, World!");
+        expect("\"Hello, World!\"", "Hello, World!");
 
         // Template string with simple variable interpolation using ${}
-        expect("`Hello, ${@user.name}!`", "Hello, lk!");
+        expect("\"Hello, ${@user.name}!\"", "Hello, lk!");
 
         // Template string with multiple interpolations
-        expect("`User ${@user.name} is ${@user.age} years old`", "User lk is 18 years old");
+        expect("\"User ${@user.name} is ${@user.age} years old\"", "User lk is 18 years old");
 
         // Template string with expressions
-        expect("`Next year: ${@user.age + 1}`", "Next year: 19");
+        expect("\"Next year: ${@user.age + 1}\"", "Next year: 19");
 
         // Template string with list access
-        expect("`First item: ${@list.0}`", "First item: 1");
+        expect("\"First item: ${@list.0}\"", "First item: 1");
 
         // Template string with boolean expressions
-        expect("`Is adult: ${@user.age >= 18}`", "Is adult: true");
+        expect("\"Is adult: ${@user.age >= 18}\"", "Is adult: true");
 
         // Template string with arithmetic operations
-        expect("`Sum: ${@list.0 + @list.1}`", "Sum: 3");
+        expect("\"Sum: ${@list.0 + @list.1}\"", "Sum: 3");
 
         // Template string with nested access
-        expect("`Nested: ${@nested.level1.level2}`", "Nested: value");
+        expect("\"Nested: ${@nested.level1.level2}\"", "Nested: value");
 
         // Template string with special characters (escaped)
-        expect("`Escaped: \\`backtick\\` and \\$dollar`", "Escaped: `backtick` and $dollar");
+        expect("\"Escaped: \\\"quote\\\" and \\$dollar\"", "Escaped: \"quote\" and $dollar");
 
         // Template string with nil value
-        expect("`Nil test: ${@nonexistent}`", "Nil test: nil");
+        expect("\"Nil test: ${@nonexistent}\"", "Nil test: nil");
 
         // Template string with complex expressions
-        expect("`Calculation: ${(@user.age * 2) + 5}`", "Calculation: 41");
+        expect("\"Calculation: ${(@user.age * 2) + 5}\"", "Calculation: 41");
 
         // Empty template string
-        expect("``", "");
+        expect("\"\"", "");
 
         // Template string with only interpolation
-        expect("`${@user.name}`", "lk");
+        expect("\"${@user.name}\"", "lk");
     }
 
     #[test]
     #[cfg(feature = "json")]
     fn template_string_constant_folding() {
         // Test that template strings with constant expressions are folded
-        let expr = Expr::try_from("`Hello \"World\"!`").unwrap();
+        let expr = Expr::try_from("\"Hello \\\"World\\\"!\"").unwrap();
         // Should fold to a single string constant during parsing
         if let Expr::Val(Val::Str(s)) = expr {
             assert_eq!(s.as_ref(), "Hello \"World\"!");
@@ -665,25 +665,25 @@ mod test {
         }
 
         // Test that template strings with variables are not folded
-        let expr = Expr::try_from("`Hello ${@user.name}!`").unwrap();
+        let expr = Expr::try_from("\"Hello ${@user.name}!\"").unwrap();
         assert!(matches!(expr, Expr::TemplateString(_)));
     }
 
     #[test]
     #[cfg(feature = "json")]
     fn template_string_error_cases() {
-        // Test unclosed template string
-        panic("`Hello ${@user.name}");
+        // Test unclosed template expression
+        panic("\"Hello ${@user.name\"");
 
         // Test invalid expression in template string
-        panic("`Hello ${@user. + 1}!`");
+        panic("\"Hello ${@user. + 1}!\"");
     }
 
     #[test]
     #[cfg(feature = "json")]
     fn template_string_context_collection() {
         // Test that template strings correctly collect context requirements
-        let expr = Expr::try_from("`Hello ${@user.name}, your items are ${@items.0} and ${@items.1}`").unwrap();
+        let expr = Expr::try_from("\"Hello ${@user.name}, your items are ${@items.0} and ${@items.1}\"").unwrap();
         let ctx_names = expr.requested_ctx();
         assert_eq!(ctx_names, HashSet::from(["user".to_string(), "items".to_string()]));
     }
