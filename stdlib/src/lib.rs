@@ -1,13 +1,15 @@
 pub mod concurrency_chan;
 pub mod concurrency_task;
-pub mod time;
 pub mod datetime;
 pub mod io;
 pub mod iter;
+pub mod list;
+pub mod map;
 pub mod math;
 pub mod os;
 pub mod string;
 pub mod tcp;
+pub mod time;
 
 #[cfg(test)]
 mod globals_test;
@@ -23,6 +25,8 @@ pub fn register_stdlib_modules(registry: &mut ModuleRegistry) {
     registry.register_module("iter", Box::new(iter::IterModule::new()));
     registry.register_module("math", Box::new(math::MathModule::new()));
     registry.register_module("string", Box::new(string::StringModule::new()));
+    registry.register_module("list", Box::new(list::ListModule::new()));
+    registry.register_module("map", Box::new(map::MapModule::new()));
     registry.register_module("datetime", Box::new(datetime::DateTimeModule::new()));
     registry.register_module("os", Box::new(os::OsModule::new()));
     registry.register_module("tcp", Box::new(tcp::TcpModule::new()));

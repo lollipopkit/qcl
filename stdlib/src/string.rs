@@ -35,6 +35,19 @@ impl StringModule {
         functions.insert("split".to_string(), Val::RustFunction(Self::split));
         functions.insert("join".to_string(), Val::RustFunction(Self::join));
 
+        // Also register as meta-methods for String type
+        qcl_core::val::methods::register_method("String", "len", Self::len);
+        qcl_core::val::methods::register_method("String", "lower", Self::lower);
+        qcl_core::val::methods::register_method("String", "upper", Self::upper);
+        qcl_core::val::methods::register_method("String", "trim", Self::trim);
+        qcl_core::val::methods::register_method("String", "starts_with", Self::starts_with);
+        qcl_core::val::methods::register_method("String", "ends_with", Self::ends_with);
+        qcl_core::val::methods::register_method("String", "contains", Self::contains);
+        qcl_core::val::methods::register_method("String", "replace", Self::replace);
+        qcl_core::val::methods::register_method("String", "substring", Self::substring);
+        qcl_core::val::methods::register_method("String", "split", Self::split);
+        qcl_core::val::methods::register_method("String", "join", Self::join);
+
         Self { functions }
     }
 
@@ -378,6 +391,26 @@ mod tests {
         let result = program.execute_with_env(&ctx, &mut env)?;
         assert_eq!(result, Val::Str("hello".into()));
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_string_method_sugar() -> Result<()> {
+        let source = "return \"hello\".len();";
+        let tokens = Tokenizer::tokenize(source)?;
+        let mut parser = StmtParser::new(&tokens);
+        let program = parser.parse_program()?;
+        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+
+        // Create registry and register stdlib modules (ensures methods are registered)
+        let mut registry = qcl_core::module::ModuleRegistry::new();
+        register_stdlib_modules(&mut registry);
+
+        let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
+        let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
+
+        let result = program.execute_with_env(&ctx, &mut env)?;
+        assert_eq!(result, Val::Int(5));
         Ok(())
     }
 }

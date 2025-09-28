@@ -202,6 +202,7 @@ impl Expr {
             Val::Nil => "nil".to_string(),
             Val::List(l) => format!("{:?}", l),
             Val::Map(m) => format!("{:?}", m),
+            Val::Object { .. } => format!("{:?}", value),
             #[cfg(feature = "concurrency")]
             Val::Task { .. } => format!("{:?}", value),
             #[cfg(feature = "concurrency")]
@@ -733,7 +734,61 @@ impl Expr {
                 }
             }
             Expr::CallExpr(expr, args) => {
-                // Evaluate the expression to get the function
+                // Special-case: method call sugar on access (obj.method(...))
+                if let Expr::Access(obj_expr, field_expr) = expr.as_ref() {
+                    // Evaluate receiver and field name first
+                    let obj_val = obj_expr.eval_with_env(ctx, env)?;
+                    let field_val = field_expr.eval_with_env(ctx, env)?;
+
+                    if let Val::Str(method_name) = field_val {
+                        let method_name_str = method_name.as_ref();
+
+                        // First, try normal property-as-function if it's actually callable
+                        if let Some(prop_val) = obj_val.access(&Val::Str(method_name.clone())) {
+                            match prop_val {
+                                Val::Closure { .. } | Val::RustFunction(_) => {
+                                    // Evaluate arguments
+                                    let mut arg_values = Vec::new();
+                                    for arg in args {
+                                        arg_values.push(arg.eval_with_env(ctx, env)?);
+                                    }
+                                    if let Some(env) = env {
+                                        return prop_val.call(&arg_values, env, ctx);
+                                    } else {
+                                        return Err(anyhow!("Function call requires environment"));
+                                    }
+                                }
+                                _ => {
+                                    // Not callable, fall through to meta method registry
+                                }
+                            }
+                        }
+
+                        // Fall back to meta method registry
+                        if let Some(func) = crate::val::methods::find_method_for_val(&obj_val, method_name_str) {
+                            // Evaluate arguments and prepend receiver
+                            let mut full_args = Vec::with_capacity(args.len() + 1);
+                            full_args.push(obj_val.clone());
+                            for arg in args {
+                                full_args.push(arg.eval_with_env(ctx, env)?);
+                            }
+                            if let Some(env) = env {
+                                return func(&full_args, env, ctx);
+                            } else {
+                                return Err(anyhow!("Function call requires environment"));
+                            }
+                        }
+
+                        // No property or method found; produce a clearer error
+                        return Err(anyhow!(
+                            "{} has no method '{}'",
+                            obj_val.type_name(),
+                            method_name_str
+                        ));
+                    }
+                }
+
+                // Default: call the evaluated expression as a function
                 let func_val = expr.eval_with_env(ctx, env)?;
 
                 // Evaluate arguments
@@ -742,7 +797,6 @@ impl Expr {
                     arg_values.push(arg.eval_with_env(ctx, env)?);
                 }
 
-                // Call the function using the unified call method
                 if let Some(env) = env {
                     func_val.call(&arg_values, env, ctx)
                 } else {
@@ -1043,6 +1097,7 @@ impl Expr {
                                 Val::Nil => "nil".to_string(),
                                 Val::List(l) => format!("{:?}", l),
                                 Val::Map(m) => format!("{:?}", m),
+                                Val::Object { .. } => format!("{:?}", val),
                                 #[cfg(feature = "concurrency")]
                                 Val::Task { .. } => format!("{:?}", val),
                                 #[cfg(feature = "concurrency")]
@@ -1408,6 +1463,10 @@ impl Expr {
                     if let Some(res_val) = base_val.access(field_val) {
                         return Expr::Val(res_val);
                     } else {
+                        // Preserve Access when field is a string literal to allow potential method dispatch later
+                        if matches!(field_val, Val::Str(_)) {
+                            return Expr::Access(Box::new(base.clone()), Box::new(field.clone()));
+                        }
                         return Expr::Val(Val::Nil);
                     }
                 }
@@ -1581,6 +1640,7 @@ impl Expr {
                                     Val::Nil => "nil".to_string(),
                                     Val::List(l) => format!("{:?}", l),
                                     Val::Map(m) => format!("{:?}", m),
+                                    Val::Object { .. } => format!("{:?}", val),
                                     #[cfg(feature = "concurrency")]
                                     Val::Task { .. } => format!("{:?}", val),
                                     #[cfg(feature = "concurrency")]

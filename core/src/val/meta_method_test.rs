@@ -1,0 +1,44 @@
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use anyhow::Result;
+    use crate::{
+        stmt::stmt_parser::StmtParser,
+        token::Tokenizer,
+        val::{methods, Val},
+    };
+    use std::sync::Arc;
+
+    fn custom_run(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+        // Expect receiver only
+        assert!(args.len() >= 1);
+        // Return a constant to assert dispatch
+        Ok(Val::Int(123))
+    }
+
+    #[test]
+    fn test_custom_object_method_dispatch() -> Result<()> {
+        // Register a method for type "Custom"
+        methods::register_method("Custom", "run", custom_run);
+
+        // Program that calls c.run();
+        let source = "return c.run();";
+        let tokens = Tokenizer::tokenize(source)?;
+        let mut parser = StmtParser::new(&tokens);
+        let program = parser.parse_program()?;
+
+        // Empty context
+        let ctx = Val::Map(Arc::new(HashMap::new()));
+
+        // Prepare environment with variable c bound to a custom object
+        let mut env = crate::stmt::Environment::default();
+        let obj = Val::object("Custom", HashMap::new());
+        env.define("c".to_string(), obj);
+
+        let result = program.execute_with_env(&ctx, &mut env)?;
+        assert_eq!(result, Val::Int(123));
+        Ok(())
+    }
+}
+

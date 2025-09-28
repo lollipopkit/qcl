@@ -1,5 +1,6 @@
 mod val;
 pub mod de;
+pub mod methods;
 
 #[cfg(test)]
 mod de_test;

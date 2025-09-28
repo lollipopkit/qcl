@@ -599,6 +599,7 @@ impl TypeChecker {
             Val::RustFunction(_) => Ok(Type::Any),
             Val::Task { .. } => Ok(Type::Any),
             Val::Channel { .. } => Ok(Type::Any),
+            Val::Object { .. } => Ok(Type::Any),
         }
     }
 
@@ -635,6 +636,7 @@ impl TypeChecker {
             Val::RustFunction(_) => Ok(Type::Any),
             Val::Task { .. } => Ok(Type::Any),
             Val::Channel { .. } => Ok(Type::Any),
+            Val::Object { .. } => Ok(Type::Any),
         }
     }
 

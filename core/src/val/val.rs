@@ -47,6 +47,11 @@ pub enum Val {
         capacity: Option<i64>,
         inner_type: Box<Type>,
     },
+    /// Runtime object with named type and fields
+    Object {
+        type_name: Arc<str>,
+        fields: Arc<HashMap<String, Val>>,
+    },
     #[default]
     Nil,
 }
@@ -81,6 +86,10 @@ impl Clone for Val {
                 id: *id,
                 capacity: *capacity,
                 inner_type: inner_type.clone(),
+            },
+            Val::Object { type_name, fields } => Val::Object {
+                type_name: type_name.clone(),
+                fields: fields.clone(),
             },
             Val::Nil => Val::Nil,
         }
@@ -491,7 +500,16 @@ impl Val {
             Val::RustFunction(_) => "Function",
             Val::Task { .. } => "Task",
             Val::Channel { .. } => "Channel",
+            Val::Object { .. } => "Object",
             Val::Nil => "Nil",
+        }
+    }
+
+    /// Construct a runtime object of a named custom type
+    pub fn object<T: AsRef<str>>(type_name: T, fields: HashMap<String, Val>) -> Val {
+        Val::Object {
+            type_name: Arc::from(type_name.as_ref()),
+            fields: Arc::new(fields),
         }
     }
 
@@ -543,6 +561,7 @@ impl Val {
                 }
                 l.get(*i as usize).cloned()
             }
+            (Val::Object { fields, .. }, Val::Str(s)) => fields.get(s.as_ref()).cloned(),
             (Val::Task { value, .. }, Val::Str(s)) if s.as_ref() == "value" => match value {
                 Some(v) => Some((**v).clone()),
                 None => Some(Val::Nil),
@@ -992,6 +1011,10 @@ impl PartialEq for Val {
                     inner_type: type_b,
                 },
             ) => id_a == id_b && cap_a == cap_b && type_a == type_b,
+            (
+                Val::Object { type_name: t1, fields: f1 },
+                Val::Object { type_name: t2, fields: f2 },
+            ) => t1 == t2 && f1 == f2,
             (Val::Nil, Val::Nil) => true,
             _ => false,
         }
@@ -1042,6 +1065,14 @@ impl Serialize for Val {
                 map.serialize_entry("type", "channel")?;
                 map.serialize_entry("capacity", capacity)?;
                 map.serialize_entry("inner_type", &format!("{:?}", inner_type))?;
+                map.end()
+            }
+            Val::Object { type_name, fields } => {
+                let mut map = serializer.serialize_map(Some(fields.len() + 1))?;
+                map.serialize_entry("__type", type_name.as_ref())?;
+                for (k, v) in fields.iter() {
+                    map.serialize_entry(k, v)?;
+                }
                 map.end()
             }
             Val::Nil => serializer.serialize_unit(),
@@ -1097,6 +1128,9 @@ impl core::fmt::Display for Val {
                     capacity.unwrap_or(0),
                     inner_type
                 )
+            }
+            Val::Object { type_name, fields } => {
+                write!(f, "Object(type={}, fields={:?})", type_name, fields)
             }
             Val::Nil => write!(f, "nil"),
         }
