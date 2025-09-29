@@ -1,0 +1,38 @@
+// 斐波那契基准（仅迭代版本），用于与 Dart 对比运行时间
+// 使用方式：
+//   直接运行（默认 50000 次、n=30）：
+//     cargo run -p qcl-cli --release -- examples/fibonacci_bench.qcl
+//   或通过 stdin 传入迭代次数与 n：
+//     echo '{"iters": 80000, "n": 30}' | cargo run -p qcl-cli --release -- examples/fibonacci_bench.qcl
+// 建议用 /usr/bin/time 计时：
+//   /usr/bin/time -f "QCL: real %e user %U sys %S" target/release/qcl examples/fibonacci_bench.qcl
+
+fn fib_iterative(n) {
+    if (n <= 1) { return n; }
+    let a = 0;
+    let b = 1;
+    for _ in 2..=n {
+        let t = a + b;
+        a = b;
+        b = t;
+    }
+    return b;
+}
+
+// 读取上下文中的参数，若无则使用默认值
+let iters = @iters ?? 50000;  // 重复次数
+let n = @n ?? 30;             // 计算的 n（迭代版）
+
+// 纯计算循环（不打印，避免 IO 干扰）
+let acc = 0;
+for _ in 0..iters {
+    acc = fib_iterative(n);
+}
+
+// 返回结果摘要，便于验证与防止被优化（解释器无优化，仅为一致性）
+return {
+    "iters": iters,
+    "n": n,
+    "fib_n": acc
+};
+
