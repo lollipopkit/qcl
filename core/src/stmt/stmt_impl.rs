@@ -439,7 +439,7 @@ impl Stmt {
                             && !list.is_empty()
                         {
                             let tail: Vec<Val> = list.iter().skip(1).cloned().collect();
-                            let _ = env.assign(&var_name, Val::List(Arc::new(tail)));
+                            let _ = env.assign(&var_name, Val::List(Arc::from(tail)));
                             // 不立即 break，继续下一轮尝试
                             continue;
                         }
@@ -1173,7 +1173,7 @@ impl Program {
 /// 从值创建迭代器
 fn create_iterator(val: &Val) -> Result<Vec<Val>> {
     match val {
-        Val::List(list) => Ok((**list).clone()),
+        Val::List(list) => Ok((*list).to_vec()),
         Val::Map(map) => {
             // 返回 [key, value] 对的迭代器
             let pairs: Vec<Val> = map

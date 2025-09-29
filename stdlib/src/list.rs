@@ -69,7 +69,7 @@ impl ListModule {
                 let mut out = Vec::with_capacity(l.len() + 1);
                 out.extend(l.iter().cloned());
                 out.push(v.clone());
-                Ok(Val::List(Arc::new(out)))
+                Ok(Val::List(Arc::from(out)))
             }
             _ => Err(anyhow::anyhow!("push() first argument must be a list")),
         }
@@ -87,7 +87,7 @@ impl ListModule {
                 let mut out = Vec::with_capacity(a.len() + b.len());
                 out.extend(a.iter().cloned());
                 out.extend(b.iter().cloned());
-                Ok(Val::List(Arc::new(out)))
+                Ok(Val::List(Arc::from(out)))
             }
             (Val::List(_), _) => Err(anyhow::anyhow!("concat() second argument must be a list")),
             _ => Err(anyhow::anyhow!("concat() first argument must be a list")),
@@ -187,7 +187,7 @@ impl ListModule {
             let res = call.call(std::slice::from_ref(item), env, ctx)?;
             out.push(res);
         }
-        Ok(Val::List(Arc::new(out)))
+        Ok(Val::List(Arc::from(out)))
     }
 
     // Filter list with predicate function: list.filter(|x| cond)
@@ -224,7 +224,7 @@ impl ListModule {
                 out.push(item.clone());
             }
         }
-        Ok(Val::List(Arc::new(out)))
+        Ok(Val::List(Arc::from(out)))
     }
 
     // Reduce list with accumulator: list.reduce(init, |acc, x| ...)
@@ -288,7 +288,7 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
 
         let mut registry = qcl_core::module::ModuleRegistry::new();
         register_stdlib_modules(&mut registry);
@@ -325,13 +325,13 @@ mod tests {
         // map
         assert_eq!(
             run("return [1,2,3].map(|x| x + 1);")?,
-            Val::List(Arc::new(vec![Val::Int(2), Val::Int(3), Val::Int(4)]))
+            Val::List(Arc::from(vec![Val::Int(2), Val::Int(3), Val::Int(4)]))
         );
 
         // filter
         assert_eq!(
             run("return [1,2,3,4,5].filter(|x| x % 2 == 0);")?,
-            Val::List(Arc::new(vec![Val::Int(2), Val::Int(4)]))
+            Val::List(Arc::from(vec![Val::Int(2), Val::Int(4)]))
         );
 
         // reduce (sum)

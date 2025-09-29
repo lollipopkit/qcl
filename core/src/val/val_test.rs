@@ -75,7 +75,7 @@ mod tests {
             let r: Val = map2.into();
             let result = (&l + &r).unwrap();
 
-            assert_eq!(result, Val::Map(expected.into()));
+            assert_eq!(result, expected.into());
         }
 
         #[test]
@@ -96,7 +96,7 @@ mod tests {
             let r: Val = map2.into();
             let result = (&l - &r).unwrap();
 
-            assert_eq!(result, Val::Map(expected.into()));
+            assert_eq!(result, expected.into());
         }
 
         #[test]
@@ -114,7 +114,7 @@ mod tests {
             let r: Val = key.into();
             let result = (&l - &r).unwrap();
 
-            assert_eq!(result, Val::Map(expected.into()));
+            assert_eq!(result, expected.into());
         }
     }
 

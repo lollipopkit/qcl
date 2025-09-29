@@ -11,7 +11,7 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
 
         // Create registry, register modules + globals
         let mut registry = qcl_core::module::ModuleRegistry::new();
@@ -33,7 +33,7 @@ mod tests {
         let tokens = Tokenizer::tokenize(source).unwrap();
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program().unwrap();
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
 
         let mut registry = qcl_core::module::ModuleRegistry::new();
         crate::register_stdlib_modules(&mut registry);

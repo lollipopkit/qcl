@@ -118,7 +118,7 @@ mod test {
 
         let ts = Tokenizer::tokenize(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::Val(Val::List(Arc::new(vec![])));
+        let expected = Expr::Val(Val::List(Arc::from(vec![])));
         assert_eq!(parsed, expected);
     }
 
@@ -128,7 +128,7 @@ mod test {
 
         let ts = Tokenizer::tokenize(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::Val(Val::List(Arc::new(vec![
+        let expected = Expr::Val(Val::List(Arc::from(vec![
             Val::Int(1),
             Val::Int(2),
             Val::Int(3),
@@ -142,7 +142,7 @@ mod test {
 
         let ts = Tokenizer::tokenize(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::Val(Val::List(Arc::new(vec![
+        let expected = Expr::Val(Val::List(Arc::from(vec![
             Val::Int(1),
             Val::Str("hello".into()),
             Val::Bool(true),
@@ -156,7 +156,7 @@ mod test {
 
         let ts = Tokenizer::tokenize(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::Val(Val::List(Arc::new(vec![Val::Int(3), Val::Int(12)])));
+        let expected = Expr::Val(Val::List(Arc::from(vec![Val::Int(3), Val::Int(12)])));
         assert_eq!(parsed, expected);
     }
 
@@ -166,9 +166,9 @@ mod test {
 
         let ts = Tokenizer::tokenize(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::Val(Val::List(Arc::new(vec![
-            Val::List(Arc::new(vec![Val::Int(1), Val::Int(2)])),
-            Val::List(Arc::new(vec![Val::Int(3), Val::Int(4)])),
+        let expected = Expr::Val(Val::List(Arc::from(vec![
+            Val::List(Arc::from(vec![Val::Int(1), Val::Int(2)])),
+            Val::List(Arc::from(vec![Val::Int(3), Val::Int(4)])),
         ])));
         assert_eq!(parsed, expected);
     }
@@ -179,7 +179,7 @@ mod test {
 
         let ts = Tokenizer::tokenize(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::Val(Val::List(Arc::new(vec![
+        let expected = Expr::Val(Val::List(Arc::from(vec![
             Val::Int(1),
             Val::Int(2),
             Val::Int(3),
@@ -276,17 +276,17 @@ mod test {
         alice_map.insert("name".to_string(), Val::Str("Alice".into()));
         alice_map.insert(
             "scores".to_string(),
-            Val::List(Arc::new(vec![Val::Int(90), Val::Int(85)])),
+            Val::List(Arc::from(vec![Val::Int(90), Val::Int(85)])),
         );
 
         let mut bob_map = std::collections::HashMap::new();
         bob_map.insert("name".to_string(), Val::Str("Bob".into()));
         bob_map.insert(
             "scores".to_string(),
-            Val::List(Arc::new(vec![Val::Int(88), Val::Int(92)])),
+            Val::List(Arc::from(vec![Val::Int(88), Val::Int(92)])),
         );
 
-        let expected = Expr::Val(Val::List(Arc::new(vec![
+        let expected = Expr::Val(Val::List(Arc::from(vec![
             alice_map.into(),
             bob_map.into(),
         ])));

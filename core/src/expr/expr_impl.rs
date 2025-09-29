@@ -205,11 +205,13 @@ impl Pattern {
             }
             Pattern::Wildcard => Ok(true),
             Pattern::List { patterns, rest } => {
-                let list_items = match value {
-                    Val::List(list) => list.as_ref().clone(),
+                let list_items: Vec<Val> = match value {
+                    Val::List(list) => (*list).to_vec(),
                     Val::Str(s) => {
                         // Convert string to list of character strings for destructuring
-                        s.chars().map(|c| Val::Str(c.to_string().into())).collect()
+                        s.chars()
+                            .map(|c| Val::Str(c.to_string().into()))
+                            .collect::<Vec<_>>()
                     }
                     _ => return Ok(false),
                 };
@@ -233,7 +235,7 @@ impl Pattern {
                 if let Some(rest_name) = rest {
                     let rest_items: Vec<Val> =
                         list_items.iter().skip(patterns.len()).cloned().collect();
-                    bindings.push((rest_name.clone(), Val::List(Arc::new(rest_items))));
+                    bindings.push((rest_name.clone(), Val::List(Arc::from(rest_items))));
                 } else if patterns.len() != list_items.len() {
                     // No rest pattern but lengths don't match
                     return Ok(false);
@@ -262,8 +264,8 @@ impl Pattern {
                             patterns.iter().map(|(k, _)| k.as_str()).collect();
                         let rest_map: std::collections::HashMap<String, Val> = map_ref
                             .iter()
-                            .filter(|(k, _)| !matched_keys.contains(k.as_str()))
-                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .filter(|(k, _)| !matched_keys.contains(k.as_ref()))
+                            .map(|(k, v)| (k.to_string(), v.clone()))
                             .collect();
                         bindings.push((rest_name.clone(), rest_map.into()));
                     }
@@ -541,7 +543,7 @@ impl Expr {
                 for expr in exprs {
                     values.push(expr.eval_with_env(ctx, env)?);
                 }
-                Ok(Val::List(Arc::new(values)))
+                Ok(Val::List(Arc::from(values)))
             }
             Expr::Map(pairs) => {
                 let mut map = std::collections::HashMap::with_capacity(pairs.len());
@@ -1387,7 +1389,7 @@ impl Expr {
                             }
                         })
                         .collect();
-                    return Expr::Val(Val::List(Arc::new(const_vals)));
+                    return Expr::Val(Val::List(Arc::from(const_vals)));
                 }
                 Expr::List(folded_elems.into_iter().map(Box::new).collect())
             }

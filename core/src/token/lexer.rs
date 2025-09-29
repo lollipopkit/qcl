@@ -96,19 +96,6 @@ pub struct Tokenizer {
 }
 
 impl Tokenizer {
-    /// Returns true if the last produced token represents a value or a closed expression,
-    /// which means a following '+' or '-' should be treated as a binary operator, not a sign.
-    fn prev_is_value_like(&self) -> bool {
-        if self.tokens.is_empty() {
-            return false;
-        }
-        match self.tokens.last().unwrap() {
-            Token::Id(_) | Token::Int(_) | Token::Float(_) | Token::Str(_) | Token::Bool(_)
-            | Token::Nil | Token::RParen | Token::RBracket | Token::RBrace
-            | Token::TemplateString(_) => true,
-            _ => false,
-        }
-    }
     pub fn tokenize(s: &str) -> Result<Vec<Token>> {
         let mut t = Tokenizer {
             chars: s.chars().collect(),
@@ -923,11 +910,11 @@ impl Tokenizer {
             }
             '+' => {
                 let next = self.chars.get(self.idx + 1);
-                if let Some(&c) = next
-                    && c.is_ascii_digit()
-                    && !self.prev_is_value_like()
-                {
-                    return self.parse_num();
+                if let Some(&c) = next {
+                    // Treat '+<digits>' or '+.<digits>' as a signed number regardless of context
+                    if c.is_ascii_digit() || c == '.' {
+                        return self.parse_num();
+                    }
                 }
                 let start = self.current_position();
                 if self.expect("+=") {
@@ -943,11 +930,11 @@ impl Tokenizer {
             }
             '-' => {
                 let next = self.chars.get(self.idx + 1);
-                if let Some(&c) = next
-                    && c.is_ascii_digit()
-                    && !self.prev_is_value_like()
-                {
-                    return self.parse_num();
+                if let Some(&c) = next {
+                    // Treat '-<digits>' or '-.<digits>' as a signed number regardless of context
+                    if c.is_ascii_digit() || c == '.' {
+                        return self.parse_num();
+                    }
                 }
                 let start = self.current_position();
                 if self.expect("->") {

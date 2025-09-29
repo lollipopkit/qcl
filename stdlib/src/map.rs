@@ -54,9 +54,9 @@ impl MapModule {
             Val::Map(m) => {
                 let mut out: Vec<Val> = Vec::with_capacity(m.len());
                 for k in m.keys() {
-                    out.push(Val::Str(k.as_str().into()));
+                    out.push(Val::Str(k.clone()));
                 }
-                Ok(Val::List(Arc::new(out)))
+                Ok(Val::List(Arc::from(out)))
             }
             _ => Err(anyhow::anyhow!("keys() argument must be a map")),
         }
@@ -72,7 +72,7 @@ impl MapModule {
                 for v in m.values() {
                     out.push(v.clone());
                 }
-                Ok(Val::List(Arc::new(out)))
+                Ok(Val::List(Arc::from(out)))
             }
             _ => Err(anyhow::anyhow!("values() argument must be a map")),
         }

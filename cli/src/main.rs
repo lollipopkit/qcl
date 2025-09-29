@@ -1,6 +1,6 @@
 use std::io::{BufRead, IsTerminal};
 use std::path::{Component, Path, PathBuf};
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use qcl_core::stmt::ModuleResolver;
 use qcl_core::{
@@ -121,7 +121,7 @@ fn main() -> anyhow::Result<()> {
     };
 
     let ctx: Val = if raw.is_empty() {
-        Val::Map(Arc::new(HashMap::new()))
+        Val::Map(Arc::new(Default::default()))
     } else {
         de::parse_with_format(&raw, format_override)?
     };

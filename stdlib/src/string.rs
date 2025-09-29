@@ -289,7 +289,7 @@ impl StringModule {
                 .collect()
         };
 
-        Ok(Val::List(Arc::new(parts)))
+        Ok(Val::List(Arc::from(parts)))
     }
 
     /// Join list of strings with delimiter
@@ -354,7 +354,7 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
 
         // Create registry and register stdlib modules
         let mut registry = qcl_core::module::ModuleRegistry::new();
@@ -376,7 +376,7 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
 
         // Create registry and register stdlib modules
         let mut registry = qcl_core::module::ModuleRegistry::new();
@@ -398,7 +398,7 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
 
         // Create registry and register stdlib modules (ensures methods are registered)
         let mut registry = qcl_core::module::ModuleRegistry::new();

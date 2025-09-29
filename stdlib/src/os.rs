@@ -126,7 +126,7 @@ impl DirObject {
                         Err(_) => continue,
                     }
                 }
-                Ok(Val::List(Arc::new(entries)))
+                Ok(Val::List(Arc::from(entries)))
             }
             Err(e) => Err(anyhow::anyhow!("failed to read directory: {}", e)),
         }
