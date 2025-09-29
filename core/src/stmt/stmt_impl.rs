@@ -133,7 +133,7 @@ pub enum ControlFlow {
     Break,
     /// continue 语句  
     Continue,
-    /// 函数返回 (预留给未来功能)
+    /// 函数返回
     Return(Val),
 }
 

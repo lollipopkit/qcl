@@ -139,6 +139,9 @@ Builtins and Stdlib
   `take(list, n)`, `skip(list, n)`, `chain(list1, list2)`, `flatten(list)`, `unique(list)`, `chunk(list, size)`.
 - Meta‑methods (usable as `value.method()` without importing): String: `len, lower, upper, trim, starts_with, ends_with, contains, replace, substring, split, join`; List: `len, push, concat, join, get, first, last, map, filter, reduce`; Map: `len, keys, values, has, get`.
 
+## CLI Output
+- REPL and CLI print evaluation results only when the value is not `nil`. This avoids extra lines after statements that return `nil` by default (e.g., `let`, `fn` definitions, `println(...)`). If you need to display `nil`, print it explicitly via `println(nil)` or include it in formatted output.
+
 ## Types and Annotations
 Primitive and composite types
 - `Int`, `Float`, `String`, `Bool`, `Nil`, `Any`

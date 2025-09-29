@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     fmt::{Debug, Display},
     sync::Arc,
 };
@@ -1184,20 +1184,37 @@ impl Expr {
         }
     }
 
-    /// Cached parsing: parse expression string to Expr with caching to avoid repeated parsing overhead
+    /// Cached parsing: parse expression string to Expr with a bounded cache to avoid unbounded memory growth
     pub fn parse_cached(expression: &str) -> Result<Expr> {
-        // Global static cache: Key is expression string, Value is parsed Expr wrapped in Arc
-        static PARSE_CACHE: Lazy<Mutex<HashMap<String, Arc<Expr>>>> =
-            Lazy::new(|| Mutex::new(HashMap::new()));
+        // Global bounded cache: Key is expression string, Value is parsed Expr wrapped in Arc
+        // Maintain simple FIFO eviction to cap memory usage.
+        const PARSE_CACHE_CAP: usize = 1024;
+        static PARSE_CACHE: Lazy<Mutex<(HashMap<String, Arc<Expr>>, VecDeque<String>)>> =
+            Lazy::new(|| Mutex::new((HashMap::new(), VecDeque::new())));
+
         let mut cache = PARSE_CACHE.lock().unwrap();
-        if let Some(cached) = cache.get(expression) {
-            // Cache hit, clone the Arc (cheap)
-            return Ok((*cached.clone()).clone());
+        let (map, order) = &mut *cache;
+        if let Some(cached) = map.get(expression) {
+            return Ok((**cached).clone());
         }
+
         // Cache miss, perform normal parsing
         let tokens = Tokenizer::tokenize(expression)?;
         let expr = Parser::new(&tokens).parse()?; // Internal constant folding happens in parser
-        cache.insert(expression.to_string(), Arc::new(expr.clone()));
+
+        // Insert and evict if over capacity
+        map.insert(expression.to_string(), Arc::new(expr.clone()));
+        order.push_back(expression.to_string());
+        while map.len() > PARSE_CACHE_CAP {
+            if let Some(old_key) = order.pop_front() {
+                // Only remove if still present; ignore if it was re-inserted with newer position
+                if order.iter().find(|k| **k == old_key).is_none() {
+                    map.remove(&old_key);
+                }
+            } else {
+                break;
+            }
+        }
         Ok(expr)
     }
 
