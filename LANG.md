@@ -135,7 +135,9 @@ Imports
 Builtins and Stdlib
 - Builtin globals: `print(fmt, ...args)`, `println(fmt, ...args)`, `panic([msg])`.
 - Stdlib modules (import as needed): `math`, `string`, `list`, `map`, `iter`, `datetime`, `os`, `tcp`. With `concurrency` feature: `task`, `chan`, `time`.
-- Meta‑methods (usable as `value.method()` without importing): String: `len, lower, upper, trim, starts_with, ends_with, contains, replace, substring, split, join`; List: `len, push, concat, join, get, first, last`; Map: `len, keys, values, has, get`.
+- `iter` module highlights: `enumerate(list)`, `range([start,] end [, step])`, `zip(list1, list2)`,
+  `take(list, n)`, `skip(list, n)`, `chain(list1, list2)`, `flatten(list)`, `unique(list)`, `chunk(list, size)`.
+- Meta‑methods (usable as `value.method()` without importing): String: `len, lower, upper, trim, starts_with, ends_with, contains, replace, substring, split, join`; List: `len, push, concat, join, get, first, last, map, filter, reduce`; Map: `len, keys, values, has, get`.
 
 ## Types and Annotations
 Primitive and composite types

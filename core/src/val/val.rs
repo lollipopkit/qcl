@@ -563,10 +563,14 @@ impl Val {
                     call_env.define(param.clone(), arg_val.clone());
                 }
 
-                // Execute function body
-                match body.execute(&mut call_env, ctx)? {
-                    crate::stmt::ControlFlow::Return(val) => Ok(val),
-                    _ => Ok(Val::Nil), // Functions return nil by default
+                // Execute function body. If the closure body is an expression statement,
+                // evaluate the inner expression directly to preserve its value.
+                match &**body {
+                    crate::stmt::Stmt::Expr(expr) => expr.eval_with_env(ctx, Some(&call_env)),
+                    other => match other.execute(&mut call_env, ctx)? {
+                        crate::stmt::ControlFlow::Return(val) => Ok(val),
+                        _ => Ok(Val::Nil), // Functions return nil by default
+                    },
                 }
             }
             Val::RustFunction(func) => {

@@ -5,6 +5,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+use tokio::sync::Semaphore;
 use tokio::time::{sleep, Duration};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
@@ -36,8 +37,10 @@ struct Document {
     // Cached results to avoid repeated parsing/tokenization per request
     cached_analysis: Option<Arc<AnalysisResult>>,
     cached_semantic_tokens: Option<Arc<Vec<SemanticToken>>>,
-    // Range-based cache for better scrolling performance
-    _cached_range_tokens: HashMap<String, Arc<Vec<SemanticToken>>>,
+    // Range-based cache for better scrolling performance (version+range keyed)
+    cached_range_tokens: HashMap<String, Arc<Vec<SemanticToken>>>,
+    // Inlay hints cache keyed by version+range+settings
+    cached_inlay_hints: HashMap<String, Arc<Vec<InlayHint>>>,
     // Last tokens/result_id actually sent to the client (for delta)
     last_sent_semantic_tokens: Option<Arc<Vec<SemanticToken>>>,
     last_sent_result_id: Option<String>,
@@ -54,6 +57,8 @@ struct QclLanguageServer {
     documents: Arc<DashMap<Url, Document>>,
     analyzer: std::sync::Mutex<QclAnalyzer>,
     config: std::sync::Mutex<ServerConfig>,
+    // Limit concurrent heavy computations (tokens/hints) to avoid CPU spikes while scrolling
+    compute_limiter: std::sync::Mutex<Arc<Semaphore>>,
 }
 
 impl QclLanguageServer {
@@ -63,6 +68,7 @@ impl QclLanguageServer {
             documents: Arc::new(DashMap::new()),
             analyzer: std::sync::Mutex::new(QclAnalyzer::new()),
             config: std::sync::Mutex::new(ServerConfig::default()),
+            compute_limiter: std::sync::Mutex::new(Arc::new(Semaphore::new(2))),
         }
     }
 
@@ -180,11 +186,30 @@ impl QclLanguageServer {
 // Server configuration
 // ----------------------
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 struct ServerConfig {
     inlay_hints_enabled: bool,
     inlay_hints_parameters: bool,
     inlay_hints_types: bool,
+    // performance tuning
+    max_concurrent: usize,
+    range_token_cache_limit: usize,
+    inlay_hint_cache_limit: usize,
+    inlay_scan_margin_lines: usize,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            inlay_hints_enabled: true,
+            inlay_hints_parameters: true,
+            inlay_hints_types: true,
+            max_concurrent: 2,
+            range_token_cache_limit: 64,
+            inlay_hint_cache_limit: 64,
+            inlay_scan_margin_lines: 3,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -192,6 +217,8 @@ struct ServerConfig {
 struct QclLspConfigSection {
     #[serde(default)]
     inlay_hints: InlayHintsConfig,
+    #[serde(default)]
+    performance: PerformanceConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -211,6 +238,19 @@ struct InlayKindConfig {
     enabled: Option<bool>,
 }
 
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct PerformanceConfig {
+    #[serde(default)]
+    max_concurrent: Option<usize>,
+    #[serde(default)]
+    range_token_cache_limit: Option<usize>,
+    #[serde(default)]
+    inlay_hint_cache_limit: Option<usize>,
+    #[serde(default)]
+    inlay_scan_margin_lines: Option<usize>,
+}
+
 impl QclLanguageServer {
     async fn load_config(&self) {
         // Ask client for the 'qcl.lsp' section
@@ -227,6 +267,24 @@ impl QclLanguageServer {
                     guard.inlay_hints_parameters =
                         cfg.inlay_hints.parameters.enabled.unwrap_or(true);
                     guard.inlay_hints_types = cfg.inlay_hints.types.enabled.unwrap_or(true);
+                    // Performance tuning with fallbacks to sane defaults
+                    if let Some(v) = cfg.performance.max_concurrent.filter(|v| *v > 0) {
+                        guard.max_concurrent = v;
+                    }
+                    if let Some(v) = cfg.performance.range_token_cache_limit.filter(|v| *v > 0) {
+                        guard.range_token_cache_limit = v;
+                    }
+                    if let Some(v) = cfg.performance.inlay_hint_cache_limit.filter(|v| *v > 0) {
+                        guard.inlay_hint_cache_limit = v;
+                    }
+                    if let Some(v) = cfg.performance.inlay_scan_margin_lines.filter(|v| *v > 0) {
+                        guard.inlay_scan_margin_lines = v;
+                    }
+                    // Rebuild semaphore to apply new concurrency
+                    let permits = guard.max_concurrent.max(1);
+                    if let Ok(mut sem_arc) = self.compute_limiter.lock() {
+                        *sem_arc = Arc::new(Semaphore::new(permits));
+                    }
                 }
             }
         }
@@ -354,7 +412,8 @@ impl LanguageServer for QclLanguageServer {
             version: params.text_document.version,
             cached_analysis: None,
             cached_semantic_tokens: None,
-            _cached_range_tokens: HashMap::new(),
+            cached_range_tokens: HashMap::new(),
+            cached_inlay_hints: HashMap::new(),
             last_sent_semantic_tokens: None,
             last_sent_result_id: None,
             tokens_result_counter: 0,
@@ -392,6 +451,8 @@ impl LanguageServer for QclLanguageServer {
             // Invalidate caches and bump debounce seq
             entry.cached_analysis = None;
             entry.cached_semantic_tokens = None;
+            entry.cached_range_tokens.clear();
+            entry.cached_inlay_hints.clear();
             entry.debounce_seq = entry.debounce_seq.wrapping_add(1);
         }
 
@@ -875,7 +936,7 @@ impl LanguageServer for QclLanguageServer {
         // Collect signatures from built-ins and current document definitions
         let mut signatures: Vec<SignatureInformation> = Vec::new();
 
-        // Built-ins
+        // Built-ins and selected stdlib functions/meta-methods
         match func_name.as_str() {
             "print" => signatures.push(sig(
                 "print(fmt, ...args)",
@@ -891,6 +952,136 @@ impl LanguageServer for QclLanguageServer {
                 "panic(message)",
                 ["message"].as_slice(),
                 "Global function - raise runtime error",
+            )),
+            // iter module
+            "enumerate" => signatures.push(sig(
+                "enumerate(list)",
+                ["list"].as_slice(),
+                "iter: Add 0-based index to each element; returns list of [index, value]",
+            )),
+            "range" => {
+                signatures.push(sig(
+                    "range(end)",
+                    ["end"].as_slice(),
+                    "iter: Generate [0, 1, ..., end-1]",
+                ));
+                signatures.push(sig(
+                    "range(start, end)",
+                    ["start", "end"].as_slice(),
+                    "iter: Generate [start, ..., end) with step 1",
+                ));
+                signatures.push(sig(
+                    "range(start, end, step)",
+                    ["start", "end", "step"].as_slice(),
+                    "iter: Generate arithmetic progression with given step (nonzero)",
+                ));
+            }
+            "zip" => signatures.push(sig(
+                "zip(list1, list2)",
+                ["list1", "list2"].as_slice(),
+                "iter: Pair elements into [a[i], b[i]] up to the shortest length",
+            )),
+            "take" => signatures.push(sig(
+                "take(list, n)",
+                ["list", "n"].as_slice(),
+                "iter: First n elements (n <= 0 returns [])",
+            )),
+            "skip" => signatures.push(sig(
+                "skip(list, n)",
+                ["list", "n"].as_slice(),
+                "iter: Elements after skipping first n (n <= 0 returns original)",
+            )),
+            "chain" => signatures.push(sig(
+                "chain(list1, list2)",
+                ["list1", "list2"].as_slice(),
+                "iter: Concatenate two lists",
+            )),
+            "flatten" => signatures.push(sig(
+                "flatten(list)",
+                ["list"].as_slice(),
+                "iter: Flatten one nesting level (non-lists pass through)",
+            )),
+            "unique" => signatures.push(sig(
+                "unique(list)",
+                ["list"].as_slice(),
+                "iter: Stable de-duplicate preserving first occurrences",
+            )),
+            "chunk" => signatures.push(sig(
+                "chunk(list, size)",
+                ["list", "size"].as_slice(),
+                "iter: Split into chunks of positive size",
+            )),
+            // list meta-methods and module functions (common ones)
+            "map" => {
+                signatures.push(sig(
+                    "map(list, func)",
+                    ["list", "func(value)"].as_slice(),
+                    "Apply function to each element; returns transformed list",
+                ));
+                signatures.push(sig(
+                    "list.map(func)",
+                    ["func(value)"].as_slice(),
+                    "Meta-method variant of map",
+                ));
+            }
+            "filter" => {
+                signatures.push(sig(
+                    "filter(list, predicate)",
+                    ["list", "predicate(value)"].as_slice(),
+                    "Keep elements where predicate returns true (nil/false treated as false)",
+                ));
+                signatures.push(sig(
+                    "list.filter(predicate)",
+                    ["predicate(value)"].as_slice(),
+                    "Meta-method variant of filter",
+                ));
+            }
+            "reduce" => {
+                signatures.push(sig(
+                    "reduce(list, init, func)",
+                    ["list", "init", "func(acc, value)"].as_slice(),
+                    "Fold elements into an accumulator",
+                ));
+                signatures.push(sig(
+                    "list.reduce(init, func)",
+                    ["init", "func(acc, value)"].as_slice(),
+                    "Meta-method variant of reduce",
+                ));
+            }
+            "push" => signatures.push(sig(
+                "push(list, value)",
+                ["list", "value"].as_slice(),
+                "Return a new list with value appended",
+            )),
+            "concat" => signatures.push(sig(
+                "concat(list, other)",
+                ["list", "other"].as_slice(),
+                "Concatenate two lists",
+            )),
+            "join" => signatures.push(sig(
+                "join(list<string>, delimiter)",
+                ["list", "delimiter"].as_slice(),
+                "Join list of strings with delimiter",
+            )),
+            "get" => signatures.push(sig(
+                "get(list, index)",
+                ["list", "index"].as_slice(),
+                "Safe index access; returns value or nil",
+            )),
+            "first" => signatures.push(sig(
+                "first(list)",
+                ["list"].as_slice(),
+                "First element or nil",
+            )),
+            "last" => signatures.push(sig(
+                "last(list)",
+                ["list"].as_slice(),
+                "Last element or nil",
+            )),
+            "len" => signatures.push(sig(
+                "len(value)",
+                ["value"].as_slice(),
+                "Length of list/map/string (where applicable)",
             )),
             _ => {}
         }
@@ -1028,44 +1219,80 @@ impl LanguageServer for QclLanguageServer {
 
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
         let uri = &params.text_document.uri;
-        let content = if let Some(doc) = self.documents.get(uri) {
-            doc.content.to_string()
+        let (content, version, cached_opt) = if let Some(doc) = self.documents.get(uri) {
+            let cfg = self.config.lock().unwrap().clone();
+            let key = format!(
+                "v{}:{}:{}-{}:{}:p{}:t{}",
+                doc.version,
+                params.range.start.line,
+                params.range.start.character,
+                params.range.end.line,
+                params.range.end.character,
+                cfg.inlay_hints_parameters as u8,
+                cfg.inlay_hints_types as u8
+            );
+            if let Some(cached) = doc.cached_inlay_hints.get(&key) {
+                return Ok(Some((**cached).clone()));
+            }
+            (doc.content.to_string(), doc.version, Some(key))
         } else {
-            String::new()
+            (String::new(), 0, None)
         };
         // Apply server-side configuration for inlay hints
         let cfg = self.config.lock().unwrap().clone();
-        if !cfg.inlay_hints_enabled {
+        if !cfg.inlay_hints_enabled || content.is_empty() {
             return Ok(None);
         }
 
-        // Combine parameter hints and type hints, but skip computing disabled kinds for performance
-        let mut hints: Vec<InlayHint> = Vec::new();
-        if cfg.inlay_hints_parameters {
-            hints.extend(compute_inlay_hints(&content, params.range.clone()));
-        }
-        if cfg.inlay_hints_types {
-            if let Ok(analyzer) = self.analyzer.lock() {
-                let mut type_hints =
-                    analyzer.compute_type_inlay_hints(&content, params.range.clone());
-                let mut define_hints =
-                    analyzer.compute_define_type_hints(&content, params.range.clone());
-                let mut fn_return_hints =
-                    analyzer.compute_function_return_type_hints(&content, params.range.clone());
-                hints.append(&mut type_hints);
-                hints.append(&mut define_hints);
-                hints.append(&mut fn_return_hints);
+        // Limit concurrent heavy computations
+        let sem = self.compute_limiter.lock().unwrap().clone();
+        let _permit = sem.acquire().await.ok();
+
+        let want_params = cfg.inlay_hints_parameters;
+        let want_types = cfg.inlay_hints_types;
+        let margin = cfg.inlay_scan_margin_lines;
+        let range = params.range.clone();
+        let computed = tokio::task::spawn_blocking(move || {
+            let mut hints: Vec<InlayHint> = Vec::new();
+            if want_params {
+                hints.extend(compute_inlay_hints_with_margin(&content, range.clone(), margin));
             }
-        }
+            if want_types {
+                // Tokenize once and reuse across individual computations
+                if let Ok((tokens, spans)) = qcl_core::token::Tokenizer::tokenize_enhanced_with_spans(&content) {
+                    let analyzer = QclAnalyzer::new();
+                    let mut h1 = analyzer.compute_type_inlay_hints_from_tokens(&tokens, &spans, range.clone());
+                    let mut h2 = analyzer.compute_define_type_hints_from_tokens(&tokens, &spans, range.clone());
+                    let mut h3 = analyzer.compute_function_return_type_hints_from_tokens(&tokens, &spans, range.clone());
+                    hints.append(&mut h1);
+                    hints.append(&mut h2);
+                    hints.append(&mut h3);
+                }
+            }
+            hints
+        })
+        .await
+        .ok()
+        .unwrap_or_default();
+
         // Filter kinds based on config flags
-        let filtered: Vec<InlayHint> = hints
+        let filtered: Vec<InlayHint> = computed
             .into_iter()
             .filter(|h| match h.kind.unwrap_or(InlayHintKind::TYPE) {
-                InlayHintKind::PARAMETER => cfg.inlay_hints_parameters,
-                InlayHintKind::TYPE => cfg.inlay_hints_types,
+                InlayHintKind::PARAMETER => want_params,
+                InlayHintKind::TYPE => want_types,
                 _ => true,
             })
             .collect();
+        // Cache by version+range+settings
+        if let (Some(key), Some(mut doc)) = (cached_opt, self.documents.get_mut(uri)) {
+            if doc.version == version {
+                if doc.cached_inlay_hints.len() >= 64 {
+                    doc.cached_inlay_hints.clear();
+                }
+                doc.cached_inlay_hints.insert(key, Arc::new(filtered.clone()));
+            }
+        }
         Ok((!filtered.is_empty()).then_some(filtered))
     }
 
@@ -1112,17 +1339,30 @@ impl LanguageServer for QclLanguageServer {
         params: SemanticTokensRangeParams,
     ) -> Result<Option<SemanticTokensRangeResult>> {
         let uri = &params.text_document.uri;
-        // Snapshot content; slice only the requested range to reduce copying
-        let (slice_string, range) = if let Some(doc) = self.documents.get(uri) {
+        // Snapshot and versioned range cache lookup
+        let (slice_string, range, version) = if let Some(doc) = self.documents.get(uri) {
+            let key = format!(
+                "v{}:{}:{}-{}:{}",
+                doc.version, params.range.start.line, params.range.start.character, params.range.end.line, params.range.end.character
+            );
+            if let Some(cached) = doc.cached_range_tokens.get(&key) {
+                // Return cached result immediately
+                let data = (**cached).clone();
+                return Ok(Some(SemanticTokensRangeResult::Tokens(SemanticTokens { result_id: None, data })));
+            }
             let start_char = position_to_char_idx(&doc.content, params.range.start);
             let end_char = position_to_char_idx(&doc.content, params.range.end);
             let s = start_char.min(doc.content.len_chars());
             let e = end_char.min(doc.content.len_chars()).max(s);
             let slice_string = doc.content.slice(s..e).to_string();
-            (slice_string, params.range)
+            (slice_string, params.range, doc.version)
         } else {
             return Ok(None);
         };
+
+        // Limit concurrent heavy computations
+        let sem = self.compute_limiter.lock().unwrap().clone();
+        let _permit = sem.acquire().await.ok();
 
         // Generate range tokens off the async runtime
         let generated = tokio::task::spawn_blocking(move || {
@@ -1132,6 +1372,21 @@ impl LanguageServer for QclLanguageServer {
         .await
         .ok()
         .unwrap_or_default();
+
+        // Store in versioned range cache if still applicable
+        if let Some(mut doc) = self.documents.get_mut(uri) {
+            if doc.version == version {
+                let key = format!(
+                    "v{}:{}:{}-{}:{}",
+                    version, range.start.line, range.start.character, range.end.line, range.end.character
+                );
+                let limit = self.config.lock().unwrap().range_token_cache_limit.max(1);
+                if doc.cached_range_tokens.len() >= limit {
+                    doc.cached_range_tokens.clear();
+                }
+                doc.cached_range_tokens.insert(key, Arc::new(generated.clone()));
+            }
+        }
 
         Ok(Some(SemanticTokensRangeResult::Tokens(SemanticTokens {
             result_id: None,
@@ -1303,6 +1558,10 @@ impl QclLanguageServer {
             .to_file_path()
             .ok()
             .and_then(|p| p.parent().map(|p| p.to_path_buf()));
+        // Limit concurrent heavy computations
+        let sem = self.compute_limiter.lock().unwrap().clone();
+        let _permit = sem.acquire().await.ok();
+        // Generate tokens off the async runtime to avoid blocking
         let generated_result = tokio::task::spawn_blocking(move || {
             let mut analyzer = QclAnalyzer::new();
             if let Some(b) = base_dir {
@@ -1759,7 +2018,12 @@ fn describe_token_hover(tokens: &[CoreToken], _spans: &[CoreSpan], idx: usize) -
                 .map(|t| matches!(t, T::LParen))
                 .unwrap_or(false);
             if is_call {
-                format!("Function call: {}(…)", name)
+                // Provide stdlib hover if known
+                if let Some((sig, doc)) = stdlib_func_hover(name) {
+                    format!("{}\n{}", sig, doc)
+                } else {
+                    format!("Function call: {}(…)", name)
+                }
             } else {
                 format!("Identifier: {}", name)
             }
@@ -1841,6 +2105,40 @@ fn describe_token_hover(tokens: &[CoreToken], _spans: &[CoreSpan], idx: usize) -
         T::DivAssign => "Operator: /=".to_string(),
         T::ModAssign => "Operator: %=".to_string(),
         T::Match => "Keyword: match".to_string(),
+    }
+}
+
+fn stdlib_func_hover(name: &str) -> Option<(&'static str, &'static str)> {
+    // Minimal doc table for common stdlib functions
+    match name {
+        // globals
+        "print" => Some(("print(fmt, ...args)", "Print without newline")),
+        "println" => Some(("println(fmt, ...args)", "Print with newline")),
+        "panic" => Some(("panic(message)", "Raise runtime error with message")),
+
+        // iter
+        "enumerate" => Some(("enumerate(list)", "Return [[0, x0], [1, x1], ...]")),
+        "range" => Some(("range([start,] end [, step])", "Generate integer range (step != 0)")),
+        "zip" => Some(("zip(list1, list2)", "Pair elements up to the shortest length")),
+        "take" => Some(("take(list, n)", "First n elements")),
+        "skip" => Some(("skip(list, n)", "Drop first n elements")),
+        "chain" => Some(("chain(list1, list2)", "Concatenate lists")),
+        "flatten" => Some(("flatten(list)", "Flatten one nesting level")),
+        "unique" => Some(("unique(list)", "Stable de-duplicate")),
+        "chunk" => Some(("chunk(list, size)", "Split into chunks of positive size")),
+
+        // list (meta-methods commonly used)
+        "map" => Some(("map(list, func) | list.map(func)", "Apply func to each element")),
+        "filter" => Some(("filter(list, pred) | list.filter(pred)", "Keep elements where pred returns true")),
+        "reduce" => Some(("reduce(list, init, func) | list.reduce(init, func)", "Fold elements into accumulator")),
+        "push" => Some(("push(list, value)", "Append value (returns new list)")),
+        "concat" => Some(("concat(list, other)", "Concatenate two lists")),
+        "join" => Some(("join(list<string>, delim)", "Join strings with delimiter")),
+        "get" => Some(("get(list, index)", "Safe index access; returns value or nil")),
+        "first" => Some(("first(list)", "First element or nil")),
+        "last" => Some(("last(list)", "Last element or nil")),
+        "len" => Some(("len(value)", "Length of list/map/string")),
+        _ => None,
     }
 }
 
@@ -1976,6 +2274,15 @@ fn format_qcl(input: &str, options: &FormattingOptions) -> String {
 }
 
 fn compute_inlay_hints(content: &str, range: Range) -> Vec<InlayHint> {
+    // Default margin for tests and callers not providing a margin
+    compute_inlay_hints_with_margin(content, range, 3)
+}
+
+fn compute_inlay_hints_with_margin(
+    content: &str,
+    range: Range,
+    margin_lines: usize,
+) -> Vec<InlayHint> {
     // Collect function parameter names from local fn definitions
     let mut defs: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
     if let Ok(re) = Regex::new(r"(?m)\bfn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)") {
@@ -2023,10 +2330,23 @@ fn compute_inlay_hints(content: &str, range: Range) -> Vec<InlayHint> {
 
     let mut hints = Vec::new();
     let bytes = content.as_bytes();
-    let mut i = 0usize;
+    // Compute a scanning window around the requested range to avoid scanning the entire file
+    let total_lines = line_starts.len();
+    let start_line = range.start.line as usize;
+    let end_line = range.end.line as usize;
+    let scan_start_line = start_line.saturating_sub(margin_lines);
+    let scan_end_line = (end_line + margin_lines).min(total_lines.saturating_sub(1));
+    let scan_start_byte = line_starts.get(scan_start_line).copied().unwrap_or(0);
+    let scan_end_byte = if scan_end_line + 1 < total_lines {
+        line_starts[scan_end_line + 1]
+    } else {
+        content.len()
+    };
+
+    let mut i = scan_start_byte;
     let mut in_string: Option<u8> = None;
     let mut in_line_comment = false;
-    while i < bytes.len() {
+    while i < bytes.len() && i < scan_end_byte {
         if bytes[i] == b'\n' {
             in_line_comment = false;
             i += 1;
@@ -2059,6 +2379,9 @@ fn compute_inlay_hints(content: &str, range: Range) -> Vec<InlayHint> {
             continue;
         }
 
+        if i >= scan_end_byte {
+            break;
+        }
         if !(bytes[i].is_ascii_alphabetic() || bytes[i] == b'_') {
             i += 1;
             continue;

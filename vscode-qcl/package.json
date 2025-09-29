@@ -255,6 +255,30 @@
           "type": "boolean",
           "default": true,
           "description": "Show inferred type hints for declarations (let/define)"
+        },
+        "qcl.lsp.performance.maxConcurrent": {
+          "type": "number",
+          "default": 2,
+          "minimum": 1,
+          "description": "Max concurrent heavy computations on the server (semantic tokens, inlay hints). Lower to reduce CPU spikes when scrolling."
+        },
+        "qcl.lsp.performance.rangeTokenCacheLimit": {
+          "type": "number",
+          "default": 64,
+          "minimum": 1,
+          "description": "Per-document capacity for semantic tokens range cache (version+range)."
+        },
+        "qcl.lsp.performance.inlayHintCacheLimit": {
+          "type": "number",
+          "default": 64,
+          "minimum": 1,
+          "description": "Per-document capacity for inlay hints cache (version+range+settings)."
+        },
+        "qcl.lsp.performance.inlayScanMarginLines": {
+          "type": "number",
+          "default": 3,
+          "minimum": 0,
+          "description": "Additional lines to scan above/below the visible range when computing parameter inlay hints (captures multi-line calls)."
         }
       }
     }

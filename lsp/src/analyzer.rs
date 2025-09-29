@@ -60,12 +60,21 @@ impl QclAnalyzer {
     /// Compute type inlay hints for simple `let name = expr;` without explicit annotations.
     /// Places a TYPE hint like `: Int` right after the pattern (before '=').
     pub fn compute_type_inlay_hints(&self, content: &str, range: Range) -> Vec<InlayHint> {
-        let mut hints: Vec<InlayHint> = Vec::new();
         let (tokens, spans) = match Tokenizer::tokenize_enhanced_with_spans(content) {
             Ok(pair) => pair,
-            Err(_) => return hints,
+            Err(_) => return Vec::new(),
         };
+        self.compute_type_inlay_hints_from_tokens(&tokens, &spans, range)
+    }
 
+    /// Variant that reuses a pre-tokenized buffer for performance.
+    pub fn compute_type_inlay_hints_from_tokens(
+        &self,
+        tokens: &[qcl_core::token::Token],
+        spans: &[Span],
+        range: Range,
+    ) -> Vec<InlayHint> {
+        let mut hints: Vec<InlayHint> = Vec::new();
         use qcl_core::token::Token as T;
         let mut i = 0usize;
         while i < tokens.len() {
@@ -86,25 +95,19 @@ impl QclAnalyzer {
             let mut found_assign = false;
             while i < tokens.len() {
                 match &tokens[i] {
-                    T::LParen => {
-                        paren += 1;
-                    }
+                    T::LParen => paren += 1,
                     T::RParen => {
                         if paren > 0 {
                             paren -= 1;
                         }
                     }
-                    T::LBracket => {
-                        bracket += 1;
-                    }
+                    T::LBracket => bracket += 1,
                     T::RBracket => {
                         if bracket > 0 {
                             bracket -= 1;
                         }
                     }
-                    T::LBrace => {
-                        brace += 1;
-                    }
+                    T::LBrace => brace += 1,
                     T::RBrace => {
                         if brace > 0 {
                             brace -= 1;
@@ -123,11 +126,8 @@ impl QclAnalyzer {
                 end_pat = i;
                 i += 1;
             }
-            if !found_assign {
-                continue;
-            }
-            // Skip cases with explicit type annotation
-            if saw_colon {
+            if !found_assign || saw_colon {
+                // Skip cases without '=' or with explicit annotation
                 continue;
             }
 
@@ -137,21 +137,15 @@ impl QclAnalyzer {
             let mut end_expr = j;
             while j < tokens.len() {
                 match &tokens[j] {
-                    T::LParen | T::LBracket | T::LBrace => {
-                        depth += 1;
-                    }
-                    T::RParen | T::RBracket | T::RBrace => {
-                        depth -= 1;
-                    }
-                    T::Semicolon if depth == 0 => {
-                        break;
-                    }
+                    T::LParen | T::LBracket | T::LBrace => depth += 1,
+                    T::RParen | T::RBracket | T::RBrace => depth -= 1,
+                    T::Semicolon if depth == 0 => break,
                     _ => {}
                 }
                 end_expr = j;
                 j += 1;
             }
-            if end_expr < j && end_expr >= i + 1 {
+            if end_expr >= i + 1 {
                 // Parse expression and infer type
                 let expr_tokens = &tokens[i + 1..=end_expr];
                 if !expr_tokens.is_empty() {
@@ -159,15 +153,10 @@ impl QclAnalyzer {
                         let mut checker = TypeChecker::new();
                         if let Ok(typ) = checker.infer_resolved_type(&expr) {
                             // Place hint at end of pattern
-                            let pat_tok_idx = if end_pat >= start_pat {
-                                end_pat
-                            } else {
-                                start_pat
-                            };
+                            let pat_tok_idx = if end_pat >= start_pat { end_pat } else { start_pat };
                             if pat_tok_idx < spans.len() {
                                 let sp = &spans[pat_tok_idx];
-                                let pos =
-                                    Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1));
+                                let pos = Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1));
                                 if pos.line >= range.start.line && pos.line <= range.end.line {
                                     let label = format!(": {}", typ.display());
                                     hints.push(InlayHint {
@@ -200,17 +189,26 @@ impl QclAnalyzer {
                 i = let_idx + 1;
             }
         }
-
         hints
     }
 
     /// Compute type hints for short declarations: `name := expr;`
     pub fn compute_define_type_hints(&self, content: &str, range: Range) -> Vec<InlayHint> {
-        let mut hints: Vec<InlayHint> = Vec::new();
         let (tokens, spans) = match Tokenizer::tokenize_enhanced_with_spans(content) {
             Ok(pair) => pair,
-            Err(_) => return hints,
+            Err(_) => return Vec::new(),
         };
+        self.compute_define_type_hints_from_tokens(&tokens, &spans, range)
+    }
+
+    /// Variant that reuses a pre-tokenized buffer for performance.
+    pub fn compute_define_type_hints_from_tokens(
+        &self,
+        tokens: &[qcl_core::token::Token],
+        spans: &[Span],
+        range: Range,
+    ) -> Vec<InlayHint> {
+        let mut hints: Vec<InlayHint> = Vec::new();
         use qcl_core::token::Token as T;
         let mut i = 0usize;
         while i + 2 < tokens.len() {
@@ -235,21 +233,25 @@ impl QclAnalyzer {
                         if let Ok(expr) = ExprParser::new(expr_tokens).parse() {
                             let mut checker = TypeChecker::new();
                             if let Ok(typ) = checker.infer_resolved_type(&expr) {
-                                let sp = &spans[i];
-                                let pos =
-                                    Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1));
-                                if pos.line >= range.start.line && pos.line <= range.end.line {
-                                    let label = format!(": {}", typ.display());
-                                    hints.push(InlayHint {
-                                        position: pos,
-                                        label: InlayHintLabel::from(label),
-                                        kind: Some(InlayHintKind::TYPE),
-                                        text_edits: None,
-                                        tooltip: None,
-                                        padding_left: Some(true),
-                                        padding_right: Some(false),
-                                        data: None,
-                                    });
+                                if i < spans.len() {
+                                    let sp = &spans[i];
+                                    let pos = Position::new(
+                                        sp.end.line - 1,
+                                        sp.end.column.saturating_sub(1),
+                                    );
+                                    if pos.line >= range.start.line && pos.line <= range.end.line {
+                                        let label = format!(": {}", typ.display());
+                                        hints.push(InlayHint {
+                                            position: pos,
+                                            label: InlayHintLabel::from(label),
+                                            kind: Some(InlayHintKind::TYPE),
+                                            text_edits: None,
+                                            tooltip: None,
+                                            padding_left: Some(true),
+                                            padding_right: Some(false),
+                                            data: None,
+                                        });
+                                    }
                                 }
                             }
                         }
@@ -277,11 +279,21 @@ impl QclAnalyzer {
         content: &str,
         range: Range,
     ) -> Vec<InlayHint> {
-        let mut hints: Vec<InlayHint> = Vec::new();
         let (tokens, spans) = match Tokenizer::tokenize_enhanced_with_spans(content) {
             Ok(pair) => pair,
-            Err(_) => return hints,
+            Err(_) => return Vec::new(),
         };
+        self.compute_function_return_type_hints_from_tokens(&tokens, &spans, range)
+    }
+
+    /// Variant that reuses a pre-tokenized buffer for performance.
+    pub fn compute_function_return_type_hints_from_tokens(
+        &self,
+        tokens: &[qcl_core::token::Token],
+        spans: &[Span],
+        range: Range,
+    ) -> Vec<InlayHint> {
+        let mut hints: Vec<InlayHint> = Vec::new();
         use qcl_core::token::Token as T;
         let mut i = 0usize;
         while i < tokens.len() {
@@ -332,9 +344,7 @@ impl QclAnalyzer {
             let mut body_end = body_start;
             while j < tokens.len() {
                 match &tokens[j] {
-                    T::LBrace => {
-                        body_depth += 1;
-                    }
+                    T::LBrace => body_depth += 1,
                     T::RBrace => {
                         if body_depth == 0 {
                             body_end = j;
@@ -363,9 +373,7 @@ impl QclAnalyzer {
                         match &tokens[e] {
                             T::LParen | T::LBracket | T::LBrace => expr_depth += 1,
                             T::RParen | T::RBracket | T::RBrace => expr_depth -= 1,
-                            T::Semicolon if expr_depth == 0 => {
-                                break;
-                            }
+                            T::Semicolon if expr_depth == 0 => break,
                             _ => {}
                         }
                         last = e;
@@ -1575,6 +1583,49 @@ impl QclAnalyzer {
                     detail: Some(desc.to_string()),
                     ..Default::default()
                 });
+            }
+
+            // Stdlib modules and their exports, e.g., "iter.zip"
+            for module_name in self.registry.get_module_names() {
+                // module entry itself
+                items.push(CompletionItem {
+                    label: module_name.clone(),
+                    kind: Some(CompletionItemKind::MODULE),
+                    detail: Some("stdlib module".to_string()),
+                    ..Default::default()
+                });
+
+                if let Ok(m) = self.registry.get_module(&module_name) {
+                    let exports = m.exports();
+                    for (k, v) in exports {
+                        let label = format!("{}.{}", module_name, k);
+                        let (kind, detail) = match v {
+                            Val::RustFunction(_) | Val::Closure { .. } => (
+                                CompletionItemKind::FUNCTION,
+                                "function".to_string(),
+                            ),
+                            Val::Int(_) | Val::Float(_) | Val::Bool(_) | Val::Str(_) => (
+                                CompletionItemKind::CONSTANT,
+                                "const".to_string(),
+                            ),
+                            Val::List(_) => (CompletionItemKind::VARIABLE, "list".to_string()),
+                            Val::Map(_) => (CompletionItemKind::MODULE, "namespace".to_string()),
+                            Val::Task { .. } => (CompletionItemKind::VALUE, "task".to_string()),
+                            Val::Channel { .. } => (
+                                CompletionItemKind::VALUE,
+                                "channel".to_string(),
+                            ),
+                            Val::Object { .. } => (CompletionItemKind::VALUE, "object".to_string()),
+                            Val::Nil => (CompletionItemKind::VALUE, "nil".to_string()),
+                        };
+                        items.push(CompletionItem {
+                            label,
+                            kind: Some(kind),
+                            detail: Some(format!("{}.{}: {}", module_name, k, detail)),
+                            ..Default::default()
+                        });
+                    }
+                }
             }
 
             // Cache the items for future use
