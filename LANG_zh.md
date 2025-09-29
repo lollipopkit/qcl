@@ -127,6 +127,11 @@ for 循环模式
   - `import * as m from math;` —— 命名空间别名
   - `import math as m;` —— 模块别名
 
+- 文件导入解析与安全：
+  - 仅允许相对且净化后的路径：拒绝绝对路径与任何包含 `..` 的路径。
+  - 解析顺序：优先尝试 `${MOD_NAME}.qcl`，若不存在再尝试 `${MOD_NAME}/mod.qcl`（相对于当前工作目录）。
+  - 若传入已带 `.qcl` 的相对路径（如 `"lib/foo.qcl"`），在存在时将被直接使用。
+
 内建与标准库
 - 内建全局：`print(fmt, ...args)`、`println(fmt, ...args)`、`panic([msg])`。
 - 标准库模块（按需导入）：`math`、`string`、`list`、`map`、`iter`、`datetime`、`os`、`tcp`。启用 `concurrency` 功能后：`task`、`chan`、`time`。
@@ -246,4 +251,3 @@ for_pattern  ::= '_' | id | '(' for_pattern { ',' for_pattern } ')' | '[' for_pa
 - `List` —— 有序集合
 - `Map` —— 键值映射
 - `Function` —— 一等函数
-

@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use anyhow::{Result, anyhow};
 use crate::val::{Type, Val};
+use anyhow::{Result, anyhow};
+use std::collections::HashMap;
 
 /// Trait definition with method signatures
 #[derive(Debug, Clone, PartialEq)]
@@ -84,7 +84,9 @@ impl TypeRegistry {
     pub fn implements_trait(&self, typ: &Type, trait_name: &str) -> bool {
         let type_name = Self::type_to_string(typ);
         if let Some(impls) = self.implementations.get(&type_name) {
-            impls.iter().any(|impl_def| impl_def.trait_name == trait_name)
+            impls
+                .iter()
+                .any(|impl_def| impl_def.trait_name == trait_name)
         } else {
             false
         }
@@ -120,7 +122,11 @@ impl TypeRegistry {
             Type::Bool => "Bool".to_string(),
             Type::Nil => "Nil".to_string(),
             Type::List(inner) => format!("List<{}>", Self::type_to_string(inner)),
-            Type::Map(k, v) => format!("Map<{}, {}>", Self::type_to_string(k), Self::type_to_string(v)),
+            Type::Map(k, v) => format!(
+                "Map<{}, {}>",
+                Self::type_to_string(k),
+                Self::type_to_string(v)
+            ),
             Type::Function { .. } => "Function".to_string(),
             Type::Task(inner) => format!("Task<{}>", Self::type_to_string(inner)),
             Type::Channel(inner) => format!("Channel<{}>", Self::type_to_string(inner)),
@@ -134,7 +140,8 @@ impl TypeRegistry {
                 if params.is_empty() {
                     name.clone()
                 } else {
-                    let param_names: Vec<String> = params.iter().map(Self::type_to_string).collect();
+                    let param_names: Vec<String> =
+                        params.iter().map(Self::type_to_string).collect();
                     format!("{}<{}>", name, param_names.join(", "))
                 }
             }
@@ -145,7 +152,9 @@ impl TypeRegistry {
     /// Validate that a trait implementation is correct
     pub fn validate_trait_impl(&self, impl_def: &TraitImpl) -> Result<()> {
         // Check that the trait exists
-        let trait_def = self.traits.get(&impl_def.trait_name)
+        let trait_def = self
+            .traits
+            .get(&impl_def.trait_name)
             .ok_or_else(|| anyhow!("Trait '{}' not found", impl_def.trait_name))?;
 
         // Check that all required methods are implemented and signatures match
@@ -167,7 +176,10 @@ impl TypeRegistry {
                 },
                 Val::RustFunction(_) => {
                     // Native function type info not carried; accept for now as Function Any
-                    Type::Function { params: vec![], return_type: Box::new(Type::Any) }
+                    Type::Function {
+                        params: vec![],
+                        return_type: Box::new(Type::Any),
+                    }
                 }
                 _ => {
                     return Err(anyhow!(
@@ -180,11 +192,21 @@ impl TypeRegistry {
             };
 
             // Prefer declared signature if provided for strict matching
-            if let Some(declared) = sig { actual_ty = declared.clone(); }
+            if let Some(declared) = sig {
+                actual_ty = declared.clone();
+            }
 
             // If expected is a function, check arity
-            if let Type::Function { params: exp_params, return_type: exp_ret } = expected_ty {
-                if let Type::Function { params: act_params, return_type: act_ret } = &actual_ty {
+            if let Type::Function {
+                params: exp_params,
+                return_type: exp_ret,
+            } = expected_ty
+            {
+                if let Type::Function {
+                    params: act_params,
+                    return_type: act_ret,
+                } = &actual_ty
+                {
                     if exp_params.len() != act_params.len() {
                         return Err(anyhow!(
                             "Method '{}' arity mismatch for trait '{}': expected {}, got {}",
@@ -195,7 +217,10 @@ impl TypeRegistry {
                         ));
                     }
                     // When signatures are concrete, ensure contravariant params and covariant return
-                    let params_ok = exp_params.iter().zip(act_params.iter()).all(|(e,a)| a.is_assignable_to(e));
+                    let params_ok = exp_params
+                        .iter()
+                        .zip(act_params.iter())
+                        .all(|(e, a)| a.is_assignable_to(e));
                     let ret_ok = act_ret.is_assignable_to(exp_ret);
                     if !params_ok || !ret_ok {
                         return Err(anyhow!(
@@ -265,7 +290,9 @@ impl TypeInferenceEngine {
         fn collect(t: Type, acc: &mut Vec<Type>) {
             match t {
                 Type::Union(vs) => {
-                    for u in vs { collect(u, acc); }
+                    for u in vs {
+                        collect(u, acc);
+                    }
                 }
                 Type::Optional(inner) => {
                     collect(*inner, acc);
@@ -282,7 +309,9 @@ impl TypeInferenceEngine {
         let mut uniq = Vec::new();
         for ty in items {
             let key = ty.display();
-            if seen.insert(key) { uniq.push(ty); }
+            if seen.insert(key) {
+                uniq.push(ty);
+            }
         }
         match uniq.len() {
             0 => Type::Nil,
@@ -302,13 +331,21 @@ impl TypeInferenceEngine {
             // Variable unification
             (Type::Variable(var), typ) | (typ, Type::Variable(var)) => {
                 if Self::occurs_check(var, typ) {
-                    Err(anyhow!("Occurs check failed: {} occurs in {}", var, typ.display()))
+                    Err(anyhow!(
+                        "Occurs check failed: {} occurs in {}",
+                        var,
+                        typ.display()
+                    ))
                 } else {
                     // Apply the new substitution to existing substitutions
                     let new_substitution = typ.clone();
                     let mut updated_substitutions = HashMap::new();
                     for (existing_var, existing_type) in &self.substitutions {
-                        let updated_type = existing_type.substitute(&[(var.clone(), new_substitution.clone())].into_iter().collect());
+                        let updated_type = existing_type.substitute(
+                            &[(var.clone(), new_substitution.clone())]
+                                .into_iter()
+                                .collect(),
+                        );
                         updated_substitutions.insert(existing_var.clone(), updated_type);
                     }
                     // Apply to the substitution itself recursively
@@ -329,8 +366,16 @@ impl TypeInferenceEngine {
                 self.unify((**ak).clone(), (**bk).clone())?;
                 self.unify((**av).clone(), (**bv).clone())
             }
-            (Type::Function { params: a_params, return_type: a_ret },
-             Type::Function { params: b_params, return_type: b_ret }) => {
+            (
+                Type::Function {
+                    params: a_params,
+                    return_type: a_ret,
+                },
+                Type::Function {
+                    params: b_params,
+                    return_type: b_ret,
+                },
+            ) => {
                 if a_params.len() != b_params.len() {
                     return Err(anyhow!("Function arity mismatch"));
                 }
@@ -339,15 +384,9 @@ impl TypeInferenceEngine {
                 }
                 self.unify((**a_ret).clone(), (**b_ret).clone())
             }
-            (Type::Optional(a), Type::Optional(b)) => {
-                self.unify((**a).clone(), (**b).clone())
-            }
-            (Type::Task(a), Type::Task(b)) => {
-                self.unify((**a).clone(), (**b).clone())
-            }
-            (Type::Channel(a), Type::Channel(b)) => {
-                self.unify((**a).clone(), (**b).clone())
-            }
+            (Type::Optional(a), Type::Optional(b)) => self.unify((**a).clone(), (**b).clone()),
+            (Type::Task(a), Type::Task(b)) => self.unify((**a).clone(), (**b).clone()),
+            (Type::Channel(a), Type::Channel(b)) => self.unify((**a).clone(), (**b).clone()),
 
             // Union type unification
             (&Type::Union(ref a_types), &Type::Union(ref b_types)) => {
@@ -361,7 +400,13 @@ impl TypeInferenceEngine {
                         }
                     }
                 }
-                if result.is_empty() { return Err(anyhow!("Union types are disjoint: {} vs {}", t1.display(), t2.display())); }
+                if result.is_empty() {
+                    return Err(anyhow!(
+                        "Union types are disjoint: {} vs {}",
+                        t1.display(),
+                        t2.display()
+                    ));
+                }
                 // Constrain to the normalized intersection
                 let norm = Self::normalize_union(Type::Union(result));
                 // Bind both sides to intersection to progress inference
@@ -375,7 +420,11 @@ impl TypeInferenceEngine {
                     Ok(())
                 } else {
                     // Attempt to find members compatible with t
-                    let compatibles: Vec<Type> = types.into_iter().filter(|u| u.is_assignable_to(&t) || t.is_assignable_to(u)).cloned().collect();
+                    let compatibles: Vec<Type> = types
+                        .into_iter()
+                        .filter(|u| u.is_assignable_to(&t) || t.is_assignable_to(u))
+                        .cloned()
+                        .collect();
                     if compatibles.is_empty() {
                         Err(anyhow!("Cannot unify {} with union type", t.display()))
                     } else {
@@ -387,8 +436,16 @@ impl TypeInferenceEngine {
             }
 
             // Generic type unification
-            (Type::Generic { name: a_name, params: a_params },
-             Type::Generic { name: b_name, params: b_params }) => {
+            (
+                Type::Generic {
+                    name: a_name,
+                    params: a_params,
+                },
+                Type::Generic {
+                    name: b_name,
+                    params: b_params,
+                },
+            ) => {
                 if a_name != b_name || a_params.len() != b_params.len() {
                     return Err(anyhow!("Generic type mismatch"));
                 }
@@ -399,7 +456,11 @@ impl TypeInferenceEngine {
             }
 
             // Type mismatch
-            _ => Err(anyhow!("Cannot unify {} with {}", t1.display(), t2.display()))
+            _ => Err(anyhow!(
+                "Cannot unify {} with {}",
+                t1.display(),
+                t2.display()
+            )),
         }
     }
 
@@ -412,12 +473,17 @@ impl TypeInferenceEngine {
     fn occurs_check(var: &str, typ: &Type) -> bool {
         match typ {
             Type::Variable(v) => v == var,
-            Type::List(inner) | Type::Optional(inner) | Type::Task(inner) | Type::Channel(inner) => {
-                Self::occurs_check(var, inner)
-            }
+            Type::List(inner)
+            | Type::Optional(inner)
+            | Type::Task(inner)
+            | Type::Channel(inner) => Self::occurs_check(var, inner),
             Type::Map(k, v) => Self::occurs_check(var, k) || Self::occurs_check(var, v),
-            Type::Function { params, return_type } => {
-                params.iter().any(|p| Self::occurs_check(var, p)) || Self::occurs_check(var, return_type)
+            Type::Function {
+                params,
+                return_type,
+            } => {
+                params.iter().any(|p| Self::occurs_check(var, p))
+                    || Self::occurs_check(var, return_type)
             }
             Type::Union(types) => types.iter().any(|t| Self::occurs_check(var, t)),
             Type::Generic { params, .. } => params.iter().any(|p| Self::occurs_check(var, p)),
@@ -451,10 +517,13 @@ mod tests {
 
         // Define a trait
         let mut methods = HashMap::new();
-        methods.insert("display".to_string(), Type::Function {
-            params: vec![],
-            return_type: Box::new(Type::String),
-        });
+        methods.insert(
+            "display".to_string(),
+            Type::Function {
+                params: vec![],
+                return_type: Box::new(Type::String),
+            },
+        );
 
         let trait_def = TraitDef {
             name: "Display".to_string(),

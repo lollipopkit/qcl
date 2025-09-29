@@ -106,8 +106,8 @@ pub enum Type {
     Nil,
 
     /// Generic container types
-    List(Box<Type>),  // List<T>
-    Map(Box<Type>, Box<Type>),  // Map<K, V>
+    List(Box<Type>), // List<T>
+    Map(Box<Type>, Box<Type>), // Map<K, V>
 
     /// Function type with parameters and return type
     Function {
@@ -168,9 +168,7 @@ impl Type {
 
         // Handle union types: Int | String | Nil
         if s.contains(" | ") {
-            let types: Vec<Type> = s.split(" | ")
-                .filter_map(Type::parse)
-                .collect();
+            let types: Vec<Type> = s.split(" | ").filter_map(Type::parse).collect();
             if !types.is_empty() {
                 return Some(Type::Union(types));
             }
@@ -178,54 +176,56 @@ impl Type {
 
         // Handle generic types with angle brackets
         if let Some(open) = s.find('<')
-            && let Some(close) = s.rfind('>') {
-                let base = &s[..open];
-                let params_str = &s[open + 1..close];
+            && let Some(close) = s.rfind('>')
+        {
+            let base = &s[..open];
+            let params_str = &s[open + 1..close];
 
-                // Parse type parameters
-                let params: Vec<Type> = if params_str.is_empty() {
-                    vec![]
-                } else {
-                    params_str.split(',')
-                        .map(str::trim)
-                        .filter_map(Type::parse)
-                        .collect()
-                };
+            // Parse type parameters
+            let params: Vec<Type> = if params_str.is_empty() {
+                vec![]
+            } else {
+                params_str
+                    .split(',')
+                    .map(str::trim)
+                    .filter_map(Type::parse)
+                    .collect()
+            };
 
-                // Handle specific generic types
-                match base {
-                    "List" => {
-                        if params.len() == 1 {
-                            return Some(Type::List(Box::new(params[0].clone())));
-                        }
-                    }
-                    "Map" => {
-                        if params.len() == 2 {
-                            return Some(Type::Map(
-                                Box::new(params[0].clone()),
-                                Box::new(params[1].clone())
-                            ));
-                        }
-                    }
-                    "Task" => {
-                        if params.len() == 1 {
-                            return Some(Type::Task(Box::new(params[0].clone())));
-                        }
-                    }
-                    "Channel" => {
-                        if params.len() == 1 {
-                            return Some(Type::Channel(Box::new(params[0].clone())));
-                        }
-                    }
-                    _ => {
-                        // Generic custom type
-                        return Some(Type::Generic {
-                            name: base.to_string(),
-                            params,
-                        });
+            // Handle specific generic types
+            match base {
+                "List" => {
+                    if params.len() == 1 {
+                        return Some(Type::List(Box::new(params[0].clone())));
                     }
                 }
+                "Map" => {
+                    if params.len() == 2 {
+                        return Some(Type::Map(
+                            Box::new(params[0].clone()),
+                            Box::new(params[1].clone()),
+                        ));
+                    }
+                }
+                "Task" => {
+                    if params.len() == 1 {
+                        return Some(Type::Task(Box::new(params[0].clone())));
+                    }
+                }
+                "Channel" => {
+                    if params.len() == 1 {
+                        return Some(Type::Channel(Box::new(params[0].clone())));
+                    }
+                }
+                _ => {
+                    // Generic custom type
+                    return Some(Type::Generic {
+                        name: base.to_string(),
+                        params,
+                    });
+                }
             }
+        }
 
         // Handle function types: (Int, String) -> Bool
         if s.contains("->") {
@@ -240,7 +240,8 @@ impl Type {
                     if inner.is_empty() {
                         vec![]
                     } else {
-                        inner.split(',')
+                        inner
+                            .split(',')
                             .map(str::trim)
                             .filter_map(Type::parse)
                             .collect()
@@ -315,7 +316,13 @@ impl Type {
                 }
                 Ok(())
             }
-            (Type::Channel(inner_type), Val::Channel { inner_type: actual_type, .. }) => {
+            (
+                Type::Channel(inner_type),
+                Val::Channel {
+                    inner_type: actual_type,
+                    ..
+                },
+            ) => {
                 if inner_type.as_ref() == actual_type.as_ref() {
                     Ok(())
                 } else {
@@ -346,8 +353,8 @@ impl Type {
             (Type::Optional(inner_type), val) => inner_type.validate(val),
 
             // Type variables and named types are handled by the type checker
-            (Type::Variable(_), _) => Ok(()),  // Always valid during inference
-            (Type::Named(_), _) => Ok(()),     // Validated by type registry
+            (Type::Variable(_), _) => Ok(()), // Always valid during inference
+            (Type::Named(_), _) => Ok(()),    // Validated by type registry
 
             // Generic types are validated by the type system
             (Type::Generic { .. }, _) => Ok(()),
@@ -357,7 +364,7 @@ impl Type {
                 "Type mismatch: expected {:?}, got {:?}",
                 expected,
                 actual.type_name()
-            ))
+            )),
         }
     }
 
@@ -372,7 +379,10 @@ impl Type {
             Type::Any => "Any".to_string(),
             Type::List(elem) => format!("List<{}>", elem.display()),
             Type::Map(k, v) => format!("Map<{}, {}>", k.display(), v.display()),
-            Type::Function { params, return_type } => {
+            Type::Function {
+                params,
+                return_type,
+            } => {
                 let param_strs: Vec<String> = params.iter().map(|p| p.display()).collect();
                 format!("({}) -> {}", param_strs.join(", "), return_type.display())
             }
@@ -406,9 +416,7 @@ impl Type {
             // Optional types: T is assignable to ?T
             (inner, Type::Optional(expected_inner)) => inner.is_assignable_to(expected_inner),
             // Union types: T is assignable to Union if T is assignable to any member
-            (t, Type::Union(union_types)) => {
-                union_types.iter().any(|ut| t.is_assignable_to(ut))
-            }
+            (t, Type::Union(union_types)) => union_types.iter().any(|ut| t.is_assignable_to(ut)),
             // Union member is assignable to union
             (Type::Union(union_types), target) => {
                 union_types.iter().all(|ut| ut.is_assignable_to(target))
@@ -419,13 +427,23 @@ impl Type {
                 ak.is_assignable_to(bk) && av.is_assignable_to(bv)
             }
             // Function types (contravariant parameters, covariant return)
-            (Type::Function { params: a_params, return_type: a_ret },
-             Type::Function { params: b_params, return_type: b_ret }) => {
+            (
+                Type::Function {
+                    params: a_params,
+                    return_type: a_ret,
+                },
+                Type::Function {
+                    params: b_params,
+                    return_type: b_ret,
+                },
+            ) => {
                 if a_params.len() != b_params.len() {
                     false
                 } else {
                     // Parameters are contravariant
-                    let params_compatible = b_params.iter().zip(a_params.iter())
+                    let params_compatible = b_params
+                        .iter()
+                        .zip(a_params.iter())
                         .all(|(b_param, a_param)| b_param.is_assignable_to(a_param));
                     // Return type is covariant
                     let return_compatible = a_ret.is_assignable_to(b_ret);
@@ -444,13 +462,15 @@ impl Type {
     pub fn contains_variables(&self) -> bool {
         match self {
             Type::Variable(_) => true,
-            Type::List(inner) | Type::Optional(inner) | Type::Task(inner) | Type::Channel(inner) => {
-                inner.contains_variables()
-            }
+            Type::List(inner)
+            | Type::Optional(inner)
+            | Type::Task(inner)
+            | Type::Channel(inner) => inner.contains_variables(),
             Type::Map(k, v) => k.contains_variables() || v.contains_variables(),
-            Type::Function { params, return_type } => {
-                params.iter().any(|p| p.contains_variables()) || return_type.contains_variables()
-            }
+            Type::Function {
+                params,
+                return_type,
+            } => params.iter().any(|p| p.contains_variables()) || return_type.contains_variables(),
             Type::Union(types) => types.iter().any(|t| t.contains_variables()),
             Type::Generic { params, .. } => params.iter().any(|p| p.contains_variables()),
             _ => false,
@@ -460,24 +480,28 @@ impl Type {
     /// Substitute type variables with concrete types
     pub fn substitute(&self, substitutions: &HashMap<String, Type>) -> Type {
         match self {
-            Type::Variable(name) => {
-                substitutions.get(name).cloned().unwrap_or_else(|| self.clone())
-            }
+            Type::Variable(name) => substitutions
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| self.clone()),
             Type::List(inner) => Type::List(Box::new(inner.substitute(substitutions))),
             Type::Map(k, v) => Type::Map(
                 Box::new(k.substitute(substitutions)),
-                Box::new(v.substitute(substitutions))
+                Box::new(v.substitute(substitutions)),
             ),
-            Type::Function { params, return_type } => Type::Function {
+            Type::Function {
+                params,
+                return_type,
+            } => Type::Function {
                 params: params.iter().map(|p| p.substitute(substitutions)).collect(),
                 return_type: Box::new(return_type.substitute(substitutions)),
             },
             Type::Optional(inner) => Type::Optional(Box::new(inner.substitute(substitutions))),
             Type::Task(inner) => Type::Task(Box::new(inner.substitute(substitutions))),
             Type::Channel(inner) => Type::Channel(Box::new(inner.substitute(substitutions))),
-            Type::Union(types) => Type::Union(
-                types.iter().map(|t| t.substitute(substitutions)).collect()
-            ),
+            Type::Union(types) => {
+                Type::Union(types.iter().map(|t| t.substitute(substitutions)).collect())
+            }
             Type::Generic { name, params } => Type::Generic {
                 name: name.clone(),
                 params: params.iter().map(|p| p.substitute(substitutions)).collect(),
@@ -562,7 +586,9 @@ impl Val {
                 l.get(*i as usize).cloned()
             }
             (Val::List(l), Val::Str(s)) if s.as_ref() == "len" => Some(Val::Int(l.len() as i64)),
-            (Val::Str(s), Val::Str(field)) if field.as_ref() == "len" => Some(Val::Int(s.len() as i64)),
+            (Val::Str(s), Val::Str(field)) if field.as_ref() == "len" => {
+                Some(Val::Int(s.len() as i64))
+            }
             (Val::Object { fields, .. }, Val::Str(s)) => fields.get(s.as_ref()).cloned(),
             (Val::Task { value, .. }, Val::Str(s)) if s.as_ref() == "value" => match value {
                 Some(v) => Some((**v).clone()),
@@ -1014,8 +1040,14 @@ impl PartialEq for Val {
                 },
             ) => id_a == id_b && cap_a == cap_b && type_a == type_b,
             (
-                Val::Object { type_name: t1, fields: f1 },
-                Val::Object { type_name: t2, fields: f2 },
+                Val::Object {
+                    type_name: t1,
+                    fields: f1,
+                },
+                Val::Object {
+                    type_name: t2,
+                    fields: f2,
+                },
             ) => t1 == t2 && f1 == f2,
             (Val::Nil, Val::Nil) => true,
             _ => false,

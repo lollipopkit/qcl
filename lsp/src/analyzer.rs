@@ -1,7 +1,11 @@
 use qcl_core::{
-    ast::Parser as ExprParser, expr::Expr, module::ModuleRegistry,
-    stmt::{Stmt, stmt_parser::StmtParser, ImportStmt}, token::{Tokenizer, Span}, val::Val,
+    ast::Parser as ExprParser,
+    expr::Expr,
+    module::ModuleRegistry,
+    stmt::{stmt_parser::StmtParser, ImportStmt, Stmt},
+    token::{Span, Tokenizer},
     typ::TypeChecker,
+    val::Val,
 };
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -65,36 +69,67 @@ impl QclAnalyzer {
         use qcl_core::token::Token as T;
         let mut i = 0usize;
         while i < tokens.len() {
-            if !matches!(tokens[i], T::Let) { i += 1; continue; }
+            if !matches!(tokens[i], T::Let) {
+                i += 1;
+                continue;
+            }
             let let_idx = i;
             i += 1;
 
             // Capture pattern region until top-level ':' (annotation) or '=' (assignment)
             let start_pat = i;
             let mut end_pat = i;
-            let mut paren = 0i32; let mut bracket = 0i32; let mut brace = 0i32;
-            let mut saw_colon = false; let mut found_assign = false;
+            let mut paren = 0i32;
+            let mut bracket = 0i32;
+            let mut brace = 0i32;
+            let mut saw_colon = false;
+            let mut found_assign = false;
             while i < tokens.len() {
                 match &tokens[i] {
-                    T::LParen => { paren += 1; }
-                    T::RParen => { if paren > 0 { paren -= 1; } }
-                    T::LBracket => { bracket += 1; }
-                    T::RBracket => { if bracket > 0 { bracket -= 1; } }
-                    T::LBrace => { brace += 1; }
-                    T::RBrace => { if brace > 0 { brace -= 1; } }
+                    T::LParen => {
+                        paren += 1;
+                    }
+                    T::RParen => {
+                        if paren > 0 {
+                            paren -= 1;
+                        }
+                    }
+                    T::LBracket => {
+                        bracket += 1;
+                    }
+                    T::RBracket => {
+                        if bracket > 0 {
+                            bracket -= 1;
+                        }
+                    }
+                    T::LBrace => {
+                        brace += 1;
+                    }
+                    T::RBrace => {
+                        if brace > 0 {
+                            brace -= 1;
+                        }
+                    }
                     T::Assign if paren == 0 && bracket == 0 && brace == 0 => {
-                        found_assign = true; break;
+                        found_assign = true;
+                        break;
                     }
                     T::Colon if paren == 0 && bracket == 0 && brace == 0 => {
-                        saw_colon = true; break;
+                        saw_colon = true;
+                        break;
                     }
                     _ => {}
                 }
-                end_pat = i; i += 1;
+                end_pat = i;
+                i += 1;
             }
-            if !found_assign { continue; }
+            if !found_assign {
+                continue;
+            }
             // Skip cases with explicit type annotation
-            if saw_colon { continue; }
+            if saw_colon {
+                continue;
+            }
 
             // Determine RHS expression token range: after '=' until next top-level ';'
             let mut j = i + 1; // i at '='
@@ -102,25 +137,37 @@ impl QclAnalyzer {
             let mut end_expr = j;
             while j < tokens.len() {
                 match &tokens[j] {
-                    T::LParen | T::LBracket | T::LBrace => { depth += 1; }
-                    T::RParen | T::RBracket | T::RBrace => { depth -= 1; }
-                    T::Semicolon if depth == 0 => { break; }
+                    T::LParen | T::LBracket | T::LBrace => {
+                        depth += 1;
+                    }
+                    T::RParen | T::RBracket | T::RBrace => {
+                        depth -= 1;
+                    }
+                    T::Semicolon if depth == 0 => {
+                        break;
+                    }
                     _ => {}
                 }
-                end_expr = j; j += 1;
+                end_expr = j;
+                j += 1;
             }
             if end_expr < j && end_expr >= i + 1 {
                 // Parse expression and infer type
-                let expr_tokens = &tokens[i+1 ..= end_expr];
+                let expr_tokens = &tokens[i + 1..=end_expr];
                 if !expr_tokens.is_empty() {
                     if let Ok(expr) = ExprParser::new(expr_tokens).parse() {
                         let mut checker = TypeChecker::new();
                         if let Ok(typ) = checker.infer_resolved_type(&expr) {
                             // Place hint at end of pattern
-                            let pat_tok_idx = if end_pat >= start_pat { end_pat } else { start_pat };
+                            let pat_tok_idx = if end_pat >= start_pat {
+                                end_pat
+                            } else {
+                                start_pat
+                            };
                             if pat_tok_idx < spans.len() {
                                 let sp = &spans[pat_tok_idx];
-                                let pos = Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1));
+                                let pos =
+                                    Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1));
                                 if pos.line >= range.start.line && pos.line <= range.end.line {
                                     let label = format!(": {}", typ.display());
                                     hints.push(InlayHint {
@@ -142,10 +189,16 @@ impl QclAnalyzer {
 
             // Advance to end of statement
             i = j;
-            while i < tokens.len() && !matches!(tokens[i], T::Semicolon) { i += 1; }
-            if i < tokens.len() { i += 1; }
+            while i < tokens.len() && !matches!(tokens[i], T::Semicolon) {
+                i += 1;
+            }
+            if i < tokens.len() {
+                i += 1;
+            }
             // Prevent infinite loop on invalid sequences
-            if i <= let_idx { i = let_idx + 1; }
+            if i <= let_idx {
+                i = let_idx + 1;
+            }
         }
 
         hints
@@ -174,15 +227,17 @@ impl QclAnalyzer {
                             T::Semicolon if depth == 0 => break,
                             _ => {}
                         }
-                        end_expr = j; j += 1;
+                        end_expr = j;
+                        j += 1;
                     }
                     if end_expr >= i + 3 {
-                        let expr_tokens = &tokens[i+3 ..= end_expr];
+                        let expr_tokens = &tokens[i + 3..=end_expr];
                         if let Ok(expr) = ExprParser::new(expr_tokens).parse() {
                             let mut checker = TypeChecker::new();
                             if let Ok(typ) = checker.infer_resolved_type(&expr) {
                                 let sp = &spans[i];
-                                let pos = Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1));
+                                let pos =
+                                    Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1));
                                 if pos.line >= range.start.line && pos.line <= range.end.line {
                                     let label = format!(": {}", typ.display());
                                     hints.push(InlayHint {
@@ -201,8 +256,12 @@ impl QclAnalyzer {
                     }
                     // Advance to next ';'
                     i = j;
-                    while i < tokens.len() && !matches!(tokens[i], T::Semicolon) { i += 1; }
-                    if i < tokens.len() { i += 1; }
+                    while i < tokens.len() && !matches!(tokens[i], T::Semicolon) {
+                        i += 1;
+                    }
+                    if i < tokens.len() {
+                        i += 1;
+                    }
                 }
                 _ => i += 1,
             }
@@ -213,7 +272,11 @@ impl QclAnalyzer {
     /// Compute type inlay hints for function return types: place a TYPE hint like `-> Int`
     /// after the parameter list. If multiple return statements exist (e.g., branches),
     /// the displayed type is a union of all discovered return expression types.
-    pub fn compute_function_return_type_hints(&self, content: &str, range: Range) -> Vec<InlayHint> {
+    pub fn compute_function_return_type_hints(
+        &self,
+        content: &str,
+        range: Range,
+    ) -> Vec<InlayHint> {
         let mut hints: Vec<InlayHint> = Vec::new();
         let (tokens, spans) = match Tokenizer::tokenize_enhanced_with_spans(content) {
             Ok(pair) => pair,
@@ -222,26 +285,46 @@ impl QclAnalyzer {
         use qcl_core::token::Token as T;
         let mut i = 0usize;
         while i < tokens.len() {
-            if !matches!(tokens[i], T::Fn) { i += 1; continue; }
+            if !matches!(tokens[i], T::Fn) {
+                i += 1;
+                continue;
+            }
             // fn name ( params ) { body }
             let mut j = i + 1;
             // Skip function name if present
-            if matches!(tokens.get(j), Some(T::Id(_))) { j += 1; } else { i += 1; continue; }
+            if matches!(tokens.get(j), Some(T::Id(_))) {
+                j += 1;
+            } else {
+                i += 1;
+                continue;
+            }
             // Expect parameter list
-            if !matches!(tokens.get(j), Some(T::LParen)) { i += 1; continue; }
+            if !matches!(tokens.get(j), Some(T::LParen)) {
+                i += 1;
+                continue;
+            }
             let mut depth = 0i32;
             // find matching ')'
             while j < tokens.len() {
                 match &tokens[j] {
                     T::LParen => depth += 1,
-                    T::RParen => { depth -= 1; if depth == 0 { j += 1; break; } },
+                    T::RParen => {
+                        depth -= 1;
+                        if depth == 0 {
+                            j += 1;
+                            break;
+                        }
+                    }
                     _ => {}
                 }
                 j += 1;
             }
             let rparen_idx = j.saturating_sub(1);
             // Expect function body starting '{'
-            if !matches!(tokens.get(j), Some(T::LBrace)) { i = j; continue; }
+            if !matches!(tokens.get(j), Some(T::LBrace)) {
+                i = j;
+                continue;
+            }
             // Find matching '}' for the body
             let mut body_depth = 0i32;
             let body_start = j + 1; // after '{'
@@ -249,16 +332,24 @@ impl QclAnalyzer {
             let mut body_end = body_start;
             while j < tokens.len() {
                 match &tokens[j] {
-                    T::LBrace => { body_depth += 1; }
+                    T::LBrace => {
+                        body_depth += 1;
+                    }
                     T::RBrace => {
-                        if body_depth == 0 { body_end = j; break; }
+                        if body_depth == 0 {
+                            body_end = j;
+                            break;
+                        }
                         body_depth -= 1;
                     }
                     _ => {}
                 }
                 j += 1;
             }
-            if body_end <= body_start { i = j + 1; continue; }
+            if body_end <= body_start {
+                i = j + 1;
+                continue;
+            }
             // Within body, scan for all `return <expr>;` occurrences (including inside branches)
             let mut k = body_start;
             let mut return_types: Vec<qcl_core::val::Type> = Vec::new();
@@ -272,13 +363,16 @@ impl QclAnalyzer {
                         match &tokens[e] {
                             T::LParen | T::LBracket | T::LBrace => expr_depth += 1,
                             T::RParen | T::RBracket | T::RBrace => expr_depth -= 1,
-                            T::Semicolon if expr_depth == 0 => { break; }
+                            T::Semicolon if expr_depth == 0 => {
+                                break;
+                            }
                             _ => {}
                         }
-                        last = e; e += 1;
+                        last = e;
+                        e += 1;
                     }
                     if last > k {
-                        let expr_tokens = &tokens[k + 1 ..= last];
+                        let expr_tokens = &tokens[k + 1..=last];
                         if !expr_tokens.is_empty() {
                             if let Ok(expr) = qcl_core::ast::Parser::new(expr_tokens).parse() {
                                 let mut checker = qcl_core::typ::TypeChecker::new();
@@ -299,9 +393,15 @@ impl QclAnalyzer {
                 // Deduplicate by display string for stable union label
                 use std::collections::BTreeMap;
                 let mut by_key: BTreeMap<String, qcl_core::val::Type> = BTreeMap::new();
-                for t in return_types { by_key.entry(t.display()).or_insert(t); }
+                for t in return_types {
+                    by_key.entry(t.display()).or_insert(t);
+                }
                 let parts: Vec<String> = by_key.into_iter().map(|(s, _)| s).collect();
-                let label = if parts.len() == 1 { format!(" -> {}", parts[0]) } else { format!(" -> {}", parts.join(" | ")) };
+                let label = if parts.len() == 1 {
+                    format!(" -> {}", parts[0])
+                } else {
+                    format!(" -> {}", parts.join(" | "))
+                };
 
                 // Place hint right after the parameter list, at the end of ')'
                 if rparen_idx < spans.len() {
@@ -432,21 +532,20 @@ impl QclAnalyzer {
                                             for idx in item_indices {
                                                 if let T::Id(item_name) = &tokens[idx] {
                                                     if !exports.contains_key(item_name)
-                                                        && idx < spans.len() {
-                                                            let sp = &spans[idx];
-                                                            let range = Range::new(
-                                                                Position::new(
-                                                                    sp.start.line - 1,
-                                                                    sp.start
-                                                                        .column
-                                                                        .saturating_sub(1),
-                                                                ),
-                                                                Position::new(
-                                                                    sp.end.line - 1,
-                                                                    sp.end.column.saturating_sub(1),
-                                                                ),
-                                                            );
-                                                            result.diagnostics.push(Diagnostic::new(
+                                                        && idx < spans.len()
+                                                    {
+                                                        let sp = &spans[idx];
+                                                        let range = Range::new(
+                                                            Position::new(
+                                                                sp.start.line - 1,
+                                                                sp.start.column.saturating_sub(1),
+                                                            ),
+                                                            Position::new(
+                                                                sp.end.line - 1,
+                                                                sp.end.column.saturating_sub(1),
+                                                            ),
+                                                        );
+                                                        result.diagnostics.push(Diagnostic::new(
                                                                 range,
                                                                 Some(DiagnosticSeverity::ERROR),
                                                                 None,
@@ -458,7 +557,7 @@ impl QclAnalyzer {
                                                                 None,
                                                                 None,
                                                             ));
-                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -503,28 +602,29 @@ impl QclAnalyzer {
                                 j += 1;
                                 if let T::Id(mod_name) = &tokens[j] {
                                     if self.registry.get_module(mod_name).is_err()
-                                        && j < spans.len() {
-                                            let sp = &spans[j];
-                                            let range = Range::new(
-                                                Position::new(
-                                                    sp.start.line - 1,
-                                                    sp.start.column.saturating_sub(1),
-                                                ),
-                                                Position::new(
-                                                    sp.end.line - 1,
-                                                    sp.end.column.saturating_sub(1),
-                                                ),
-                                            );
-                                            result.diagnostics.push(Diagnostic::new(
-                                                range,
-                                                Some(DiagnosticSeverity::ERROR),
-                                                None,
-                                                Some("qcl".to_string()),
-                                                format!("Unknown module: {}", mod_name),
-                                                None,
-                                                None,
-                                            ));
-                                        }
+                                        && j < spans.len()
+                                    {
+                                        let sp = &spans[j];
+                                        let range = Range::new(
+                                            Position::new(
+                                                sp.start.line - 1,
+                                                sp.start.column.saturating_sub(1),
+                                            ),
+                                            Position::new(
+                                                sp.end.line - 1,
+                                                sp.end.column.saturating_sub(1),
+                                            ),
+                                        );
+                                        result.diagnostics.push(Diagnostic::new(
+                                            range,
+                                            Some(DiagnosticSeverity::ERROR),
+                                            None,
+                                            Some("qcl".to_string()),
+                                            format!("Unknown module: {}", mod_name),
+                                            None,
+                                            None,
+                                        ));
+                                    }
                                 }
                             }
                             // advance to semicolon
@@ -537,29 +637,26 @@ impl QclAnalyzer {
                         Some(T::Id(mod_name)) => {
                             // import module [as alias]?;
                             let mod_idx = j;
-                            if self.registry.get_module(mod_name).is_err()
-                                && mod_idx < spans.len() {
-                                    let sp = &spans[mod_idx];
-                                    let range = Range::new(
-                                        Position::new(
-                                            sp.start.line - 1,
-                                            sp.start.column.saturating_sub(1),
-                                        ),
-                                        Position::new(
-                                            sp.end.line - 1,
-                                            sp.end.column.saturating_sub(1),
-                                        ),
-                                    );
-                                    result.diagnostics.push(Diagnostic::new(
-                                        range,
-                                        Some(DiagnosticSeverity::ERROR),
-                                        None,
-                                        Some("qcl".to_string()),
-                                        format!("Unknown module: {}", mod_name),
-                                        None,
-                                        None,
-                                    ));
-                                }
+                            if self.registry.get_module(mod_name).is_err() && mod_idx < spans.len()
+                            {
+                                let sp = &spans[mod_idx];
+                                let range = Range::new(
+                                    Position::new(
+                                        sp.start.line - 1,
+                                        sp.start.column.saturating_sub(1),
+                                    ),
+                                    Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1)),
+                                );
+                                result.diagnostics.push(Diagnostic::new(
+                                    range,
+                                    Some(DiagnosticSeverity::ERROR),
+                                    None,
+                                    Some("qcl".to_string()),
+                                    format!("Unknown module: {}", mod_name),
+                                    None,
+                                    None,
+                                ));
+                            }
                             // move to ';'
                             while j < tokens.len() && !matches!(tokens[j], T::Semicolon) {
                                 j += 1;
@@ -1385,7 +1482,10 @@ impl QclAnalyzer {
                                 tags: None,
                                 #[allow(deprecated)]
                                 deprecated: None,
-                                range: Range::new(Position::new(i as u32, 0), Position::new(i as u32, 100)),
+                                range: Range::new(
+                                    Position::new(i as u32, 0),
+                                    Position::new(i as u32, 100),
+                                ),
                                 selection_range: Range::new(
                                     Position::new(i as u32, 0),
                                     Position::new(i as u32, 100),

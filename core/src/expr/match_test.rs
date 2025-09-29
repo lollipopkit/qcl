@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests {
     use crate::{
-        expr::{Expr, Pattern, MatchArm},
-        val::Val,
+        expr::{Expr, MatchArm, Pattern},
         stmt::Environment,
+        val::Val,
     };
     use std::sync::Arc;
 
@@ -52,12 +52,10 @@ mod tests {
     fn test_variable_pattern() {
         let match_expr = Expr::Match {
             value: Box::new(Expr::Val(Val::Int(100))),
-            arms: vec![
-                MatchArm {
-                    pattern: Pattern::Variable("x".to_string()),
-                    body: Box::new(Expr::Var("x".to_string())),
-                },
-            ],
+            arms: vec![MatchArm {
+                pattern: Pattern::Variable("x".to_string()),
+                body: Box::new(Expr::Var("x".to_string())),
+            }],
         };
 
         let env = Environment::new();
@@ -93,20 +91,21 @@ mod tests {
         // Test [first, second, ..rest] pattern
         let match_expr = Expr::Match {
             value: Box::new(Expr::Val(Val::List(Arc::new(vec![
-                Val::Int(1), Val::Int(2), Val::Int(3), Val::Int(4)
+                Val::Int(1),
+                Val::Int(2),
+                Val::Int(3),
+                Val::Int(4),
             ])))),
-            arms: vec![
-                MatchArm {
-                    pattern: Pattern::List {
-                        patterns: vec![
-                            Pattern::Variable("first".to_string()),
-                            Pattern::Variable("second".to_string()),
-                        ],
-                        rest: Some("rest".to_string()),
-                    },
-                    body: Box::new(Expr::Var("first".to_string())),
+            arms: vec![MatchArm {
+                pattern: Pattern::List {
+                    patterns: vec![
+                        Pattern::Variable("first".to_string()),
+                        Pattern::Variable("second".to_string()),
+                    ],
+                    rest: Some("rest".to_string()),
                 },
-            ],
+                body: Box::new(Expr::Var("first".to_string())),
+            }],
         };
 
         let env = Environment::new();
@@ -124,18 +123,16 @@ mod tests {
 
         let match_expr = Expr::Match {
             value: Box::new(Expr::Val(Val::Map(Arc::new(map)))),
-            arms: vec![
-                MatchArm {
-                    pattern: Pattern::Map {
-                        patterns: vec![
-                            ("name".to_string(), Pattern::Variable("name".to_string())),
-                            ("age".to_string(), Pattern::Variable("age".to_string())),
-                        ],
-                        rest: None,
-                    },
-                    body: Box::new(Expr::Var("name".to_string())),
+            arms: vec![MatchArm {
+                pattern: Pattern::Map {
+                    patterns: vec![
+                        ("name".to_string(), Pattern::Variable("name".to_string())),
+                        ("age".to_string(), Pattern::Variable("age".to_string())),
+                    ],
+                    rest: None,
                 },
-            ],
+                body: Box::new(Expr::Var("name".to_string())),
+            }],
         };
 
         let env = Environment::new();
@@ -253,7 +250,12 @@ mod tests {
         let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
         let result = match_expr.eval_with_env(&ctx, Some(&env));
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("No pattern matched"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("No pattern matched")
+        );
     }
 
     #[test]
@@ -279,27 +281,25 @@ mod tests {
 
         let match_expr = Expr::Match {
             value: Box::new(Expr::Val(Val::Map(Arc::new(data)))),
-            arms: vec![
-                MatchArm {
-                    pattern: Pattern::Map {
-                        patterns: vec![
-                            ("users".to_string(), Pattern::List {
-                                patterns: vec![
-                                    Pattern::Map {
-                                        patterns: vec![
-                                            ("name".to_string(), Pattern::Variable("first_name".to_string())),
-                                        ],
-                                        rest: None,
-                                    },
-                                ],
-                                rest: Some("other_users".to_string()),
-                            }),
-                        ],
-                        rest: None,
-                    },
-                    body: Box::new(Expr::Var("first_name".to_string())),
+            arms: vec![MatchArm {
+                pattern: Pattern::Map {
+                    patterns: vec![(
+                        "users".to_string(),
+                        Pattern::List {
+                            patterns: vec![Pattern::Map {
+                                patterns: vec![(
+                                    "name".to_string(),
+                                    Pattern::Variable("first_name".to_string()),
+                                )],
+                                rest: None,
+                            }],
+                            rest: Some("other_users".to_string()),
+                        },
+                    )],
+                    rest: None,
                 },
-            ],
+                body: Box::new(Expr::Var("first_name".to_string())),
+            }],
         };
 
         let env = Environment::new();
@@ -351,12 +351,12 @@ mod tests {
 
         // Test boundary cases
         let boundary_tests = vec![
-            (59.9, "fail"),   // Just below 60
-            (60.0, "pass"),   // Exactly 60 (exclusive range start)
-            (79.9, "pass"),   // Just below 80
-            (80.0, "excellent"), // Exactly 80 (inclusive range start)
+            (59.9, "fail"),       // Just below 60
+            (60.0, "pass"),       // Exactly 60 (exclusive range start)
+            (79.9, "pass"),       // Just below 80
+            (80.0, "excellent"),  // Exactly 80 (inclusive range start)
             (100.0, "excellent"), // Exactly 100 (inclusive range end)
-            (100.1, "invalid"), // Above 100
+            (100.1, "invalid"),   // Above 100
         ];
 
         for (value, expected) in boundary_tests {
@@ -395,7 +395,13 @@ mod tests {
             };
 
             let result = match_expr.eval_with_env(&ctx, Some(&env)).unwrap();
-            assert_eq!(result, Val::Str(Arc::from(expected)), "Value {} should match {}", value, expected);
+            assert_eq!(
+                result,
+                Val::Str(Arc::from(expected)),
+                "Value {} should match {}",
+                value,
+                expected
+            );
         }
     }
 }

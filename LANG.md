@@ -127,6 +127,11 @@ Imports
   - `import * as m from math;` — namespace alias
   - `import math as m;` — module alias
 
+- File import resolution and safety:
+  - Paths are relative-only and sanitized: absolute paths and any `..` components are rejected.
+  - Resolution attempts, in order: `${MOD_NAME}.qcl`, then `${MOD_NAME}/mod.qcl` (relative to the current directory).
+  - If you pass a quoted path with `.qcl` already (e.g., `"lib/foo.qcl"`), it must be relative and will be used directly if it exists.
+
 Builtins and Stdlib
 - Builtin globals: `print(fmt, ...args)`, `println(fmt, ...args)`, `panic([msg])`.
 - Stdlib modules (import as needed): `math`, `string`, `list`, `map`, `iter`, `datetime`, `os`, `tcp`. With `concurrency` feature: `task`, `chan`, `time`.

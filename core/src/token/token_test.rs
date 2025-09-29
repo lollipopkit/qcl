@@ -146,7 +146,10 @@ mod tests {
         assert!(t.is_err());
         if let Err(e) = t {
             println!("Error message: {}", e.to_string());
-            assert!(e.to_string().contains("String not closed") || e.to_string().contains("Incomplete escape sequence"));
+            assert!(
+                e.to_string().contains("String not closed")
+                    || e.to_string().contains("Incomplete escape sequence")
+            );
         }
     }
 
@@ -158,8 +161,11 @@ mod tests {
 
     #[test]
     fn raw_string_multiline_and_verbatim() {
-        let t = Tokenizer::tokenize(r#"r"line1
-line2""#).unwrap();
+        let t = Tokenizer::tokenize(
+            r#"r"line1
+line2""#,
+        )
+        .unwrap();
         assert_eq!(t, vec![Token::Str("line1\nline2".to_string())]);
 
         // No escapes or interpolation in raw strings
@@ -798,7 +804,7 @@ line2""#).unwrap();
     #[test]
     fn test_optional_chaining_operator() {
         let tokens = Tokenizer::tokenize("@req.user?.profile?.name").expect("Invalid tokens");
-        
+
         let expected = vec![
             Token::At,
             Token::Id("req".to_string()),
@@ -815,7 +821,7 @@ line2""#).unwrap();
     #[test]
     fn test_optional_chaining_mixed_with_regular() {
         let tokens = Tokenizer::tokenize("@req.user?.profile.name").expect("Invalid tokens");
-        
+
         let expected = vec![
             Token::At,
             Token::Id("req".to_string()),
@@ -835,12 +841,15 @@ line2""#).unwrap();
         let result = Tokenizer::tokenize("@req?user");
         assert!(result.is_ok());
         let tokens = result.unwrap();
-        assert_eq!(tokens, vec![
-            Token::At,
-            Token::Id("req".to_string()),
-            Token::Question,
-            Token::Id("user".to_string()),
-        ]);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::At,
+                Token::Id("req".to_string()),
+                Token::Question,
+                Token::Id("user".to_string()),
+            ]
+        );
     }
 
     #[test]

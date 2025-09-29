@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
+    use crate::token::Tokenizer;
     use crate::typ::type_system::*;
     use crate::val::Type;
-    use crate::token::Tokenizer;
     use std::collections::HashMap;
 
     #[test]
@@ -79,7 +79,11 @@ mod tests {
     #[test]
     fn test_type_parsing_function() {
         // () -> Int
-        if let Some(Type::Function { params, return_type }) = Type::parse("() -> Int") {
+        if let Some(Type::Function {
+            params,
+            return_type,
+        }) = Type::parse("() -> Int")
+        {
             assert_eq!(params.len(), 0);
             assert_eq!(*return_type, Type::Int);
         } else {
@@ -87,7 +91,11 @@ mod tests {
         }
 
         // (Int, String) -> Bool
-        if let Some(Type::Function { params, return_type }) = Type::parse("(Int, String) -> Bool") {
+        if let Some(Type::Function {
+            params,
+            return_type,
+        }) = Type::parse("(Int, String) -> Bool")
+        {
             assert_eq!(params.len(), 2);
             assert_eq!(params[0], Type::Int);
             assert_eq!(params[1], Type::String);
@@ -131,13 +139,23 @@ mod tests {
     fn test_type_display() {
         assert_eq!(Type::Int.display(), "Int");
         assert_eq!(Type::List(Box::new(Type::String)).display(), "List<String>");
-        assert_eq!(Type::Map(Box::new(Type::String), Box::new(Type::Int)).display(), "Map<String, Int>");
+        assert_eq!(
+            Type::Map(Box::new(Type::String), Box::new(Type::Int)).display(),
+            "Map<String, Int>"
+        );
         assert_eq!(Type::Optional(Box::new(Type::Bool)).display(), "?Bool");
-        assert_eq!(Type::Union(vec![Type::Int, Type::String]).display(), "Int | String");
-        assert_eq!(Type::Function {
-            params: vec![Type::Int, Type::String],
-            return_type: Box::new(Type::Bool),
-        }.display(), "(Int, String) -> Bool");
+        assert_eq!(
+            Type::Union(vec![Type::Int, Type::String]).display(),
+            "Int | String"
+        );
+        assert_eq!(
+            Type::Function {
+                params: vec![Type::Int, Type::String],
+                return_type: Box::new(Type::Bool),
+            }
+            .display(),
+            "(Int, String) -> Bool"
+        );
         assert_eq!(Type::Variable("T".to_string()).display(), "'T");
         assert_eq!(Type::Named("UserId".to_string()).display(), "UserId");
     }
@@ -187,8 +205,16 @@ mod tests {
         // Test complex type annotation
         let tokens = Tokenizer::tokenize("let x: ?List<Int | String> = nil;").unwrap();
         // Should contain Question, List identifier, Lt, Int, Pipe, String, Gt, etc.
-        assert!(tokens.iter().any(|t| matches!(t, crate::token::Token::Question)));
-        assert!(tokens.iter().any(|t| matches!(t, crate::token::Token::Pipe)));
+        assert!(
+            tokens
+                .iter()
+                .any(|t| matches!(t, crate::token::Token::Question))
+        );
+        assert!(
+            tokens
+                .iter()
+                .any(|t| matches!(t, crate::token::Token::Pipe))
+        );
         assert!(tokens.iter().any(|t| matches!(t, crate::token::Token::Lt)));
         assert!(tokens.iter().any(|t| matches!(t, crate::token::Token::Gt)));
     }
@@ -207,10 +233,13 @@ mod tests {
 
         // Test trait definition
         let mut methods = HashMap::new();
-        methods.insert("display".to_string(), Type::Function {
-            params: vec![],
-            return_type: Box::new(Type::String),
-        });
+        methods.insert(
+            "display".to_string(),
+            Type::Function {
+                params: vec![],
+                return_type: Box::new(Type::String),
+            },
+        );
         let trait_def = TraitDef {
             name: "Display".to_string(),
             methods,
@@ -261,7 +290,10 @@ mod tests {
 
         // Test function type substitution
         let func_type = Type::Function {
-            params: vec![Type::Variable("T".to_string()), Type::Variable("U".to_string())],
+            params: vec![
+                Type::Variable("T".to_string()),
+                Type::Variable("U".to_string()),
+            ],
             return_type: Box::new(Type::Variable("T".to_string())),
         };
         let expected_func = Type::Function {

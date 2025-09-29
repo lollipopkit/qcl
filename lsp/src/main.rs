@@ -1,15 +1,17 @@
 use dashmap::DashMap;
 use regex::Regex;
 use ropey::Rope;
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
-use tower_lsp::lsp_types::{notification::Progress as ProgressNotification, request::WorkDoneProgressCreate};
+use tower_lsp::lsp_types::{
+    notification::Progress as ProgressNotification, request::WorkDoneProgressCreate,
+};
 use tower_lsp::{Client, LanguageServer, LspService, Server};
-use serde::Deserialize;
 use tracing::info;
 use twox_hash::XxHash64;
 
@@ -212,18 +214,18 @@ struct InlayKindConfig {
 impl QclLanguageServer {
     async fn load_config(&self) {
         // Ask client for the 'qcl.lsp' section
-        let items = vec![ConfigurationItem { scope_uri: None, section: Some("qcl.lsp".to_string()) }];
+        let items = vec![ConfigurationItem {
+            scope_uri: None,
+            section: Some("qcl.lsp".to_string()),
+        }];
         if let Ok(values) = self.client.configuration(items).await {
             if let Some(val) = values.into_iter().next() {
                 if let Ok(cfg) = serde_json::from_value::<QclLspConfigSection>(val) {
                     let mut guard = self.config.lock().unwrap();
                     // Defaults are true unless explicitly disabled
                     guard.inlay_hints_enabled = cfg.inlay_hints.enabled.unwrap_or(true);
-                    guard.inlay_hints_parameters = cfg
-                        .inlay_hints
-                        .parameters
-                        .enabled
-                        .unwrap_or(true);
+                    guard.inlay_hints_parameters =
+                        cfg.inlay_hints.parameters.enabled.unwrap_or(true);
                     guard.inlay_hints_types = cfg.inlay_hints.types.enabled.unwrap_or(true);
                 }
             }
@@ -309,12 +311,12 @@ impl LanguageServer for QclLanguageServer {
                     resolve_provider: Some(false),
                 }),
                 document_formatting_provider: Some(OneOf::Left(true)),
-                inlay_hint_provider: Some(OneOf::Right(
-                    InlayHintServerCapabilities::Options(InlayHintOptions {
+                inlay_hint_provider: Some(OneOf::Right(InlayHintServerCapabilities::Options(
+                    InlayHintOptions {
                         work_done_progress_options: Default::default(),
                         resolve_provider: Some(false),
-                    }),
-                )),
+                    },
+                ))),
                 // Workspace capabilities left default; client will still send configuration changes
                 ..Default::default()
             },
@@ -853,10 +855,7 @@ impl LanguageServer for QclLanguageServer {
         }))
     }
 
-    async fn signature_help(
-        &self,
-        params: SignatureHelpParams,
-    ) -> Result<Option<SignatureHelp>> {
+    async fn signature_help(&self, params: SignatureHelpParams) -> Result<Option<SignatureHelp>> {
         let uri = &params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
 
@@ -897,8 +896,11 @@ impl LanguageServer for QclLanguageServer {
         }
 
         // Scan current document for fn definitions matching the name
-        let re = Regex::new(&format!(r"(?m)\bfn\s+{}\s*\(([^)]*)\)", regex::escape(&func_name)))
-            .unwrap();
+        let re = Regex::new(&format!(
+            r"(?m)\bfn\s+{}\s*\(([^)]*)\)",
+            regex::escape(&func_name)
+        ))
+        .unwrap();
         for caps in re.captures_iter(&content) {
             if let Some(params_m) = caps.get(1) {
                 let params_str = params_m.as_str();
@@ -999,10 +1001,7 @@ impl LanguageServer for QclLanguageServer {
         Ok(Some(lenses))
     }
 
-    async fn formatting(
-        &self,
-        params: DocumentFormattingParams,
-    ) -> Result<Option<Vec<TextEdit>>> {
+    async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
         let uri = &params.text_document.uri;
         let options = params.options;
         let content = if let Some(doc) = self.documents.get(uri) {
@@ -1020,7 +1019,10 @@ impl LanguageServer for QclLanguageServer {
             rope.len_lines().saturating_sub(1) as u32,
             rope.line(rope.len_lines().saturating_sub(1)).len_chars() as u32,
         );
-        let edit = TextEdit { range: Range::new(Position::new(0, 0), end), new_text: formatted };
+        let edit = TextEdit {
+            range: Range::new(Position::new(0, 0), end),
+            new_text: formatted,
+        };
         Ok(Some(vec![edit]))
     }
 
@@ -1044,9 +1046,12 @@ impl LanguageServer for QclLanguageServer {
         }
         if cfg.inlay_hints_types {
             if let Ok(analyzer) = self.analyzer.lock() {
-                let mut type_hints = analyzer.compute_type_inlay_hints(&content, params.range.clone());
-                let mut define_hints = analyzer.compute_define_type_hints(&content, params.range.clone());
-                let mut fn_return_hints = analyzer.compute_function_return_type_hints(&content, params.range.clone());
+                let mut type_hints =
+                    analyzer.compute_type_inlay_hints(&content, params.range.clone());
+                let mut define_hints =
+                    analyzer.compute_define_type_hints(&content, params.range.clone());
+                let mut fn_return_hints =
+                    analyzer.compute_function_return_type_hints(&content, params.range.clone());
                 hints.append(&mut type_hints);
                 hints.append(&mut define_hints);
                 hints.append(&mut fn_return_hints);
@@ -1379,11 +1384,11 @@ impl QclLanguageServer {
                     let _ = client
                         .send_notification::<ProgressNotification>(ProgressParams {
                             token: token.clone(),
-                            value: ProgressParamsValue::WorkDone(
-                                WorkDoneProgress::End(WorkDoneProgressEnd {
+                            value: ProgressParamsValue::WorkDone(WorkDoneProgress::End(
+                                WorkDoneProgressEnd {
                                     message: Some("Analysis cancelled".to_string()),
-                                }),
-                            ),
+                                },
+                            )),
                         })
                         .await;
                     return;
@@ -1926,17 +1931,27 @@ fn format_qcl(input: &str, options: &FormattingOptions) -> String {
     for raw_line in input.lines() {
         let line = raw_line.trim();
         // Reduce indent if line starts with a closing token
-        let leading_closers = line.chars().take_while(|c| c.is_whitespace() || *c == '}' || *c == ')' || *c == ']').filter(|c| *c == '}' || *c == ')' || *c == ']').count();
+        let leading_closers = line
+            .chars()
+            .take_while(|c| c.is_whitespace() || *c == '}' || *c == ')' || *c == ']')
+            .filter(|c| *c == '}' || *c == ')' || *c == ']')
+            .count();
         if leading_closers > 0 && indent > 0 {
             indent -= leading_closers as isize;
-            if indent < 0 { indent = 0; }
+            if indent < 0 {
+                indent = 0;
+            }
         }
 
         // Emit indentation
         if use_spaces {
-            for _ in 0..(indent.max(0) as usize * tab_size) { out.push(' '); }
+            for _ in 0..(indent.max(0) as usize * tab_size) {
+                out.push(' ');
+            }
         } else {
-            for _ in 0..indent.max(0) { out.push('\t'); }
+            for _ in 0..indent.max(0) {
+                out.push('\t');
+            }
         }
         out.push_str(line);
         out.push('\n');
@@ -1951,7 +1966,9 @@ fn format_qcl(input: &str, options: &FormattingOptions) -> String {
             }
         }
         indent += delta;
-        if indent < 0 { indent = 0; }
+        if indent < 0 {
+            indent = 0;
+        }
     }
 
     // Preserve trailing newline convention similar to input
@@ -1971,24 +1988,33 @@ fn compute_inlay_hints(content: &str, range: Range) -> Vec<InlayHint> {
                 .filter(|s| !s.is_empty())
                 .map(|s| s.split(':').next().unwrap_or("").trim().to_string())
                 .collect();
-            if !name.is_empty() { defs.insert(name, params); }
+            if !name.is_empty() {
+                defs.insert(name, params);
+            }
         }
     }
     // Built-ins
-    defs.entry("print".to_string()).or_insert_with(|| vec!["fmt".into(), "...args".into()]);
-    defs.entry("println".to_string()).or_insert_with(|| vec!["fmt".into(), "...args".into()]);
-    defs.entry("panic".to_string()).or_insert_with(|| vec!["message".into()]);
+    defs.entry("print".to_string())
+        .or_insert_with(|| vec!["fmt".into(), "...args".into()]);
+    defs.entry("println".to_string())
+        .or_insert_with(|| vec!["fmt".into(), "...args".into()]);
+    defs.entry("panic".to_string())
+        .or_insert_with(|| vec!["message".into()]);
 
     // Precompute line starts for mapping offsets to (line,col)
     let mut line_starts: Vec<usize> = Vec::new();
     line_starts.push(0);
     for (i, b) in content.as_bytes().iter().enumerate() {
-        if *b == b'\n' { line_starts.push(i + 1); }
+        if *b == b'\n' {
+            line_starts.push(i + 1);
+        }
     }
     let within_range = |ofs: usize| -> bool {
         let mut line = 0usize;
         for (idx, start) in line_starts.iter().enumerate() {
-            if *start > ofs { break; }
+            if *start > ofs {
+                break;
+            }
             line = idx;
         }
         let line_u = line as u32;
@@ -2001,35 +2027,75 @@ fn compute_inlay_hints(content: &str, range: Range) -> Vec<InlayHint> {
     let mut in_string: Option<u8> = None;
     let mut in_line_comment = false;
     while i < bytes.len() {
-        if bytes[i] == b'\n' { in_line_comment = false; i += 1; continue; }
-        if in_line_comment { i += 1; continue; }
+        if bytes[i] == b'\n' {
+            in_line_comment = false;
+            i += 1;
+            continue;
+        }
+        if in_line_comment {
+            i += 1;
+            continue;
+        }
         if in_string.is_none() && i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'/' {
-            in_line_comment = true; i += 2; continue;
+            in_line_comment = true;
+            i += 2;
+            continue;
         }
         if let Some(q) = in_string {
-            if bytes[i] == b'\\' { i = (i + 2).min(bytes.len()); continue; }
-            if bytes[i] == q { in_string = None; i += 1; continue; }
-            i += 1; continue;
-        } else if bytes[i] == b'"' || bytes[i] == b'\'' { in_string = Some(bytes[i]); i += 1; continue; }
+            if bytes[i] == b'\\' {
+                i = (i + 2).min(bytes.len());
+                continue;
+            }
+            if bytes[i] == q {
+                in_string = None;
+                i += 1;
+                continue;
+            }
+            i += 1;
+            continue;
+        } else if bytes[i] == b'"' || bytes[i] == b'\'' {
+            in_string = Some(bytes[i]);
+            i += 1;
+            continue;
+        }
 
-        if !(bytes[i].is_ascii_alphabetic() || bytes[i] == b'_') { i += 1; continue; }
+        if !(bytes[i].is_ascii_alphabetic() || bytes[i] == b'_') {
+            i += 1;
+            continue;
+        }
         let name_start = i;
-        while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') { i += 1; }
+        while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+            i += 1;
+        }
         let name_end = i;
-        while i < bytes.len() && bytes[i].is_ascii_whitespace() { i += 1; }
-        if i >= bytes.len() || bytes[i] != b'(' { continue; }
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if i >= bytes.len() || bytes[i] != b'(' {
+            continue;
+        }
 
         // Skip function definitions like `fn name(`
         let mut j = name_start;
-        while j > 0 && bytes[j - 1].is_ascii_whitespace() { j -= 1; }
+        while j > 0 && bytes[j - 1].is_ascii_whitespace() {
+            j -= 1;
+        }
         let is_fn_def = if j >= 2 {
             let kw = &bytes[j - 2..j];
             kw == b"fn" && (j < 3 || !bytes[j - 3].is_ascii_alphanumeric() && bytes[j - 3] != b'_')
-        } else { false };
-        if is_fn_def { i += 1; continue; }
+        } else {
+            false
+        };
+        if is_fn_def {
+            i += 1;
+            continue;
+        }
 
         let name = &content[name_start..name_end];
-        let Some(params) = defs.get(name).cloned() else { i += 1; continue; };
+        let Some(params) = defs.get(name).cloned() else {
+            i += 1;
+            continue;
+        };
 
         // Scan arguments across lines
         let mut pos = i + 1;
@@ -2040,14 +2106,41 @@ fn compute_inlay_hints(content: &str, range: Range) -> Vec<InlayHint> {
         let mut arg_start = pos;
         while pos < bytes.len() {
             let ch = bytes[pos];
-            if ch == b'\n' { line_comment = false; pos += 1; continue; }
-            if line_comment { pos += 1; continue; }
-            if str_state.is_none() && pos + 1 < bytes.len() && bytes[pos] == b'/' && bytes[pos + 1] == b'/' { line_comment = true; pos += 2; continue; }
+            if ch == b'\n' {
+                line_comment = false;
+                pos += 1;
+                continue;
+            }
+            if line_comment {
+                pos += 1;
+                continue;
+            }
+            if str_state.is_none()
+                && pos + 1 < bytes.len()
+                && bytes[pos] == b'/'
+                && bytes[pos + 1] == b'/'
+            {
+                line_comment = true;
+                pos += 2;
+                continue;
+            }
             if let Some(q) = str_state {
-                if ch == b'\\' { pos = (pos + 2).min(bytes.len()); continue; }
-                if ch == q { str_state = None; pos += 1; continue; }
-                pos += 1; continue;
-            } else if ch == b'"' || ch == b'\'' { str_state = Some(ch); pos += 1; continue; }
+                if ch == b'\\' {
+                    pos = (pos + 2).min(bytes.len());
+                    continue;
+                }
+                if ch == q {
+                    str_state = None;
+                    pos += 1;
+                    continue;
+                }
+                pos += 1;
+                continue;
+            } else if ch == b'"' || ch == b'\'' {
+                str_state = Some(ch);
+                pos += 1;
+                continue;
+            }
 
             match ch as char {
                 '(' | '[' | '{' => {
@@ -2055,9 +2148,15 @@ fn compute_inlay_hints(content: &str, range: Range) -> Vec<InlayHint> {
                         // Attempt nested call parsing just before this '('
                         let mut l = pos;
                         // skip whitespace between ident and '('
-                        while l > 0 && bytes[l - 1].is_ascii_whitespace() { l -= 1; }
+                        while l > 0 && bytes[l - 1].is_ascii_whitespace() {
+                            l -= 1;
+                        }
                         let mut k = l;
-                        while k > 0 && (bytes[k - 1].is_ascii_alphanumeric() || bytes[k - 1] == b'_') { k -= 1; }
+                        while k > 0
+                            && (bytes[k - 1].is_ascii_alphanumeric() || bytes[k - 1] == b'_')
+                        {
+                            k -= 1;
+                        }
                         if k < l {
                             let nested_name = &content[k..l];
                             if let Some(nested_params) = defs.get(nested_name).cloned() {
@@ -2070,33 +2169,79 @@ fn compute_inlay_hints(content: &str, range: Range) -> Vec<InlayHint> {
                                 let mut nidx = 0usize;
                                 while np < bytes.len() {
                                     let nch = bytes[np];
-                                    if nch == b'\n' { nline_comment = false; np += 1; continue; }
-                                    if nline_comment { np += 1; continue; }
-                                    if nstr.is_none() && np + 1 < bytes.len() && bytes[np] == b'/' && bytes[np + 1] == b'/' { nline_comment = true; np += 2; continue; }
+                                    if nch == b'\n' {
+                                        nline_comment = false;
+                                        np += 1;
+                                        continue;
+                                    }
+                                    if nline_comment {
+                                        np += 1;
+                                        continue;
+                                    }
+                                    if nstr.is_none()
+                                        && np + 1 < bytes.len()
+                                        && bytes[np] == b'/'
+                                        && bytes[np + 1] == b'/'
+                                    {
+                                        nline_comment = true;
+                                        np += 2;
+                                        continue;
+                                    }
                                     if let Some(q) = nstr {
-                                        if nch == b'\\' { np = (np + 2).min(bytes.len()); continue; }
-                                        if nch == q { nstr = None; np += 1; continue; }
-                                        np += 1; continue;
-                                    } else if nch == b'"' || nch == b'\'' { nstr = Some(nch); np += 1; continue; }
+                                        if nch == b'\\' {
+                                            np = (np + 2).min(bytes.len());
+                                            continue;
+                                        }
+                                        if nch == q {
+                                            nstr = None;
+                                            np += 1;
+                                            continue;
+                                        }
+                                        np += 1;
+                                        continue;
+                                    } else if nch == b'"' || nch == b'\'' {
+                                        nstr = Some(nch);
+                                        np += 1;
+                                        continue;
+                                    }
 
                                     match nch as char {
-                                        '(' | '[' | '{' => { ndepth += 1; }
+                                        '(' | '[' | '{' => {
+                                            ndepth += 1;
+                                        }
                                         ')' => {
                                             if ndepth == 0 {
                                                 let (hp, ok) = first_sig_pos(content, nstart, np);
-                                                if ok && nidx < nested_params.len() && within_range(hp) {
-                                                    hints.push(make_param_hint(&nested_params[nidx], hp, &line_starts));
+                                                if ok
+                                                    && nidx < nested_params.len()
+                                                    && within_range(hp)
+                                                {
+                                                    hints.push(make_param_hint(
+                                                        &nested_params[nidx],
+                                                        hp,
+                                                        &line_starts,
+                                                    ));
                                                 }
                                                 break;
-                                            } else { ndepth -= 1; }
+                                            } else {
+                                                ndepth -= 1;
+                                            }
                                         }
                                         ',' => {
                                             if ndepth == 0 {
                                                 let (hp, ok) = first_sig_pos(content, nstart, np);
-                                                if ok && nidx < nested_params.len() && within_range(hp) {
-                                                    hints.push(make_param_hint(&nested_params[nidx], hp, &line_starts));
+                                                if ok
+                                                    && nidx < nested_params.len()
+                                                    && within_range(hp)
+                                                {
+                                                    hints.push(make_param_hint(
+                                                        &nested_params[nidx],
+                                                        hp,
+                                                        &line_starts,
+                                                    ));
                                                 }
-                                                nidx += 1; nstart = np + 1;
+                                                nidx += 1;
+                                                nstart = np + 1;
                                             }
                                         }
                                         _ => {}
@@ -2116,7 +2261,9 @@ fn compute_inlay_hints(content: &str, range: Range) -> Vec<InlayHint> {
                         }
                         i = pos + 1; // advance outer scanner
                         break;
-                    } else { depth -= 1; }
+                    } else {
+                        depth -= 1;
+                    }
                 }
                 ',' => {
                     if depth == 0 {
@@ -2124,14 +2271,17 @@ fn compute_inlay_hints(content: &str, range: Range) -> Vec<InlayHint> {
                         if ok && arg_index < params.len() && within_range(hint_pos) {
                             hints.push(make_param_hint(&params[arg_index], hint_pos, &line_starts));
                         }
-                        arg_index += 1; arg_start = pos + 1;
+                        arg_index += 1;
+                        arg_start = pos + 1;
                     }
                 }
                 _ => {}
             }
             pos += 1;
         }
-        if pos >= bytes.len() { i = pos; }
+        if pos >= bytes.len() {
+            i = pos;
+        }
     }
     hints
 }
@@ -2140,7 +2290,9 @@ fn first_sig_pos(content: &str, start: usize, end: usize) -> (usize, bool) {
     let slice = &content[start..end];
     let mut acc = 0usize;
     for ch in slice.chars() {
-        if !ch.is_whitespace() { return (start + acc, true); }
+        if !ch.is_whitespace() {
+            return (start + acc, true);
+        }
         acc += ch.len_utf8();
     }
     (start, false)
@@ -2149,7 +2301,9 @@ fn first_sig_pos(content: &str, start: usize, end: usize) -> (usize, bool) {
 fn make_param_hint(param: &str, ofs: usize, line_starts: &[usize]) -> InlayHint {
     let mut line = 0usize;
     for (idx, start) in line_starts.iter().enumerate() {
-        if *start > ofs { break; }
+        if *start > ofs {
+            break;
+        }
         line = idx;
     }
     let col = ofs - line_starts[line];

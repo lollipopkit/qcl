@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use crate::{expr::Expr, stmt::Stmt, val::Val, token::Tokenizer, stmt::stmt_parser::StmtParser};
+    use crate::{
+        expr::Expr, stmt::Stmt, stmt::stmt_parser::StmtParser, token::Tokenizer, val::Val,
+    };
     use std::sync::Arc;
 
     fn parse_program(source: &str) -> crate::stmt::Program {
@@ -135,7 +137,12 @@ mod tests {
         let result = program.execute_with_env(&ctx, &mut env.clone());
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Pattern does not match"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Pattern does not match")
+        );
     }
 
     #[test]
@@ -235,7 +242,9 @@ mod tests {
             },
             type_annotation: None,
             value: Box::new(Expr::Val(Val::List(Arc::new(vec![
-                Val::Int(1), Val::Int(2), Val::Int(3)
+                Val::Int(1),
+                Val::Int(2),
+                Val::Int(3),
             ])))),
             span: None,
         };
@@ -258,17 +267,25 @@ mod tests {
         let stmt = Stmt::Let {
             pattern: crate::expr::Pattern::Map {
                 patterns: vec![
-                    ("name".to_string(), crate::expr::Pattern::Variable("name".to_string())),
-                    ("age".to_string(), crate::expr::Pattern::Range {
-                        start: Box::new(Expr::Val(Val::Int(0))),
-                        end: Box::new(Expr::Val(Val::Int(120))),
-                        inclusive: true,
-                    }),
+                    (
+                        "name".to_string(),
+                        crate::expr::Pattern::Variable("name".to_string()),
+                    ),
+                    (
+                        "age".to_string(),
+                        crate::expr::Pattern::Range {
+                            start: Box::new(Expr::Val(Val::Int(0))),
+                            end: Box::new(Expr::Val(Val::Int(120))),
+                            inclusive: true,
+                        },
+                    ),
                 ],
                 rest: None,
             },
             type_annotation: None,
-            value: Box::new(Expr::Val(Val::Map(Arc::new(std::collections::HashMap::new())))),
+            value: Box::new(Expr::Val(Val::Map(Arc::new(
+                std::collections::HashMap::new(),
+            )))),
             span: None,
         };
 

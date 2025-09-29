@@ -429,8 +429,7 @@ mod tests {
         register_stdlib_modules(&mut registry);
 
         // Create environment with stdlib modules
-        let resolver =
-            std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
+        let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
 
         let result = program.execute_with_env(&ctx, &mut env)?;
@@ -452,8 +451,7 @@ mod tests {
         register_stdlib_modules(&mut registry);
 
         // Create environment with stdlib modules
-        let resolver =
-            std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
+        let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
 
         let result = program.execute_with_env(&ctx, &mut env)?;
@@ -475,8 +473,7 @@ mod tests {
         register_stdlib_modules(&mut registry);
 
         // Create environment with stdlib modules
-        let resolver =
-            std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
+        let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
 
         let result = program.execute_with_env(&ctx, &mut env)?;
@@ -498,8 +495,7 @@ mod tests {
         register_stdlib_modules(&mut registry);
 
         // Create environment with stdlib modules
-        let resolver =
-            std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
+        let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
 
         let result = program.execute_with_env(&ctx, &mut env)?;

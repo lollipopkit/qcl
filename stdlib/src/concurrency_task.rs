@@ -77,9 +77,8 @@ fn task_await(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> R
         Val::Task { id, value: _ } => {
             #[cfg(feature = "concurrency")]
             {
-                match qcl_core::rt::with_runtime(|runtime| {
-                    runtime.block_on(runtime.join_task(*id))
-                }) {
+                match qcl_core::rt::with_runtime(|runtime| runtime.block_on(runtime.join_task(*id)))
+                {
                     Ok(result) => Ok(result),
                     Err(e) => Err(anyhow!("Failed to await task: {}", e)),
                 }

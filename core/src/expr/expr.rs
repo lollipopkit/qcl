@@ -10,8 +10,8 @@ use crate::{
     ast::Parser,
     op::{BinOp, UnaryOp, err_op},
     token::Tokenizer,
-    val::{Type, Val},
     typ::TypeChecker,
+    val::{Type, Val},
 };
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
@@ -162,7 +162,11 @@ impl std::fmt::Display for Pattern {
             Pattern::Guard { pattern, guard } => {
                 write!(f, "{} if {}", pattern, guard)
             }
-            Pattern::Range { start, end, inclusive } => {
+            Pattern::Range {
+                start,
+                end,
+                inclusive,
+            } => {
                 let op = if *inclusive { "..=" } else { ".." };
                 write!(f, "{}{}{}", start, op, end)
             }
@@ -228,10 +232,8 @@ impl Pattern {
 
                 // Bind rest elements if specified
                 if let Some(rest_name) = rest {
-                    let rest_items: Vec<Val> = list_items.iter()
-                        .skip(patterns.len())
-                        .cloned()
-                        .collect();
+                    let rest_items: Vec<Val> =
+                        list_items.iter().skip(patterns.len()).cloned().collect();
                     bindings.push((rest_name.clone(), Val::List(Arc::new(rest_items))));
                 } else if patterns.len() != list_items.len() {
                     // No rest pattern but lengths don't match
@@ -294,7 +296,9 @@ impl Pattern {
                         }
                         Some(new_env)
                     } else if !temp_bindings.is_empty() {
-                        return Err(anyhow!("Guard conditions with bindings require evaluation environment"));
+                        return Err(anyhow!(
+                            "Guard conditions with bindings require evaluation environment"
+                        ));
                     } else {
                         None
                     };
@@ -310,7 +314,11 @@ impl Pattern {
                     Ok(false)
                 }
             }
-            Pattern::Range { start, end, inclusive } => {
+            Pattern::Range {
+                start,
+                end,
+                inclusive,
+            } => {
                 let start_val = start.eval_with_env(ctx, env)?;
                 let end_val = end.eval_with_env(ctx, env)?;
 
@@ -624,7 +632,9 @@ impl Expr {
                         }
 
                         // Fall back to meta method registry
-                        if let Some(func) = crate::val::methods::find_method_for_val(&obj_val, method_name_str) {
+                        if let Some(func) =
+                            crate::val::methods::find_method_for_val(&obj_val, method_name_str)
+                        {
                             // Evaluate arguments and prepend receiver
                             let mut full_args = Vec::with_capacity(args.len() + 1);
                             full_args.push(obj_val.clone());
@@ -765,9 +775,7 @@ impl Expr {
                     } else {
                         Some(capacity_num as usize)
                     };
-                    match crate::rt::with_runtime(|runtime| {
-                        runtime.create_channel(capacity_opt)
-                    }) {
+                    match crate::rt::with_runtime(|runtime| runtime.create_channel(capacity_opt)) {
                         Ok(channel_id) => Ok(Val::Channel {
                             id: channel_id,
                             capacity: Some(capacity_num),
@@ -901,9 +909,7 @@ impl Expr {
                     let binding_name = bindings.get(case_index).cloned().flatten();
 
                     if binding_name.is_some() && env.is_none() {
-                        return Err(anyhow!(
-                            "Select binding requires evaluation environment"
-                        ));
+                        return Err(anyhow!("Select binding requires evaluation environment"));
                     }
 
                     let binding_env: Option<crate::stmt::Environment>;
@@ -1283,7 +1289,9 @@ impl Expr {
             Expr::NullishCoalescing(e1_box, e2_box) => {
                 let e1 = (*e1_box).fold_constants();
                 // If left side is constant not nil, return it
-                if let Expr::Val(v) = &e1 && *v != Val::Nil {
+                if let Expr::Val(v) = &e1
+                    && *v != Val::Nil
+                {
                     return e1;
                 }
                 let e2 = (*e2_box).fold_constants();
@@ -1329,7 +1337,10 @@ impl Expr {
                     // Preserve OptionalAccess when field is a string literal to allow potential
                     // optional method-call sugar like `obj?.method()` to be handled later.
                     if matches!(field_val, Val::Str(_)) {
-                        return Expr::OptionalAccess(Box::new(base.clone()), Box::new(field.clone()));
+                        return Expr::OptionalAccess(
+                            Box::new(base.clone()),
+                            Box::new(field.clone()),
+                        );
                     }
 
                     // Direct access to constant structure with optional chaining
@@ -1513,8 +1524,12 @@ impl Expr {
                     .collect();
 
                 // If all parts are literals, fold to a single string constant
-                if folded_parts.iter().all(|part| matches!(part, TemplateStringPart::Literal(_))) {
-                    let result = folded_parts.into_iter()
+                if folded_parts
+                    .iter()
+                    .all(|part| matches!(part, TemplateStringPart::Literal(_)))
+                {
+                    let result = folded_parts
+                        .into_iter()
                         .map(|part| {
                             if let TemplateStringPart::Literal(s) = part {
                                 s
@@ -1731,7 +1746,6 @@ impl Display for Expr {
         }
     }
 }
-
 
 impl From<Val> for Expr {
     fn from(val: Val) -> Self {

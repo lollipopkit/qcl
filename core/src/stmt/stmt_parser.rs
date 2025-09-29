@@ -2,9 +2,9 @@ use crate::{
     ast::Parser as ExprParser,
     expr::Expr,
     op::BinOp,
-    stmt::{ImportItem, ImportSource, ImportStmt},
     stmt::{ForPattern, Program, Stmt},
-    token::{Token, Span, ParseError, Position, offset_to_position},
+    stmt::{ImportItem, ImportSource, ImportStmt},
+    token::{ParseError, Position, Span, Token, offset_to_position},
     val::Type,
 };
 use anyhow::{Result, anyhow};
@@ -92,10 +92,7 @@ impl<'a> StmtParser<'a> {
                             input.len()
                         },
                     );
-                    return Err(ParseError::with_position(
-                        err.to_string(),
-                        position,
-                    ));
+                    return Err(ParseError::with_position(err.to_string(), position));
                 }
             };
             statements.push(Box::new(stmt));
@@ -477,9 +474,10 @@ impl<'a> StmtParser<'a> {
 
                         // 可选的剩余变量名
                         if !self.eof()
-                            && let Token::Id(name) = &self.tokens[self.pos] {
-                                rest = Some(name.clone());
-                                self.pos += 1;
+                            && let Token::Id(name) = &self.tokens[self.pos]
+                        {
+                            rest = Some(name.clone());
+                            self.pos += 1;
                         }
 
                         // 剩余模式后不能再有其他模式
@@ -577,7 +575,9 @@ impl<'a> StmtParser<'a> {
                             continue;
                         }
                         Token::RBrace => break,
-                        _ => return Err(anyhow!(self.err("Expected ',' or '}' in object pattern"))),
+                        _ => {
+                            return Err(anyhow!(self.err("Expected ',' or '}' in object pattern")));
+                        }
                     }
                 }
 
@@ -602,15 +602,45 @@ impl<'a> StmtParser<'a> {
 
         while end_pos < self.len {
             match &self.tokens[end_pos] {
-                Token::LParen => { paren += 1; end_pos += 1; }
-                Token::RParen => { if paren > 0 { paren -= 1; } end_pos += 1; }
-                Token::LBracket => { bracket += 1; end_pos += 1; }
-                Token::RBracket => { if bracket > 0 { bracket -= 1; } end_pos += 1; }
-                Token::LBrace => { brace += 1; end_pos += 1; }
-                Token::RBrace => { if brace > 0 { brace -= 1; } end_pos += 1; }
-                Token::Assign if paren == 0 && bracket == 0 && brace == 0 => { break; }
-                Token::Colon if paren == 0 && bracket == 0 && brace == 0 => { break; }
-                _ => { end_pos += 1; }
+                Token::LParen => {
+                    paren += 1;
+                    end_pos += 1;
+                }
+                Token::RParen => {
+                    if paren > 0 {
+                        paren -= 1;
+                    }
+                    end_pos += 1;
+                }
+                Token::LBracket => {
+                    bracket += 1;
+                    end_pos += 1;
+                }
+                Token::RBracket => {
+                    if bracket > 0 {
+                        bracket -= 1;
+                    }
+                    end_pos += 1;
+                }
+                Token::LBrace => {
+                    brace += 1;
+                    end_pos += 1;
+                }
+                Token::RBrace => {
+                    if brace > 0 {
+                        brace -= 1;
+                    }
+                    end_pos += 1;
+                }
+                Token::Assign if paren == 0 && bracket == 0 && brace == 0 => {
+                    break;
+                }
+                Token::Colon if paren == 0 && bracket == 0 && brace == 0 => {
+                    break;
+                }
+                _ => {
+                    end_pos += 1;
+                }
             }
         }
 
@@ -799,7 +829,13 @@ impl<'a> StmtParser<'a> {
         // 解析函数体 (必须是块语句)
         let body = Box::new(self.parse_block_stmt()?);
 
-        Ok(Stmt::Function { name, params, param_types, return_type, body })
+        Ok(Stmt::Function {
+            name,
+            params,
+            param_types,
+            return_type,
+            body,
+        })
     }
 
     /// 解析块语句
@@ -1048,37 +1084,44 @@ impl<'a> StmtParser<'a> {
                     type_tokens.push(&self.tokens[self.pos]);
                     self.pos += 1;
                 }
-                Token::Lt => // For generic types like List<Int>
+                Token::Lt =>
+                // For generic types like List<Int>
                 {
                     type_tokens.push(&self.tokens[self.pos]);
                     self.pos += 1;
                 }
-                Token::Gt => // For generic types like List<Int>
+                Token::Gt =>
+                // For generic types like List<Int>
                 {
                     type_tokens.push(&self.tokens[self.pos]);
                     self.pos += 1;
                 }
-                Token::Comma => // For generic types like Map<String, Int>
+                Token::Comma =>
+                // For generic types like Map<String, Int>
                 {
                     type_tokens.push(&self.tokens[self.pos]);
                     self.pos += 1;
                 }
-                Token::LParen | Token::RParen => // For function types
+                Token::LParen | Token::RParen =>
+                // For function types
                 {
                     type_tokens.push(&self.tokens[self.pos]);
                     self.pos += 1;
                 }
-                Token::Arrow => // For function types
+                Token::Arrow =>
+                // For function types
                 {
                     type_tokens.push(&self.tokens[self.pos]);
                     self.pos += 1;
                 }
-                Token::Question => // For optional types
+                Token::Question =>
+                // For optional types
                 {
                     type_tokens.push(&self.tokens[self.pos]);
                     self.pos += 1;
                 }
-                Token::Pipe => // For union types
+                Token::Pipe =>
+                // For union types
                 {
                     type_tokens.push(&self.tokens[self.pos]);
                     self.pos += 1;
@@ -1097,11 +1140,11 @@ impl<'a> StmtParser<'a> {
         let parsed_type = Type::parse(&type_str);
         parsed_type.ok_or_else(|| anyhow!(self.err(&format!("Invalid type: {}", type_str))))
     }
-    
+
     /// Convert a sequence of tokens back to a type string for parsing
     fn tokens_to_type_string(&self, tokens: &[&Token]) -> String {
         let mut result = String::new();
-        
+
         for (i, token) in tokens.iter().enumerate() {
             if i > 0 {
                 // Add space before pipe for union types
@@ -1126,10 +1169,10 @@ impl<'a> StmtParser<'a> {
                 result.push_str(&self.token_to_string(token));
             }
         }
-        
+
         result
     }
-    
+
     /// Convert a single token to its string representation
     fn token_to_string(&self, token: &Token) -> String {
         match token {
@@ -1167,23 +1210,58 @@ impl<'a> StmtParser<'a> {
 
         while !self.eof() {
             guard += 1;
-            if guard > 1000 { // hard stop to avoid pathological scans
+            if guard > 1000 {
+                // hard stop to avoid pathological scans
                 break;
             }
             let t = &self.tokens[self.pos];
             match t {
-                Token::LParen => { paren += 1; tokens.push(t); self.pos += 1; }
-                Token::RParen => {
-                    if paren == 0 && bracket == 0 && angle == 0 { break; }
-                    if paren > 0 { paren -= 1; }
-                    tokens.push(t); self.pos += 1;
+                Token::LParen => {
+                    paren += 1;
+                    tokens.push(t);
+                    self.pos += 1;
                 }
-                Token::LBracket => { bracket += 1; tokens.push(t); self.pos += 1; }
-                Token::RBracket => { if bracket > 0 { bracket -= 1; } tokens.push(t); self.pos += 1; }
-                Token::Lt => { angle += 1; tokens.push(t); self.pos += 1; }
-                Token::Gt => { if angle > 0 { angle -= 1; } tokens.push(t); self.pos += 1; }
-                Token::Comma if paren == 0 && bracket == 0 && angle == 0 => { break; }
-                _ => { tokens.push(t); self.pos += 1; }
+                Token::RParen => {
+                    if paren == 0 && bracket == 0 && angle == 0 {
+                        break;
+                    }
+                    if paren > 0 {
+                        paren -= 1;
+                    }
+                    tokens.push(t);
+                    self.pos += 1;
+                }
+                Token::LBracket => {
+                    bracket += 1;
+                    tokens.push(t);
+                    self.pos += 1;
+                }
+                Token::RBracket => {
+                    if bracket > 0 {
+                        bracket -= 1;
+                    }
+                    tokens.push(t);
+                    self.pos += 1;
+                }
+                Token::Lt => {
+                    angle += 1;
+                    tokens.push(t);
+                    self.pos += 1;
+                }
+                Token::Gt => {
+                    if angle > 0 {
+                        angle -= 1;
+                    }
+                    tokens.push(t);
+                    self.pos += 1;
+                }
+                Token::Comma if paren == 0 && bracket == 0 && angle == 0 => {
+                    break;
+                }
+                _ => {
+                    tokens.push(t);
+                    self.pos += 1;
+                }
             }
         }
 
@@ -1210,19 +1288,55 @@ impl<'a> StmtParser<'a> {
 
         while !self.eof() {
             guard += 1;
-            if guard > 2000 { // hard stop to avoid pathological scans
+            if guard > 2000 {
+                // hard stop to avoid pathological scans
                 break;
             }
             let t = &self.tokens[self.pos];
             match t {
-                Token::LBrace if paren == 0 && bracket == 0 && angle == 0 => { break; }
-                Token::LParen => { paren += 1; tokens.push(t); self.pos += 1; }
-                Token::RParen => { if paren > 0 { paren -= 1; } tokens.push(t); self.pos += 1; }
-                Token::LBracket => { bracket += 1; tokens.push(t); self.pos += 1; }
-                Token::RBracket => { if bracket > 0 { bracket -= 1; } tokens.push(t); self.pos += 1; }
-                Token::Lt => { angle += 1; tokens.push(t); self.pos += 1; }
-                Token::Gt => { if angle > 0 { angle -= 1; } tokens.push(t); self.pos += 1; }
-                _ => { tokens.push(t); self.pos += 1; }
+                Token::LBrace if paren == 0 && bracket == 0 && angle == 0 => {
+                    break;
+                }
+                Token::LParen => {
+                    paren += 1;
+                    tokens.push(t);
+                    self.pos += 1;
+                }
+                Token::RParen => {
+                    if paren > 0 {
+                        paren -= 1;
+                    }
+                    tokens.push(t);
+                    self.pos += 1;
+                }
+                Token::LBracket => {
+                    bracket += 1;
+                    tokens.push(t);
+                    self.pos += 1;
+                }
+                Token::RBracket => {
+                    if bracket > 0 {
+                        bracket -= 1;
+                    }
+                    tokens.push(t);
+                    self.pos += 1;
+                }
+                Token::Lt => {
+                    angle += 1;
+                    tokens.push(t);
+                    self.pos += 1;
+                }
+                Token::Gt => {
+                    if angle > 0 {
+                        angle -= 1;
+                    }
+                    tokens.push(t);
+                    self.pos += 1;
+                }
+                _ => {
+                    tokens.push(t);
+                    self.pos += 1;
+                }
             }
         }
 

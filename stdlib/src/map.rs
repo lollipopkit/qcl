@@ -161,11 +161,16 @@ mod tests {
             _ => panic!("unexpected keys output: {}", keys),
         }
         // has/get
-        assert_eq!(run("let m={\"a\":1}; return m.has(\"a\");")?, Val::Bool(true));
-        assert_eq!(run("let m={\"a\":1}; return m.has(\"b\");")?, Val::Bool(false));
+        assert_eq!(
+            run("let m={\"a\":1}; return m.has(\"a\");")?,
+            Val::Bool(true)
+        );
+        assert_eq!(
+            run("let m={\"a\":1}; return m.has(\"b\");")?,
+            Val::Bool(false)
+        );
         assert_eq!(run("let m={\"a\":1}; return m.get(\"a\");")?, Val::Int(1));
         assert_eq!(run("let m={\"a\":1}; return m.get(\"b\");")?, Val::Nil);
         Ok(())
     }
 }
-

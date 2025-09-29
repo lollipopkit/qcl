@@ -188,6 +188,12 @@ impl Environment {
         self.type_checker.as_mut()
     }
 
+    /// 导出当前全局作用域的符号（用于模块导出）
+    pub fn export_symbols(&self) -> HashMap<String, Val> {
+        // Clone the top-level scope only; imported symbols are not re-exported by default
+        self.scopes.first().cloned().unwrap_or_else(HashMap::new)
+    }
+
     /// 进入新的作用域
     pub fn push_scope(&mut self) {
         self.scopes.push(HashMap::new());
@@ -346,15 +352,13 @@ impl Stmt {
                     // 同时记录是否为“放宽”匹配，以便在循环体执行后，
                     // 如果 value 是变量，则将其自动推进到 rest（与显式 [a, ..rest] 写法一致）。
                     let (pattern_for_match, prefix_relaxed) = match pattern {
-                        crate::expr::Pattern::List { patterns, rest } if rest.is_none() => {
-                            (
-                                crate::expr::Pattern::List {
-                                    patterns: patterns.clone(),
-                                    rest: Some("__whilelet_rest".to_string()),
-                                },
-                                true,
-                            )
-                        }
+                        crate::expr::Pattern::List { patterns, rest } if rest.is_none() => (
+                            crate::expr::Pattern::List {
+                                patterns: patterns.clone(),
+                                rest: Some("__whilelet_rest".to_string()),
+                            },
+                            true,
+                        ),
                         _ => (pattern.clone(), false),
                     };
 
@@ -362,10 +366,15 @@ impl Stmt {
                     // 即将 x 赋值为其余切片 (从索引 1 开始)。这样可支持诸如
                     // `while let val if guard = x[0] { ... x = [x[1]]; }` 的按需过滤场景。
                     let scan_head_var: Option<String> = match value.as_ref() {
-                        crate::expr::Expr::Access(obj, field) => match (obj.as_ref(), field.as_ref()) {
-                            (crate::expr::Expr::Var(name), crate::expr::Expr::Val(Val::Int(i))) if *i == 0 => Some(name.clone()),
-                            _ => None,
-                        },
+                        crate::expr::Expr::Access(obj, field) => {
+                            match (obj.as_ref(), field.as_ref()) {
+                                (
+                                    crate::expr::Expr::Var(name),
+                                    crate::expr::Expr::Val(Val::Int(i)),
+                                ) if *i == 0 => Some(name.clone()),
+                                _ => None,
+                            }
+                        }
                         _ => None,
                     };
 
@@ -512,8 +521,7 @@ impl Stmt {
                     None => {
                         let error_msg = format!(
                             "Pattern does not match value: {} does not match {}",
-                            pattern,
-                            val
+                            pattern, val
                         );
                         return if let Some(span) = span {
                             Err(anyhow::anyhow!(ParseError::with_span(
@@ -577,7 +585,13 @@ impl Stmt {
                 };
                 Ok(ControlFlow::Return(return_val))
             }
-            Stmt::Function { name, params, param_types: _, return_type: _, body } => {
+            Stmt::Function {
+                name,
+                params,
+                param_types: _,
+                return_type: _,
+                body,
+            } => {
                 let func_val = Val::Closure {
                     params: Arc::new(params.clone()),
                     body: Arc::new((**body).clone()),
@@ -701,7 +715,12 @@ impl Stmt {
 
                 Ok(())
             }
-            Stmt::CompoundAssign { name, op: _, value, span } => {
+            Stmt::CompoundAssign {
+                name,
+                op: _,
+                value,
+                span,
+            } => {
                 // 检查表达式的类型
                 let expr_type = value.type_check(type_checker)?;
 
@@ -709,7 +728,9 @@ impl Stmt {
                 if let Some(var_type) = type_checker.get_local_type(name) {
                     // 检查操作类型兼容性 (var_type op expr_type -> var_type)
                     // 简化：假设所有算术操作都是类型兼容的
-                    if !expr_type.is_assignable_to(var_type) && !var_type.is_assignable_to(&expr_type) {
+                    if !expr_type.is_assignable_to(var_type)
+                        && !var_type.is_assignable_to(&expr_type)
+                    {
                         let error_msg = format!(
                             "Type mismatch in compound assignment: variable '{}' has type {}, but right-hand side has type {}",
                             name,
@@ -734,7 +755,13 @@ impl Stmt {
 
                 Ok(())
             }
-            Stmt::Function { name, params, param_types, return_type, body } => {
+            Stmt::Function {
+                name,
+                params,
+                param_types,
+                return_type,
+                body,
+            } => {
                 // 为函数参数创建新的作用域
                 type_checker.push_scope();
 
@@ -753,7 +780,11 @@ impl Stmt {
                 // 推断函数返回类型（若未显式注解）。策略：
                 // - 收集所有显式 return 语句的表达式类型，合并为去重后的并集。
                 // - 如果函数体内没有显式 return，则返回类型推断为 Nil（运行时默认返回）。
-                fn collect_return_types(stmt: &Stmt, tc: &mut TypeChecker, out: &mut Vec<Type>) -> anyhow::Result<()> {
+                fn collect_return_types(
+                    stmt: &Stmt,
+                    tc: &mut TypeChecker,
+                    out: &mut Vec<Type>,
+                ) -> anyhow::Result<()> {
                     match stmt {
                         Stmt::Return { value } => {
                             if let Some(expr) = value {
@@ -763,7 +794,11 @@ impl Stmt {
                                 out.push(Type::Nil);
                             }
                         }
-                        Stmt::If { condition, then_stmt, else_stmt } => {
+                        Stmt::If {
+                            condition,
+                            then_stmt,
+                            else_stmt,
+                        } => {
                             // 先检查条件表达式，保证条件类型合法
                             let _ = condition.type_check(tc)?;
                             collect_return_types(then_stmt, tc, out)?;
@@ -771,7 +806,12 @@ impl Stmt {
                                 collect_return_types(es, tc, out)?;
                             }
                         }
-                        Stmt::IfLet { then_stmt, else_stmt, value: _, pattern: _ } => {
+                        Stmt::IfLet {
+                            then_stmt,
+                            else_stmt,
+                            value: _,
+                            pattern: _,
+                        } => {
                             collect_return_types(then_stmt, tc, out)?;
                             if let Some(es) = else_stmt.as_deref() {
                                 collect_return_types(es, tc, out)?;
@@ -788,7 +828,9 @@ impl Stmt {
                             collect_return_types(body, tc, out)?;
                         }
                         Stmt::Block { statements } => {
-                            for s in statements { collect_return_types(s, tc, out)?; }
+                            for s in statements {
+                                collect_return_types(s, tc, out)?;
+                            }
                         }
                         // 不应深入到嵌套函数内的 return
                         Stmt::Function { .. } => {}
@@ -809,15 +851,25 @@ impl Stmt {
                     }
                     use std::collections::BTreeMap;
                     let mut by_key: BTreeMap<String, Type> = BTreeMap::new();
-                    for t in flat { by_key.entry(t.display()).or_insert(t); }
+                    for t in flat {
+                        by_key.entry(t.display()).or_insert(t);
+                    }
                     let mut uniq: Vec<Type> = by_key.into_iter().map(|(_, t)| t).collect();
-                    if uniq.len() == 1 { uniq.remove(0) } else { Type::Union(uniq) }
+                    if uniq.len() == 1 {
+                        uniq.remove(0)
+                    } else {
+                        Type::Union(uniq)
+                    }
                 }
 
                 let inferred_return: Type = if return_type.is_none() {
                     let mut rtys: Vec<Type> = Vec::new();
                     collect_return_types(body, type_checker, &mut rtys)?;
-                    if rtys.is_empty() { Type::Nil } else { normalize_union(rtys) }
+                    if rtys.is_empty() {
+                        Type::Nil
+                    } else {
+                        normalize_union(rtys)
+                    }
                 } else {
                     // 已显式注解则直接使用
                     return_type.clone().unwrap()
@@ -825,9 +877,11 @@ impl Stmt {
 
                 // 将函数添加到当前作用域，类型为 Function
                 let func_type = Type::Function {
-                    params: params.iter().enumerate().map(|(i, _)| {
-                        param_types.get(i).cloned().flatten().unwrap_or(Type::Any)
-                    }).collect(),
+                    params: params
+                        .iter()
+                        .enumerate()
+                        .map(|(i, _)| param_types.get(i).cloned().flatten().unwrap_or(Type::Any))
+                        .collect(),
                     return_type: Box::new(inferred_return),
                 };
                 type_checker.add_local_type(name.clone(), func_type);
@@ -1044,7 +1098,8 @@ impl Stmt {
                     },
                     // 直接迭代 Map 时 create_iterator 产生 [key,value] 对，不适配对象解构
                     _ => None,
-                }.unwrap_or(Type::Any);
+                }
+                .unwrap_or(Type::Any);
 
                 for (_key, subpat) in entries {
                     match subpat {
@@ -1244,7 +1299,11 @@ impl Display for Stmt {
                 else_stmt,
             } => {
                 if let Some(else_stmt) = else_stmt {
-                    write!(f, "if let {} = {} {} else {}", pattern, value, then_stmt, else_stmt)
+                    write!(
+                        f,
+                        "if let {} = {} {} else {}",
+                        pattern, value, then_stmt, else_stmt
+                    )
                 } else {
                     write!(f, "if let {} = {} {}", pattern, value, then_stmt)
                 }
@@ -1323,14 +1382,22 @@ impl Display for Stmt {
                     write!(f, "return;")
                 }
             }
-            Stmt::Function { name, params, param_types, return_type, body } => {
+            Stmt::Function {
+                name,
+                params,
+                param_types,
+                return_type,
+                body,
+            } => {
                 // Format parameters with optional types
-                let parts: Vec<String> = params.iter().enumerate().map(|(i, p)| {
-                    match param_types.get(i).and_then(|t| t.clone()) {
+                let parts: Vec<String> = params
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| match param_types.get(i).and_then(|t| t.clone()) {
                         Some(ty) => format!("{}: {}", p, ty.display()),
                         None => p.clone(),
-                    }
-                }).collect();
+                    })
+                    .collect();
                 // Format return type and elide full body to avoid huge/recursive prints
                 let body_summary = if let Stmt::Block { statements } = &**body {
                     format!("... ({} statements) ...", statements.len())
@@ -1338,9 +1405,22 @@ impl Display for Stmt {
                     "...".to_string()
                 };
                 if let Some(rt) = return_type {
-                    write!(f, "fn {}({}) -> {} {{ {} }}", name, parts.join(", "), rt.display(), body_summary)
+                    write!(
+                        f,
+                        "fn {}({}) -> {} {{ {} }}",
+                        name,
+                        parts.join(", "),
+                        rt.display(),
+                        body_summary
+                    )
                 } else {
-                    write!(f, "fn {}({}) {{ {} }}", name, parts.join(", "), body_summary)
+                    write!(
+                        f,
+                        "fn {}({}) {{ {} }}",
+                        name,
+                        parts.join(", "),
+                        body_summary
+                    )
                 }
             }
             Stmt::Expr(expr) => {

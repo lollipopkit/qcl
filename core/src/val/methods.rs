@@ -20,9 +20,7 @@ pub fn register_method(type_name: &str, method: &str, func: RustFunction) {
 pub fn find_method_for_val(receiver: &Val, method: &str) -> Option<RustFunction> {
     let reg = METHOD_REGISTRY.lock().unwrap();
     let tname = type_name_for_val(receiver);
-    reg.get(&tname)
-        .and_then(|m| m.get(method))
-        .copied()
+    reg.get(&tname).and_then(|m| m.get(method)).copied()
 }
 
 fn type_name_for_val(v: &Val) -> String {
@@ -40,4 +38,3 @@ fn type_name_for_val(v: &Val) -> String {
         Val::Nil => "Nil".to_string(),
     }
 }
-

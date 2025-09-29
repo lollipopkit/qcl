@@ -1014,7 +1014,12 @@ mod tests {
         let ctx = empty_context();
         let result = program.execute(&ctx);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Undefined variable"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Undefined variable")
+        );
     }
 
     #[test]

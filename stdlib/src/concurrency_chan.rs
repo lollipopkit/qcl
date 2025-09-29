@@ -168,9 +168,7 @@ fn chan_try_send(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -
         Val::Channel { id, .. } => {
             #[cfg(feature = "concurrency")]
             {
-                match qcl_core::rt::with_runtime(|runtime| {
-                    runtime.try_send(*id, value.clone())
-                }) {
+                match qcl_core::rt::with_runtime(|runtime| runtime.try_send(*id, value.clone())) {
                     Ok(success) => Ok(Val::Bool(success)),
                     Err(e) => Err(anyhow!("Failed to send to channel: {}", e)),
                 }

@@ -114,24 +114,24 @@ mod test {
         expect("@user.name ?? 'default'", "lk");
         expect("nil ?? 'fallback'", "fallback");
         expect("'actual' ?? 'fallback'", "actual");
-        
+
         // Numeric nullish coalescing
         expect("@nonexistent.age ?? 18", 18);
         expect("@user.age ?? 100", 18);
-        
+
         // Boolean nullish coalescing
         expect("@nonexistent.active ?? true", true);
         expect("@pub ?? false", true);
-        
+
         // Complex expressions with nullish coalescing
         expect("@user.nonexistent ?? @user.name ?? 'unknown'", "lk");
         expect("@user.name ?? @user.age ?? 'fallback'", "lk");
-        
+
         // Nested nullish coalescing with other operators
         expect("(@nonexistent.value ?? 5) + 10", 15);
         expect("(@user.name ?? 'guest') == 'lk'", true);
         expect("@user.name ?? ('guest' == 'lk')", "lk");
-        
+
         // Constant folding
         expect("'hello' ?? 'world'", "hello");
         expect("nil ?? 'constant'", "constant");
@@ -394,26 +394,28 @@ mod test {
     fn optional_chaining() {
         // Test basic optional chaining - should return "lk" when user exists
         expect("@req?.user?.name", "lk");
-        
+
         // Test optional chaining with nil - should return nil when intermediate is nil
         let ctx: Val = json!({
             "req": null
-        }).into();
+        })
+        .into();
         let expr = Expr::try_from("@req?.user?.name").unwrap();
         let result = expr.eval(&ctx).unwrap();
         assert_eq!(result, Val::Nil);
 
         // Test optional chaining mixed with regular access
         expect("@req?.user.name", "lk");
-        
+
         // Test optional chaining where intermediate field doesn't exist - should return nil
         let ctx: Val = json!({
             "req": {}
-        }).into();
+        })
+        .into();
         let expr = Expr::try_from("@req?.user?.name").unwrap();
         let result = expr.eval(&ctx).unwrap();
         assert_eq!(result, Val::Nil);
-        
+
         // Test optional chaining on nested structures
         let ctx: Val = json!({
             "data": {
@@ -423,11 +425,12 @@ mod test {
                     }
                 }
             }
-        }).into();
+        })
+        .into();
         let expr = Expr::try_from("@data?.user?.profile?.email").unwrap();
         let result = expr.eval(&ctx).unwrap();
         assert_eq!(result, Val::from("test@example.com"));
-        
+
         // Test optional chaining where deeply nested field is nil
         let ctx: Val = json!({
             "data": {
@@ -435,7 +438,8 @@ mod test {
                     "profile": null
                 }
             }
-        }).into();
+        })
+        .into();
         let expr = Expr::try_from("@data?.user?.profile?.email").unwrap();
         let result = expr.eval(&ctx).unwrap();
         assert_eq!(result, Val::Nil);
@@ -448,7 +452,8 @@ mod test {
                     {"name": "second"}
                 ]
             }
-        }).into();
+        })
+        .into();
         let expr = Expr::try_from("@data?.items?.0?.name").unwrap();
         let result = expr.eval(&ctx).unwrap();
         assert_eq!(result, Val::from("first"));
@@ -460,11 +465,12 @@ mod test {
                     "age": 25
                 }
             }
-        }).into();
+        })
+        .into();
         let expr = Expr::try_from("@data?.user?.age + 5").unwrap();
         let result = expr.eval(&ctx).unwrap();
         assert_eq!(result, Val::from(30));
-        
+
         // Test optional chaining in boolean expression
         let ctx: Val = json!({
             "data": {
@@ -472,7 +478,8 @@ mod test {
                     "age": 25
                 }
             }
-        }).into();
+        })
+        .into();
         let expr = Expr::try_from("@data?.user?.age > 20").unwrap();
         let result = expr.eval(&ctx).unwrap();
         assert_eq!(result, Val::from(true));
@@ -491,7 +498,8 @@ mod test {
                     {"name": "second"}
                 ]
             }
-        }).into();
+        })
+        .into();
         let expr = Expr::try_from("@data?.items?[0]?.name").unwrap();
         let result = expr.eval(&ctx).unwrap();
         assert_eq!(result, Val::from("first"));
@@ -567,7 +575,9 @@ mod test {
         assert!(res.is_ok());
         let val = res.unwrap();
         match val {
-            Val::Closure { params, body: _, .. } => {
+            Val::Closure {
+                params, body: _, ..
+            } => {
                 assert_eq!(params.len(), 0);
             }
             _ => panic!("Expected closure value"),
@@ -577,7 +587,9 @@ mod test {
         assert!(res.is_ok());
         let val = res.unwrap();
         match val {
-            Val::Closure { params, body: _, .. } => {
+            Val::Closure {
+                params, body: _, ..
+            } => {
                 assert_eq!(params.len(), 1);
                 assert_eq!(params[0], "x");
             }
@@ -588,7 +600,9 @@ mod test {
         assert!(res.is_ok());
         let val = res.unwrap();
         match val {
-            Val::Closure { params, body: _, .. } => {
+            Val::Closure {
+                params, body: _, ..
+            } => {
                 assert_eq!(params.len(), 2);
                 assert_eq!(params[0], "x");
                 assert_eq!(params[1], "y");
@@ -619,7 +633,10 @@ mod test {
         expect("\"Hello, ${@user.name}!\"", "Hello, lk!");
 
         // Template string with multiple interpolations
-        expect("\"User ${@user.name} is ${@user.age} years old\"", "User lk is 18 years old");
+        expect(
+            "\"User ${@user.name} is ${@user.age} years old\"",
+            "User lk is 18 years old",
+        );
 
         // Template string with expressions
         expect("\"Next year: ${@user.age + 1}\"", "Next year: 19");
@@ -637,7 +654,10 @@ mod test {
         expect("\"Nested: ${@nested.level1.level2}\"", "Nested: value");
 
         // Template string with special characters (escaped)
-        expect("\"Escaped: \\\"quote\\\" and \\$dollar\"", "Escaped: \"quote\" and $dollar");
+        expect(
+            "\"Escaped: \\\"quote\\\" and \\$dollar\"",
+            "Escaped: \"quote\" and $dollar",
+        );
 
         // Template string with nil value
         expect("\"Nil test: ${@nonexistent}\"", "Nil test: nil");
@@ -683,8 +703,13 @@ mod test {
     #[cfg(feature = "json")]
     fn template_string_context_collection() {
         // Test that template strings correctly collect context requirements
-        let expr = Expr::try_from("\"Hello ${@user.name}, your items are ${@items.0} and ${@items.1}\"").unwrap();
+        let expr =
+            Expr::try_from("\"Hello ${@user.name}, your items are ${@items.0} and ${@items.1}\"")
+                .unwrap();
         let ctx_names = expr.requested_ctx();
-        assert_eq!(ctx_names, HashSet::from(["user".to_string(), "items".to_string()]));
+        assert_eq!(
+            ctx_names,
+            HashSet::from(["user".to_string(), "items".to_string()])
+        );
     }
 }

@@ -1,5 +1,6 @@
 use qcl_core::{
-    ast::Parser as ExprParser, stmt::{Stmt, stmt_parser::StmtParser, ImportStmt},
+    ast::Parser as ExprParser,
+    stmt::{stmt_parser::StmtParser, ImportStmt, Stmt},
     token::Tokenizer,
 };
 use std::collections::{HashMap, HashSet};
@@ -105,7 +106,9 @@ impl QclAnalyzer {
             match stmt.as_ref() {
                 Stmt::Let { pattern, .. } => {
                     // Extract variable names from pattern and create symbols for each
-                    if let Some(variables) = qcl_lsp::analyzer::extract_variables_from_pattern(pattern) {
+                    if let Some(variables) =
+                        qcl_lsp::analyzer::extract_variables_from_pattern(pattern)
+                    {
                         for var_name in variables {
                             result.symbols.push(DocumentSymbol {
                                 name: var_name.clone(),
@@ -114,7 +117,10 @@ impl QclAnalyzer {
                                 tags: None,
                                 #[allow(deprecated)]
                                 deprecated: None,
-                                range: Range::new(Position::new(i as u32, 0), Position::new(i as u32, 100)),
+                                range: Range::new(
+                                    Position::new(i as u32, 0),
+                                    Position::new(i as u32, 100),
+                                ),
                                 selection_range: Range::new(
                                     Position::new(i as u32, 0),
                                     Position::new(i as u32, 100),

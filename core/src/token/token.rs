@@ -1,77 +1,77 @@
 use std::fmt::Debug;
 
-use anyhow::{Result, anyhow};
 use crate::token::{ParseError, Position, Span};
+use anyhow::{Result, anyhow};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
-    LParen,    // (
-    RParen,    // )
-    LBrace,    // {
-    RBrace,    // }
-    LBracket,  // [
-    RBracket,  // ]
-    Dot,       // .
+    LParen,      // (
+    RParen,      // )
+    LBrace,      // {
+    RBrace,      // }
+    LBracket,    // [
+    RBracket,    // ]
+    Dot,         // .
     OptionalDot, // ?.
-    Colon,     // :
-    Comma,     // ,
-    Semicolon, // ;
-    Assign,    // =
-    AddAssign, // +=
-    SubAssign, // -=
-    MulAssign, // *=
-    DivAssign, // /=
-    ModAssign, // %=
-    Nil,       // nil
-    Eq,        // ==
-    Ne,        // !=
-    Gt,        // >
-    Lt,        // <
-    Ge,        // >=
-    Le,        // <=
-    In,        // in
-    And,       // &&
-    Or,        // ||
-    Not,       // !
-    Add,       // +
-    Sub,       // -
-    Mul,       // *
-    Div,       // /
-    Mod,       // %
-    At,        // @
+    Colon,       // :
+    Comma,       // ,
+    Semicolon,   // ;
+    Assign,      // =
+    AddAssign,   // +=
+    SubAssign,   // -=
+    MulAssign,   // *=
+    DivAssign,   // /=
+    ModAssign,   // %=
+    Nil,         // nil
+    Eq,          // ==
+    Ne,          // !=
+    Gt,          // >
+    Lt,          // <
+    Ge,          // >=
+    Le,          // <=
+    In,          // in
+    And,         // &&
+    Or,          // ||
+    Not,         // !
+    Add,         // +
+    Sub,         // -
+    Mul,         // *
+    Div,         // /
+    Mod,         // %
+    At,          // @
     // Statement keywords
-    If,       // if
-    Else,     // else
-    While,    // while
-    Let,      // let
-    Break,    // break
-    Continue, // continue
-    Return,   // return
-    Fn,       // fn (function definition)
-    For,      // for (for loop)
-    Match,    // match (pattern matching)
-    Range,    // .. (range operator)
+    If,             // if
+    Else,           // else
+    While,          // while
+    Let,            // let
+    Break,          // break
+    Continue,       // continue
+    Return,         // return
+    Fn,             // fn (function definition)
+    For,            // for (for loop)
+    Match,          // match (pattern matching)
+    Range,          // .. (range operator)
     RangeInclusive, // ..= (inclusive range operator)
     // Concurrency keywords
-    Spawn,     // spawn
-    Chan,      // chan
-    Send,      // send
-    Recv,      // recv
-    Select,    // select
-    Case,      // case
-    Default,   // default
-    Arrow,         // =>
-    LeftArrow,     // <-
-    NullishCoalescing, // ??
-    TemplateString(String),   // Formatted string content with ${...}
+    Spawn,                  // spawn
+    Chan,                   // chan
+    Send,                   // send
+    Recv,                   // recv
+    Select,                 // select
+    Case,                   // case
+    Default,                // default
+    Arrow,                  // =>
+    LeftArrow,              // <-
+    NullishCoalescing,      // ??
+    TemplateString(String), // Formatted string content with ${...}
     // Import keywords
-    Import,      // import
-    From,        // from
-    As,          // as
+    Import, // import
+    From,   // from
+    As,     // as
     // Type system keywords
-    Type,        // type (for type aliases)
-    Trait,       // trait
-    Impl,        // impl
+    Type,  // type (for type aliases)
+    Trait, // trait
+    Impl,  // impl
     // Type operators
     Pipe,        // | (for union types)
     Question,    // ? (for optional types)
@@ -337,7 +337,9 @@ impl Tokenizer {
                     }
                     self.advance_char();
                 } else {
-                    return Err(anyhow!(self.err("Incomplete escape sequence at end of string")));
+                    return Err(anyhow!(
+                        self.err("Incomplete escape sequence at end of string")
+                    ));
                 }
             } else {
                 content.push(c);
@@ -381,7 +383,9 @@ impl Tokenizer {
 
         // Consume r + #* + opening quote
         self.advance_char(); // 'r'
-        for _ in 0..hashes { self.advance_char(); }
+        for _ in 0..hashes {
+            self.advance_char();
+        }
         self.advance_char(); // '"'
 
         let mut content = String::new();
@@ -398,7 +402,9 @@ impl Tokenizer {
                 if k == hashes {
                     // Consume closing
                     self.advance_char(); // '"'
-                    for _ in 0..hashes { self.advance_char(); }
+                    for _ in 0..hashes {
+                        self.advance_char();
+                    }
                     let end_pos = self.current_position();
                     self.push_with_span(Token::Str(content), start_pos, end_pos);
                     return Ok(());
@@ -426,7 +432,7 @@ impl Tokenizer {
         let start_pos = self.current_position();
         let mut dot_count = 0;
         let mut has_exp = false;
-        
+
         while !self.eof() {
             let c = self.chars[self.idx];
             if c.is_ascii_digit() {
@@ -452,7 +458,7 @@ impl Tokenizer {
                 num.push(c);
                 self.advance_char();
                 has_exp = true;
-                
+
                 // Check for optional sign after 'e'/'E'
                 if !self.eof() {
                     let next_c = self.chars[self.idx];
@@ -509,7 +515,9 @@ impl Tokenizer {
         // If we didn't consume any character, report an unknown character to avoid
         // non-advancing loops that can blow up memory.
         if id.is_empty() {
-            return Err(anyhow!(self.err("Invalid identifier start or unknown character")));
+            return Err(anyhow!(
+                self.err("Invalid identifier start or unknown character")
+            ));
         }
         let end_pos = self.current_position();
         self.push_with_span(Token::Id(id), start_pos, end_pos);
@@ -712,8 +720,8 @@ impl Tokenizer {
 
     fn parse_punctuations(&mut self) -> Result<()> {
         let c = self.chars[self.idx];
-            match c {
-                '(' => {
+        match c {
+            '(' => {
                 let start = self.current_position();
                 self.advance_char();
                 let end = self.current_position();
@@ -877,15 +885,12 @@ impl Tokenizer {
                         Some(self.chars[prev_idx])
                     };
 
-                    let is_after_expr = matches!(
-                        prev_char,
-                        Some(')' | ']' | '}' | '"' | '\'' | '`')
-                    ) || matches!(prev_char, Some(c) if c.is_alphanumeric());
+                    let is_after_expr =
+                        matches!(prev_char, Some(')' | ']' | '}' | '"' | '\'' | '`'))
+                            || matches!(prev_char, Some(c) if c.is_alphanumeric());
 
-                    let is_after_delim = matches!(
-                        prev_char,
-                        None | Some('=' | '(' | '{' | ',' | ';' | ':')
-                    );
+                    let is_after_delim =
+                        matches!(prev_char, None | Some('=' | '(' | '{' | ',' | ';' | ':'));
 
                     if is_after_delim && !is_after_expr {
                         // Empty-parameter closure context: emit two Pipe tokens with spans
@@ -1081,7 +1086,8 @@ impl Tokenizer {
                 // Keywords: true false nil if else while let break continue return goto fn for as ...
                 // Also: go, select/case/default
                 // NOTE: include starting letters for all keywords so they route to parse_keywords.
-                't' | 'f' | 'n' | 'i' | 'e' | 'w' | 'l' | 'b' | 'c' | 'g' | 's' | 'd' | 'a' | 'm' => {
+                't' | 'f' | 'n' | 'i' | 'e' | 'w' | 'l' | 'b' | 'c' | 'g' | 's' | 'd' | 'a'
+                | 'm' => {
                     self.parse_keywords()?;
                 }
                 _ => {
@@ -1126,12 +1132,7 @@ impl Tokenizer {
 }
 
 impl Tokenizer {
-    fn push_with_span(
-        &mut self,
-        token: Token,
-        start: Position,
-        end: Position,
-    ) {
+    fn push_with_span(&mut self, token: Token, start: Position, end: Position) {
         self.tokens.push(token);
         self.token_spans.push(Span::new(start, end));
     }

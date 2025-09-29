@@ -1,4 +1,7 @@
 use crate::module::ModuleRegistry;
+use crate::stmt::Program;
+use crate::stmt::stmt_parser::StmtParser;
+use crate::token::Tokenizer;
 use crate::val::Val;
 use anyhow::{Result, anyhow};
 use std::collections::HashMap;
@@ -51,10 +54,10 @@ pub struct ImportItem {
 // This file now provides compatibility layer and file-based import functionality
 
 /// Module resolver - handles finding and loading modules
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ModuleResolver {
     /// Standard library registry
-    stdlib_registry: ModuleRegistry,
+    stdlib_registry: std::sync::Arc<ModuleRegistry>,
     /// Standard library modules cache
     stdlib_modules: HashMap<String, Val>,
     /// Loaded file modules (path -> module)
@@ -78,14 +81,11 @@ impl ModuleResolver {
     /// Create a new resolver with a specific module registry
     pub fn with_registry(registry: ModuleRegistry) -> Self {
         Self {
-            stdlib_registry: registry,
+            stdlib_registry: std::sync::Arc::new(registry),
             stdlib_modules: HashMap::new(),
             file_modules: Arc::new(RwLock::new(HashMap::new())),
-            search_paths: vec![
-                PathBuf::from("."),         // Current directory
-                PathBuf::from("./lib"),     // Local lib directory
-                PathBuf::from("./modules"), // Local modules directory
-            ],
+            // Only current directory; no hardcoded modules/lib search
+            search_paths: vec![PathBuf::from(".")],
         }
     }
 
@@ -148,40 +148,71 @@ impl ModuleResolver {
             ));
         }
 
-        if path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        if path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
             return Err(anyhow!(
                 "Parent directory components ('..') are not allowed in imports: {}",
                 path.display()
             ));
         }
 
-        // Search in search paths
-        for search_path in &self.search_paths {
-            let full_path = search_path.join(path);
-            if full_path.exists() {
-                return Ok(full_path);
-            }
+        // Candidate patterns (relative to current directory):
+        // 1) ${MOD_NAME}.qcl
+        // 2) ${MOD_NAME}/mod.qcl
+        // If the input already contains an extension, also allow it directly.
+        let base = PathBuf::from(path);
 
-            // Also try with .qcl extension
-            let with_ext = full_path.with_extension("qcl");
-            if with_ext.exists() {
-                return Ok(with_ext);
-            }
+        // If the input already includes .qcl and exists, accept it
+        if base.extension().and_then(|s| s.to_str()) == Some("qcl") && base.exists() {
+            return Ok(base);
+        }
+
+        // Try ${MOD_NAME}.qcl
+        let candidate1 = base.with_extension("qcl");
+        if candidate1.exists() {
+            return Ok(candidate1);
+        }
+
+        // Try ${MOD_NAME}/mod.qcl
+        let candidate2 = base.join("mod.qcl");
+        if candidate2.exists() {
+            return Ok(candidate2);
         }
 
         Err(anyhow!(
-            "File not found: {} (searched in {:?})",
+            "File not found for module '{}': expected '{}.qcl' or '{}/mod.qcl'",
             path.display(),
-            self.search_paths
+            path.display(),
+            path.display()
         ))
     }
 
-    /// Load and parse a file module (placeholder - will integrate with parser)
-    fn load_file_module(&self, _path: &Path) -> Result<Val> {
-        // TODO: Implement file parsing and module extraction
-        // For now, return empty module as a map
-        let empty_map = std::collections::HashMap::new();
-        Ok(Val::Map(empty_map.into()))
+    /// Load and parse a file module into a namespace map
+    fn load_file_module(&self, path: &Path) -> Result<Val> {
+        // Read source
+        let src = std::fs::read_to_string(path)?;
+
+        // Tokenize with spans for better diagnostics
+        let (tokens, spans) =
+            Tokenizer::tokenize_enhanced_with_spans(&src).map_err(|e| anyhow!(e.to_string()))?;
+
+        // Parse program with enhanced errors
+        let mut parser = StmtParser::new_with_spans(&tokens, &spans);
+        let program: Program = parser
+            .parse_program_with_enhanced_errors(&src)
+            .map_err(|e| anyhow!(e.to_string()))?;
+
+        // Execute in a fresh environment that shares this resolver
+        let resolver = std::sync::Arc::new(self.clone());
+        let mut env = crate::stmt::Environment::with_resolver(resolver);
+        let ctx = Val::Nil;
+        let _ = program.execute_with_env(&ctx, &mut env)?;
+
+        // Collect top-level definitions as exports
+        let exports = env.export_symbols();
+        Ok(Val::Map(exports.into()))
     }
 }
 
@@ -345,5 +376,44 @@ mod tests {
         // (error message still OK but not due to security check)
         let rel = PathBuf::from("does_not_exist.qcl");
         assert!(resolver.resolve_file_path(&rel.to_string_lossy()).is_err());
+    }
+
+    #[test]
+    fn test_load_file_module_exports() -> Result<()> {
+        // Arrange: resolver expects ./hello.qcl or ./hello/mod.qcl to exist (crate root)
+        let resolver = ModuleResolver::new();
+        let module_val = resolver.resolve_file("hello")?;
+
+        // Assert: module is a map with expected keys
+        match module_val {
+            Val::Map(map) => {
+                assert!(map.contains_key("answer"));
+                assert!(map.contains_key("double"));
+                assert!(map.contains_key("data"));
+                assert!(matches!(map.get("answer"), Some(Val::Int(42))));
+            }
+            other => panic!("Expected module map, got {:?}", other),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_import_items_from_file() -> Result<()> {
+        // Program: import { answer as a } from "hello"; let z = a + 1;
+        let src = "import { answer as a } from \"hello\"; let z = a + 1;";
+        let tokens = Tokenizer::tokenize(src).unwrap();
+        let mut parser = crate::stmt::stmt_parser::StmtParser::new(&tokens);
+        let program = parser.parse_program()?;
+
+        // Execute with a resolver (search base is current directory only)
+        let resolver = std::sync::Arc::new(ModuleResolver::new());
+        let mut env = crate::stmt::Environment::with_resolver(resolver);
+        let ctx = Val::Nil;
+        let _ = program.execute_with_env(&ctx, &mut env)?;
+
+        // Validate
+        let z = env.get("z").cloned().unwrap_or(Val::Nil);
+        assert_eq!(z, Val::Int(43));
+        Ok(())
     }
 }

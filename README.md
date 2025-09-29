@@ -83,7 +83,9 @@ match result {
     <img src="https://cdn.lpkt.cn/img/capture/qcl.png" alt="QCL" />
 </div>
 
-- Note: when passing a file to the CLI, only relative, sanitized paths are allowed (no `..`, no absolute paths).
+- File import safety and resolution:
+  - Only relative, sanitized paths are allowed (no `..`, no absolute paths).
+  - When importing files, resolution tries `${MOD_NAME}.qcl` then `${MOD_NAME}/mod.qcl` relative to the current directory. Quoted paths with `.qcl` are used directly if they exist.
 
 ## License
 

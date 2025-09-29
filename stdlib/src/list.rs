@@ -53,7 +53,9 @@ impl ListModule {
     // Return a new list with value appended (immutable)
     fn push(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 2 {
-            return Err(anyhow::anyhow!("push() takes exactly 2 arguments: list, value"));
+            return Err(anyhow::anyhow!(
+                "push() takes exactly 2 arguments: list, value"
+            ));
         }
         match (&args[0], &args[1]) {
             (Val::List(l), v) => {
@@ -69,7 +71,9 @@ impl ListModule {
     // Concatenate two lists
     fn concat(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 2 {
-            return Err(anyhow::anyhow!("concat() takes exactly 2 arguments: list, other_list"));
+            return Err(anyhow::anyhow!(
+                "concat() takes exactly 2 arguments: list, other_list"
+            ));
         }
         match (&args[0], &args[1]) {
             (Val::List(a), Val::List(b)) => {
@@ -111,7 +115,9 @@ impl ListModule {
     // Safe index access: get(index) -> value|nil
     fn get(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
         if args.len() != 2 {
-            return Err(anyhow::anyhow!("get() takes exactly 2 arguments: list, index"));
+            return Err(anyhow::anyhow!(
+                "get() takes exactly 2 arguments: list, index"
+            ));
         }
         let list = match &args[0] {
             Val::List(l) => &**l,
@@ -212,4 +218,3 @@ mod tests {
         Ok(())
     }
 }
-

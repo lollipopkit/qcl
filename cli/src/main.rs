@@ -8,7 +8,7 @@ use qcl_core::{
     module::ModuleRegistry,
     stmt::{self, stmt_parser::StmtParser},
     token::Tokenizer,
-    val::{de, Val},
+    val::{Val, de},
 };
 
 #[cfg(feature = "concurrency")]
@@ -57,9 +57,7 @@ fn main() -> anyhow::Result<()> {
         );
         eprintln!("  Format is auto-detected unless {} is specified", flag_str);
         eprintln!("  Default is statement mode, use --expr for expression mode");
-        eprintln!(
-            "  If a single argument is a file path, it will be executed"
-        );
+        eprintln!("  If a single argument is a file path, it will be executed");
         eprintln!(
             "  Note: only relative, sanitized file paths are allowed (no '..', no absolute paths)"
         );

@@ -19,8 +19,7 @@ mod tests {
         crate::register_stdlib_globals(&mut registry);
 
         // Create environment with this registry
-        let resolver =
-            std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
+        let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
 
         let result = program.execute_with_env(&ctx, &mut env)?;
@@ -40,8 +39,7 @@ mod tests {
         crate::register_stdlib_modules(&mut registry);
         crate::register_stdlib_globals(&mut registry);
 
-        let resolver =
-            std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
+        let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
