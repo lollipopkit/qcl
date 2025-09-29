@@ -59,6 +59,7 @@ impl QclAnalyzer {
 
     /// Compute type inlay hints for simple `let name = expr;` without explicit annotations.
     /// Places a TYPE hint like `: Int` right after the pattern (before '=').
+    #[cfg(test)]
     pub fn compute_type_inlay_hints(&self, content: &str, range: Range) -> Vec<InlayHint> {
         let (tokens, spans) = match Tokenizer::tokenize_enhanced_with_spans(content) {
             Ok(pair) => pair,
@@ -193,6 +194,7 @@ impl QclAnalyzer {
     }
 
     /// Compute type hints for short declarations: `name := expr;`
+    #[cfg(test)]
     pub fn compute_define_type_hints(&self, content: &str, range: Range) -> Vec<InlayHint> {
         let (tokens, spans) = match Tokenizer::tokenize_enhanced_with_spans(content) {
             Ok(pair) => pair,
@@ -274,6 +276,7 @@ impl QclAnalyzer {
     /// Compute type inlay hints for function return types: place a TYPE hint like `-> Int`
     /// after the parameter list. If multiple return statements exist (e.g., branches),
     /// the displayed type is a union of all discovered return expression types.
+    #[cfg(test)]
     pub fn compute_function_return_type_hints(
         &self,
         content: &str,

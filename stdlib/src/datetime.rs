@@ -49,7 +49,7 @@ impl DateTimeModule {
 
         use chrono::{DateTime, Utc};
         let now: DateTime<Utc> = Utc::now();
-        let timestamp = now.timestamp();
+        let timestamp = now.timestamp_micros();
         Ok(Val::Int(timestamp))
     }
 

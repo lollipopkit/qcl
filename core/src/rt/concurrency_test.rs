@@ -9,7 +9,7 @@ mod tests {
     #[cfg(feature = "concurrency")]
     #[tokio::test]
     async fn test_spawn_expression_parsing() -> Result<()> {
-        let expr = Expr::parse_cached("spawn(42)")?;
+        let expr = Expr::parse_cached_arc("spawn(42)")?;
 
         // Initialize runtime for testing
         crate::rt::init_runtime()?;
@@ -26,7 +26,7 @@ mod tests {
     #[cfg(feature = "concurrency")]
     #[tokio::test]
     async fn test_channel_creation() -> Result<()> {
-        let expr = Expr::parse_cached("chan(10)")?;
+        let expr = Expr::parse_cached_arc("chan(10)")?;
 
         crate::rt::init_runtime()?;
 
@@ -50,13 +50,13 @@ mod tests {
     fn test_concurrency_ast_parsing() -> Result<()> {
         // Test parsing spawn expression
         println!("Testing spawn...");
-        let spawn_expr = Expr::parse_cached("spawn(42)")?;
-        assert!(matches!(spawn_expr, Expr::Spawn(_)));
+        let spawn_expr = Expr::parse_cached_arc("spawn(42)")?;
+        assert!(matches!(*spawn_expr, Expr::Spawn(_)));
 
         // Test parsing channel creation
         println!("Testing chan...");
-        let chan_expr = Expr::parse_cached("chan(5)")?;
-        assert!(matches!(chan_expr, Expr::ChanLiteral { .. }));
+        let chan_expr = Expr::parse_cached_arc("chan(5)")?;
+        assert!(matches!(*chan_expr, Expr::ChanLiteral { .. }));
 
         println!("All tests passed");
         Ok(())
@@ -71,11 +71,11 @@ mod tests {
             default => "timeout";
         }"#;
 
-        let expr = Expr::parse_cached(select_code)?;
+        let expr = Expr::parse_cached_arc(select_code)?;
         if let Expr::Select {
             cases,
             default_case,
-        } = expr
+        } = &*expr
         {
             assert_eq!(cases.len(), 2);
             assert!(default_case.is_some());
@@ -89,7 +89,7 @@ mod tests {
     #[test]
     fn test_concurrency_without_feature() {
         // When concurrency feature is disabled, these should parse but evaluate differently
-        let spawn_expr = Expr::parse_cached("spawn(42)").unwrap();
+        let spawn_expr = Expr::parse_cached_arc("spawn(42)").unwrap();
         let ctx = Val::Nil;
 
         // Without concurrency feature, should return the inner expression result

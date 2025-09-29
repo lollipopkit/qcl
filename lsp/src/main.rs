@@ -2273,7 +2273,8 @@ fn format_qcl(input: &str, options: &FormattingOptions) -> String {
     out
 }
 
-fn compute_inlay_hints(content: &str, range: Range) -> Vec<InlayHint> {
+#[cfg(test)]
+pub(crate) fn compute_inlay_hints(content: &str, range: Range) -> Vec<InlayHint> {
     // Default margin for tests and callers not providing a margin
     compute_inlay_hints_with_margin(content, range, 3)
 }

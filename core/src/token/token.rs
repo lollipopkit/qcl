@@ -97,10 +97,11 @@ pub struct Tokenizer {
 
 impl Tokenizer {
     pub fn tokenize(s: &str) -> Result<Vec<Token>> {
+        let chars: Vec<char> = s.chars().collect();
         let mut t = Tokenizer {
-            chars: s.chars().collect(),
+            len: chars.len(), // count once
+            chars,
             idx: 0,
-            len: s.chars().count(), // More accurate than s.len() for Unicode
             tokens: Vec::with_capacity(s.len() / 4), // Preallocate a reasonable size
             token_spans: Vec::with_capacity(s.len() / 4),
             line: 1,
@@ -142,10 +143,11 @@ impl Tokenizer {
 
     /// Create a tokenizer with enhanced error reporting
     pub fn new_enhanced(input: &str) -> Self {
+        let chars: Vec<char> = input.chars().collect();
         Self {
-            chars: input.chars().collect(),
+            len: chars.len(),
+            chars,
             idx: 0,
-            len: input.chars().count(),
             tokens: Vec::with_capacity(input.len() / 4),
             token_spans: Vec::with_capacity(input.len() / 4),
             line: 1,

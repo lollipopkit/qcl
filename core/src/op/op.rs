@@ -85,48 +85,10 @@ impl BinOp {
 
                 // All elements in l must be in r
                 (Val::List(l), Val::List(r)) => Ok((**l).iter().all(|x| (**r).contains(x))),
-                // Single element membership: use HashSet for large lists
-                (_, Val::List(r)) => {
-                    if r.len() > 32 {
-                        use std::collections::HashSet;
-                        match l {
-                            Val::Int(i) => {
-                                let set: HashSet<_> = (**r)
-                                    .iter()
-                                    .filter_map(
-                                        |v| if let Val::Int(x) = v { Some(*x) } else { None },
-                                    )
-                                    .collect();
-                                Ok(set.contains(i))
-                            }
-                            Val::Str(s) => {
-                                let set: HashSet<_> = (**r)
-                                    .iter()
-                                    .filter_map(|v| {
-                                        if let Val::Str(t) = v {
-                                            Some(t.as_ref())
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .collect();
-                                Ok(set.contains(s.as_ref()))
-                            }
-                            Val::Bool(b) => {
-                                let set: HashSet<_> = (**r)
-                                    .iter()
-                                    .filter_map(
-                                        |v| if let Val::Bool(x) = v { Some(*x) } else { None },
-                                    )
-                                    .collect();
-                                Ok(set.contains(b))
-                            }
-                            _ => Ok((**r).contains(l)),
-                        }
-                    } else {
-                        Ok((**r).contains(l))
-                    }
-                }
+                // Single element membership: linear scan is faster than
+                // rebuilding a HashSet for each evaluation without caching.
+                // This keeps per-eval cost low and avoids extra allocations.
+                (_, Val::List(r)) => Ok((**r).contains(l)),
 
                 // Map key lookup optimization
                 (Val::Str(s), Val::Map(m)) => Ok(m.contains_key(s.as_ref())),

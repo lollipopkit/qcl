@@ -14,7 +14,6 @@ use crate::{
     val::{Type, Val},
 };
 use once_cell::sync::Lazy;
-use std::sync::Mutex;
 
 /// Grammar:
 /// exp     ::= paren
@@ -1185,21 +1184,48 @@ impl Expr {
         }
     }
 
-    /// Cached parsing: parse expression string to Expr with caching to avoid repeated parsing overhead
-    pub fn parse_cached(expression: &str) -> Result<Expr> {
+    /// Cached parsing: parse expression string and return a shared Arc<Expr>.
+    /// Use `parse_cached` if you need an owned `Expr` value.
+    pub fn parse_cached_arc(expression: &str) -> Result<Arc<Expr>> {
+        use std::collections::hash_map::Entry;
+        use std::sync::RwLock;
+
         // Global static cache: Key is expression string, Value is parsed Expr wrapped in Arc
-        static PARSE_CACHE: Lazy<Mutex<HashMap<String, Arc<Expr>>>> =
-            Lazy::new(|| Mutex::new(HashMap::new()));
-        let mut cache = PARSE_CACHE.lock().unwrap();
-        if let Some(cached) = cache.get(expression) {
-            // Cache hit, clone the Arc (cheap)
-            return Ok((*cached.clone()).clone());
+        static PARSE_CACHE: Lazy<RwLock<HashMap<String, Arc<Expr>>>> =
+            Lazy::new(|| RwLock::new(HashMap::new()));
+
+        // Fast read path
+        if let Some(found) = PARSE_CACHE
+            .read()
+            .ok()
+            .and_then(|c| c.get(expression).cloned())
+        {
+            return Ok(found);
         }
-        // Cache miss, perform normal parsing
+
+        // Parse on miss, then insert with write lock
         let tokens = Tokenizer::tokenize(expression)?;
-        let expr = Parser::new(&tokens).parse()?; // Internal constant folding happens in parser
-        cache.insert(expression.to_string(), Arc::new(expr.clone()));
-        Ok(expr)
+        let expr = Parser::new(&tokens).parse()?; // Constant folding happens in parser
+        let expr_arc = Arc::new(expr);
+
+        if let Ok(mut write) = PARSE_CACHE.write() {
+            match write.entry(expression.to_string()) {
+                Entry::Vacant(v) => {
+                    v.insert(expr_arc.clone());
+                    Ok(expr_arc)
+                }
+                Entry::Occupied(o) => Ok(o.get().clone()),
+            }
+        } else {
+            // If poisoned, just return the fresh value without caching
+            Ok(expr_arc)
+        }
+    }
+
+    /// Backwards-compatible helper that returns an owned `Expr` by cloning
+    /// the shared cached AST. Prefer `parse_cached_arc` for performance.
+    pub fn parse_cached(expression: &str) -> Result<Expr> {
+        Ok(Self::parse_cached_arc(expression)?.as_ref().clone())
     }
 
     /// Constant folding: calculate pure constant sub-expressions as Val constants

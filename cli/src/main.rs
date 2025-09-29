@@ -192,8 +192,8 @@ fn main() -> anyhow::Result<()> {
 
         program.execute_with_env(&ctx, &mut env)
     } else {
-        let val = Expr::parse_cached(&input)?;
-        val.eval(&ctx)
+        let expr = Expr::parse_cached_arc(&input)?;
+        expr.eval(&ctx)
     };
 
     // Shutdown runtime after execution

@@ -624,7 +624,7 @@ impl Val {
             let mut result = String::with_capacity(a.len() + b.len());
             result.push_str(a);
             result.push_str(b);
-            Val::Str(Arc::from(result.as_str()))
+            Val::Str(Arc::from(result.into_boxed_str()))
         }
     }
 }
@@ -709,6 +709,69 @@ impl Sub for &Val {
             (Val::Int(a), Val::Float(b)) => Ok((*a as f64 - b).into()),
             #[cfg(feature = "adv_arith")]
             (Val::List(l), Val::List(r)) => {
+                use std::collections::HashSet;
+                // For larger right-hand lists, build a typed HashSet to avoid O(n*m)
+                if r.len() > 32 {
+                    // Case 1: all ints in r
+                    if r.iter().all(|v| matches!(v, Val::Int(_))) {
+                        let set: HashSet<i64> = r
+                            .iter()
+                            .filter_map(|v| if let Val::Int(x) = v { Some(*x) } else { None })
+                            .collect();
+                        let mut out = Vec::with_capacity(l.len());
+                        for v in l.iter() {
+                            match v {
+                                Val::Int(x) => {
+                                    if !set.contains(x) {
+                                        out.push(Val::Int(*x));
+                                    }
+                                }
+                                _ => out.push(v.clone()),
+                            }
+                        }
+                        return Ok(out.into());
+                    }
+                    // Case 2: all strings in r
+                    if r.iter().all(|v| matches!(v, Val::Str(_))) {
+                        let set: HashSet<&str> = r
+                            .iter()
+                            .filter_map(|v| if let Val::Str(s) = v { Some(s.as_ref()) } else { None })
+                            .collect();
+                        let mut out = Vec::with_capacity(l.len());
+                        for v in l.iter() {
+                            match v {
+                                Val::Str(s) => {
+                                    if !set.contains(s.as_ref()) {
+                                        out.push(Val::Str(s.clone()))
+                                    }
+                                }
+                                _ => out.push(v.clone()),
+                            }
+                        }
+                        return Ok(out.into());
+                    }
+                    // Case 3: all bools in r
+                    if r.iter().all(|v| matches!(v, Val::Bool(_))) {
+                        let set: HashSet<bool> = r
+                            .iter()
+                            .filter_map(|v| if let Val::Bool(b) = v { Some(*b) } else { None })
+                            .collect();
+                        let mut out = Vec::with_capacity(l.len());
+                        for v in l.iter() {
+                            match v {
+                                Val::Bool(b) => {
+                                    if !set.contains(b) {
+                                        out.push(Val::Bool(*b))
+                                    }
+                                }
+                                _ => out.push(v.clone()),
+                            }
+                        }
+                        return Ok(out.into());
+                    }
+                }
+
+                // Fallback: generic O(n*m) removal when r is small or mixed types
                 let mut result = Vec::with_capacity(l.len());
                 'outer: for left_val in l.iter() {
                     for right_val in r.iter() {
@@ -816,7 +879,7 @@ impl Rem for &Val {
 impl From<String> for Val {
     #[inline]
     fn from(s: String) -> Self {
-        Val::Str(Arc::from(s.as_str()))
+        Val::Str(Arc::from(s.into_boxed_str()))
     }
 }
 
@@ -924,7 +987,7 @@ impl From<(u64, i64, Type)> for Val {
 impl From<serde_json::Value> for Val {
     fn from(val: serde_json::Value) -> Self {
         match val {
-            serde_json::Value::String(s) => Val::Str(Arc::from(s.as_str())),
+            serde_json::Value::String(s) => Val::Str(Arc::from(s.into_boxed_str())),
             serde_json::Value::Number(n) => {
                 if let Some(i) = n.as_i64() {
                     Val::Int(i)
@@ -952,7 +1015,7 @@ impl From<serde_json::Value> for Val {
 impl From<serde_yaml::Value> for Val {
     fn from(val: serde_yaml::Value) -> Self {
         match val {
-            serde_yaml::Value::String(s) => Val::Str(Arc::from(s.as_str())),
+            serde_yaml::Value::String(s) => Val::Str(Arc::from(s.into_boxed_str())),
             serde_yaml::Value::Number(n) => {
                 if let Some(i) = n.as_i64() {
                     Val::Int(i)
