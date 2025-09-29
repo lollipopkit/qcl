@@ -140,6 +140,9 @@ for 循环模式
   - 列表：`len, push, concat, join, get, first, last`
   - 映射：`len, keys, values, has, get`
 
+## CLI 输出行为
+- REPL 与 CLI 仅在结果值非 `nil` 时打印输出。这样可以避免对默认返回 `nil` 的语句（如 `let`、函数定义、`println(...)` 等）多输出一行。若需要展示 `nil`，请显式调用 `println(nil)` 或在格式化输出中包含它。
+
 ## 类型与标注
 原始与复合类型
 - `Int`、`Float`、`String`、`Bool`、`Nil`、`Any`

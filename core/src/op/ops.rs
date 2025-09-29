@@ -93,9 +93,9 @@ impl BinOp {
                 // Map key lookup optimization
                 (Val::Str(s), Val::Map(m)) => Ok(m.contains_key(s.as_ref())),
                 // For non-string keys, try converting to string key
-                (Val::Int(i), Val::Map(m)) => Ok(m.contains_key(&i.to_string())),
-                (Val::Float(f), Val::Map(m)) => Ok(m.contains_key(&f.to_string())),
-                (Val::Bool(b), Val::Map(m)) => Ok(m.contains_key(&b.to_string())),
+                (Val::Int(i), Val::Map(m)) => Ok(m.contains_key(i.to_string().as_str())),
+                (Val::Float(f), Val::Map(m)) => Ok(m.contains_key(f.to_string().as_str())),
+                (Val::Bool(b), Val::Map(m)) => Ok(m.contains_key(b.to_string().as_str())),
                 // Other types return false (Nil or complex structures can't be keys)
                 (_, Val::Map(_)) => Ok(false),
 

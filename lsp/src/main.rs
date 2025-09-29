@@ -1112,7 +1112,7 @@ impl LanguageServer for QclLanguageServer {
 
         let active = active_param.unwrap_or(0).min(
             signatures
-                .get(0)
+                .first()
                 .and_then(|s| s.parameters.as_ref())
                 .map(|v| v.len().saturating_sub(1))
                 .unwrap_or(0),
@@ -1251,19 +1251,24 @@ impl LanguageServer for QclLanguageServer {
         let want_params = cfg.inlay_hints_parameters;
         let want_types = cfg.inlay_hints_types;
         let margin = cfg.inlay_scan_margin_lines;
-        let range = params.range.clone();
+        let range = params.range;
         let computed = tokio::task::spawn_blocking(move || {
             let mut hints: Vec<InlayHint> = Vec::new();
             if want_params {
-                hints.extend(compute_inlay_hints_with_margin(&content, range.clone(), margin));
+                hints.extend(compute_inlay_hints_with_margin(&content, range, margin));
             }
             if want_types {
                 // Tokenize once and reuse across individual computations
-                if let Ok((tokens, spans)) = qcl_core::token::Tokenizer::tokenize_enhanced_with_spans(&content) {
+                if let Ok((tokens, spans)) =
+                    qcl_core::token::Tokenizer::tokenize_enhanced_with_spans(&content)
+                {
                     let analyzer = QclAnalyzer::new();
-                    let mut h1 = analyzer.compute_type_inlay_hints_from_tokens(&tokens, &spans, range.clone());
-                    let mut h2 = analyzer.compute_define_type_hints_from_tokens(&tokens, &spans, range.clone());
-                    let mut h3 = analyzer.compute_function_return_type_hints_from_tokens(&tokens, &spans, range.clone());
+                    let mut h1 =
+                        analyzer.compute_type_inlay_hints_from_tokens(&tokens, &spans, range);
+                    let mut h2 =
+                        analyzer.compute_define_type_hints_from_tokens(&tokens, &spans, range);
+                    let mut h3 = analyzer
+                        .compute_function_return_type_hints_from_tokens(&tokens, &spans, range);
                     hints.append(&mut h1);
                     hints.append(&mut h2);
                     hints.append(&mut h3);
@@ -1290,7 +1295,8 @@ impl LanguageServer for QclLanguageServer {
                 if doc.cached_inlay_hints.len() >= 64 {
                     doc.cached_inlay_hints.clear();
                 }
-                doc.cached_inlay_hints.insert(key, Arc::new(filtered.clone()));
+                doc.cached_inlay_hints
+                    .insert(key, Arc::new(filtered.clone()));
             }
         }
         Ok((!filtered.is_empty()).then_some(filtered))
@@ -1343,12 +1349,19 @@ impl LanguageServer for QclLanguageServer {
         let (slice_string, range, version) = if let Some(doc) = self.documents.get(uri) {
             let key = format!(
                 "v{}:{}:{}-{}:{}",
-                doc.version, params.range.start.line, params.range.start.character, params.range.end.line, params.range.end.character
+                doc.version,
+                params.range.start.line,
+                params.range.start.character,
+                params.range.end.line,
+                params.range.end.character
             );
             if let Some(cached) = doc.cached_range_tokens.get(&key) {
                 // Return cached result immediately
                 let data = (**cached).clone();
-                return Ok(Some(SemanticTokensRangeResult::Tokens(SemanticTokens { result_id: None, data })));
+                return Ok(Some(SemanticTokensRangeResult::Tokens(SemanticTokens {
+                    result_id: None,
+                    data,
+                })));
             }
             let start_char = position_to_char_idx(&doc.content, params.range.start);
             let end_char = position_to_char_idx(&doc.content, params.range.end);
@@ -1378,13 +1391,18 @@ impl LanguageServer for QclLanguageServer {
             if doc.version == version {
                 let key = format!(
                     "v{}:{}:{}-{}:{}",
-                    version, range.start.line, range.start.character, range.end.line, range.end.character
+                    version,
+                    range.start.line,
+                    range.start.character,
+                    range.end.line,
+                    range.end.character
                 );
                 let limit = self.config.lock().unwrap().range_token_cache_limit.max(1);
                 if doc.cached_range_tokens.len() >= limit {
                     doc.cached_range_tokens.clear();
                 }
-                doc.cached_range_tokens.insert(key, Arc::new(generated.clone()));
+                doc.cached_range_tokens
+                    .insert(key, Arc::new(generated.clone()));
             }
         }
 
@@ -2118,8 +2136,14 @@ fn stdlib_func_hover(name: &str) -> Option<(&'static str, &'static str)> {
 
         // iter
         "enumerate" => Some(("enumerate(list)", "Return [[0, x0], [1, x1], ...]")),
-        "range" => Some(("range([start,] end [, step])", "Generate integer range (step != 0)")),
-        "zip" => Some(("zip(list1, list2)", "Pair elements up to the shortest length")),
+        "range" => Some((
+            "range([start,] end [, step])",
+            "Generate integer range (step != 0)",
+        )),
+        "zip" => Some((
+            "zip(list1, list2)",
+            "Pair elements up to the shortest length",
+        )),
         "take" => Some(("take(list, n)", "First n elements")),
         "skip" => Some(("skip(list, n)", "Drop first n elements")),
         "chain" => Some(("chain(list1, list2)", "Concatenate lists")),
@@ -2128,13 +2152,25 @@ fn stdlib_func_hover(name: &str) -> Option<(&'static str, &'static str)> {
         "chunk" => Some(("chunk(list, size)", "Split into chunks of positive size")),
 
         // list (meta-methods commonly used)
-        "map" => Some(("map(list, func) | list.map(func)", "Apply func to each element")),
-        "filter" => Some(("filter(list, pred) | list.filter(pred)", "Keep elements where pred returns true")),
-        "reduce" => Some(("reduce(list, init, func) | list.reduce(init, func)", "Fold elements into accumulator")),
+        "map" => Some((
+            "map(list, func) | list.map(func)",
+            "Apply func to each element",
+        )),
+        "filter" => Some((
+            "filter(list, pred) | list.filter(pred)",
+            "Keep elements where pred returns true",
+        )),
+        "reduce" => Some((
+            "reduce(list, init, func) | list.reduce(init, func)",
+            "Fold elements into accumulator",
+        )),
         "push" => Some(("push(list, value)", "Append value (returns new list)")),
         "concat" => Some(("concat(list, other)", "Concatenate two lists")),
         "join" => Some(("join(list<string>, delim)", "Join strings with delimiter")),
-        "get" => Some(("get(list, index)", "Safe index access; returns value or nil")),
+        "get" => Some((
+            "get(list, index)",
+            "Safe index access; returns value or nil",
+        )),
         "first" => Some(("first(list)", "First element or nil")),
         "last" => Some(("last(list)", "Last element or nil")),
         "len" => Some(("len(value)", "Length of list/map/string")),
@@ -2223,7 +2259,7 @@ fn format_qcl(input: &str, options: &FormattingOptions) -> String {
     // Simple indentation formatter based on braces and parentheses.
     let mut out = String::with_capacity(input.len() + 16);
     let use_spaces = options.insert_spaces;
-    let tab_size = (options.tab_size.max(1).min(8)) as usize;
+    let tab_size = options.tab_size.clamp(1, 8) as usize;
     let mut indent = 0isize;
 
     for raw_line in input.lines() {

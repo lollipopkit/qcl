@@ -6,14 +6,24 @@ use std::{
     sync::Arc,
 };
 
+// Optional fast hash map alias (disabled by default).
+// Enable by building with `--features fast-hash` and adding `rustc_hash` dependency.
+#[cfg(feature = "fast-hash")]
+pub type FastHashMap<K, V> = rustc_hash::FxHashMap<K, V>;
+#[cfg(not(feature = "fast-hash"))]
+pub type FastHashMap<K, V> = std::collections::HashMap<K, V>;
+
 use anyhow::{Result, anyhow};
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
-use crate::op::{BinOp, err_op};
+use crate::{
+    op::{BinOp, err_op},
+    stmt,
+};
 
 /// Type for Rust functions that can be called from QCL
-pub type RustFunction = fn(args: &[Val], env: &crate::stmt::Environment, ctx: &Val) -> Result<Val>;
+pub type RustFunction = fn(args: &[Val], env: &stmt::Environment, ctx: &Val) -> Result<Val>;
 
 #[derive(Debug, Default)]
 pub enum Val {
@@ -23,15 +33,16 @@ pub enum Val {
     Float(f64),
     Bool(bool),
     /// Map type, wrapped in Arc<HashMap> to avoid deep cloning
-    Map(Arc<HashMap<String, Val>>),
-    /// List type, wrapped in Arc<Vec> for efficient cloning
-    List(Arc<Vec<Val>>),
+    /// Keys use Arc<str> to reduce key-string cloning and allocations
+    Map(Arc<FastHashMap<Arc<str>, Val>>),
+    /// List type, stored as Arc<[Val]> for compact, immutable sharing
+    List(Arc<[Val]>),
     /// Closure - contains parameters and body with captured environment
     Closure {
         params: Arc<Vec<String>>,
-        body: Arc<crate::stmt::Stmt>,
+        body: Arc<stmt::Stmt>,
         /// Captured environment for closure support
-        env: Arc<crate::stmt::Environment>,
+        env: Arc<stmt::Environment>,
     },
     /// Rust function - contains a function pointer that can be called
     RustFunction(RustFunction),
@@ -298,7 +309,7 @@ impl Type {
             (Type::Map(key_type, val_type), Val::Map(map)) => {
                 // Validate all keys and values match expected types
                 for (k, v) in map.iter() {
-                    let key_val = Val::Str(k.as_str().into());
+                    let key_val = Val::Str(k.clone());
                     key_type.validate(&key_val)?;
                     val_type.validate(v)?;
                 }
@@ -512,6 +523,7 @@ impl Type {
 }
 
 impl Val {
+    #[inline]
     pub fn type_name(&self) -> &'static str {
         match self {
             Val::Str(_) => "String",
@@ -530,6 +542,7 @@ impl Val {
     }
 
     /// Construct a runtime object of a named custom type
+    #[inline]
     pub fn object<T: AsRef<str>>(type_name: T, fields: HashMap<String, Val>) -> Val {
         Val::Object {
             type_name: Arc::from(type_name.as_ref()),
@@ -538,7 +551,8 @@ impl Val {
     }
 
     /// Call this value as a function with the given arguments
-    pub fn call(&self, args: &[Val], env: &crate::stmt::Environment, ctx: &Val) -> Result<Val> {
+    #[inline]
+    pub fn call(&self, args: &[Val], env: &stmt::Environment, ctx: &Val) -> Result<Val> {
         match self {
             Val::Closure {
                 params,
@@ -566,9 +580,9 @@ impl Val {
                 // Execute function body. If the closure body is an expression statement,
                 // evaluate the inner expression directly to preserve its value.
                 match &**body {
-                    crate::stmt::Stmt::Expr(expr) => expr.eval_with_env(ctx, Some(&call_env)),
+                    stmt::Stmt::Expr(expr) => expr.eval_with_env(ctx, Some(&call_env)),
                     other => match other.execute(&mut call_env, ctx)? {
-                        crate::stmt::ControlFlow::Return(val) => Ok(val),
+                        stmt::ControlFlow::Return(val) => Ok(val),
                         _ => Ok(Val::Nil), // Functions return nil by default
                     },
                 }
@@ -580,6 +594,7 @@ impl Val {
             _ => Err(anyhow!("{} is not a function", self.type_name())),
         }
     }
+    #[inline]
     pub(crate) fn access(&self, field: &Val) -> Option<Val> {
         match (self, field) {
             (Val::Map(m), Val::Str(s)) => m.get(s.as_ref()).cloned(),
@@ -614,17 +629,19 @@ impl Val {
         }
     }
 
-    /// Efficient string concatenation using Cow to avoid intermediate allocations
+    /// Efficient string concatenation using preallocated buffer
+    #[inline]
     fn concat_strings(a: &str, b: &str) -> Val {
         if a.is_empty() {
             Val::Str(Arc::from(b))
         } else if b.is_empty() {
             Val::Str(Arc::from(a))
         } else {
-            let mut result = String::with_capacity(a.len() + b.len());
-            result.push_str(a);
-            result.push_str(b);
-            Val::Str(Arc::from(result.into_boxed_str()))
+            let mut s = String::with_capacity(a.len() + b.len());
+            s.push_str(a);
+            s.push_str(b);
+            // Convert owned String directly to Arc<str>
+            Val::Str(Arc::<str>::from(s))
         }
     }
 }
@@ -635,6 +652,7 @@ impl Add for &Val {
     /// - Str + Num may leads to unexpected behavior.
     /// - List can + Val, but Val + List is not supported.
     /// - Map can + Map, but Map can't + Val, since the value of the map is not defined.
+    #[inline]
     fn add(self, other: Self) -> Self::Output {
         match (self, other) {
             (Val::Int(a), Val::Int(b)) => Ok(Val::Int(a + b)),
@@ -666,7 +684,10 @@ impl Add for &Val {
             (Val::Map(l), Val::Map(r)) => {
                 // Map + Map: merge with right side overriding left side for same keys
                 // Use with_capacity for better performance
-                let mut merged = HashMap::with_capacity(l.len() + r.len());
+                let mut merged = FastHashMap::with_capacity_and_hasher(
+                    l.len() + r.len(),
+                    Default::default(),
+                );
                 // First insert all from left map
                 for (k, v) in l.iter() {
                     merged.insert(k.clone(), v.clone());
@@ -701,6 +722,7 @@ impl Add for &Val {
 impl Sub for &Val {
     type Output = Result<Val>;
 
+    #[inline]
     fn sub(self, other: Self) -> Self::Output {
         match (self, other) {
             (Val::Int(a), Val::Int(b)) => Ok((a - b).into()),
@@ -798,7 +820,7 @@ impl Sub for &Val {
             }
             #[cfg(feature = "adv_arith")]
             (Val::Map(l), Val::Map(r)) => {
-                let mut result = HashMap::with_capacity(l.len());
+                let mut result = FastHashMap::with_capacity_and_hasher(l.len(), Default::default());
                 for (k, v) in l.iter() {
                     if !r.contains_key(k) {
                         result.insert(k.clone(), v.clone());
@@ -809,9 +831,10 @@ impl Sub for &Val {
             #[cfg(feature = "adv_arith")]
             (Val::Map(l), r) => {
                 if let Val::Str(k) = r {
-                    let mut result = HashMap::with_capacity(l.len());
+                    let mut result =
+                        FastHashMap::with_capacity_and_hasher(l.len(), Default::default());
                     for (existing_k, v) in l.iter() {
-                        if existing_k != k.as_ref() {
+                        if existing_k.as_ref() != k.as_ref() {
                             result.insert(existing_k.clone(), v.clone());
                         }
                     }
@@ -827,6 +850,7 @@ impl Sub for &Val {
 impl Mul for &Val {
     type Output = Result<Val>;
 
+    #[inline]
     fn mul(self, other: Self) -> Self::Output {
         match (self, other) {
             (Val::Int(a), Val::Int(b)) => Ok((a * b).into()),
@@ -841,6 +865,7 @@ impl Mul for &Val {
 impl Div for &Val {
     type Output = Result<Val>;
 
+    #[inline]
     fn div(self, other: Self) -> Self::Output {
         match (self, other) {
             #[cfg(feature = "sem_arith")]
@@ -865,6 +890,7 @@ impl Div for &Val {
 impl Rem for &Val {
     type Output = Result<Val>;
 
+    #[inline]
     fn rem(self, other: Self) -> Self::Output {
         match (self, other) {
             (Val::Int(a), Val::Int(b)) => Ok((a % b).into()),
@@ -879,7 +905,7 @@ impl Rem for &Val {
 impl From<String> for Val {
     #[inline]
     fn from(s: String) -> Self {
-        Val::Str(Arc::from(s.into_boxed_str()))
+        Val::Str(Arc::<str>::from(s))
     }
 }
 
@@ -911,16 +937,19 @@ impl From<bool> for Val {
     }
 }
 
-impl<V, S> From<HashMap<S, V>> for Val
+impl<V, S, H> From<HashMap<S, V, H>> for Val
 where
     V: Into<Val>,
     S: AsRef<str>,
+    H: core::hash::BuildHasher,
 {
-    fn from(m: HashMap<S, V>) -> Self {
-        let inner = m
-            .into_iter()
-            .map(|(k, v)| (k.as_ref().to_string(), v.into()))
-            .collect();
+    fn from(m: HashMap<S, V, H>) -> Self {
+        // Avoid rehashing by reserving exact capacity
+        let mut inner: FastHashMap<Arc<str>, Val> =
+            FastHashMap::with_capacity_and_hasher(m.len(), Default::default());
+        for (k, v) in m.into_iter() {
+            inner.insert(Arc::from(k.as_ref()), v.into());
+        }
         Val::Map(Arc::new(inner))
     }
 }
@@ -930,8 +959,8 @@ where
     T: Into<Val>,
 {
     fn from(v: Vec<T>) -> Self {
-        let v = v.into_iter().map(Into::into).collect();
-        Val::List(Arc::new(v))
+        let v: Vec<Val> = v.into_iter().map(Into::into).collect();
+        Val::List(Arc::<[Val]>::from(v))
     }
 }
 
@@ -987,7 +1016,7 @@ impl From<(u64, i64, Type)> for Val {
 impl From<serde_json::Value> for Val {
     fn from(val: serde_json::Value) -> Self {
         match val {
-            serde_json::Value::String(s) => Val::Str(Arc::from(s.into_boxed_str())),
+            serde_json::Value::String(s) => Val::Str(Arc::<str>::from(s)),
             serde_json::Value::Number(n) => {
                 if let Some(i) = n.as_i64() {
                     Val::Int(i)
@@ -999,11 +1028,12 @@ impl From<serde_json::Value> for Val {
             }
             serde_json::Value::Bool(b) => Val::Bool(b),
             serde_json::Value::Array(a) => {
-                let v = a.into_iter().map(Val::from).collect();
-                Val::List(Arc::new(v))
+                let v: Vec<Val> = a.into_iter().map(Val::from).collect();
+                Val::List(Arc::from(v))
             }
             serde_json::Value::Object(o) => {
-                let m = o.into_iter().map(|(k, v)| (k, Val::from(v))).collect();
+                let m: FastHashMap<Arc<str>, Val> =
+                    o.into_iter().map(|(k, v)| (Arc::<str>::from(k), Val::from(v))).collect();
                 Val::Map(Arc::new(m))
             }
             serde_json::Value::Null => Val::Nil,
@@ -1015,7 +1045,7 @@ impl From<serde_json::Value> for Val {
 impl From<serde_yaml::Value> for Val {
     fn from(val: serde_yaml::Value) -> Self {
         match val {
-            serde_yaml::Value::String(s) => Val::Str(Arc::from(s.into_boxed_str())),
+            serde_yaml::Value::String(s) => Val::Str(Arc::<str>::from(s)),
             serde_yaml::Value::Number(n) => {
                 if let Some(i) = n.as_i64() {
                     Val::Int(i)
@@ -1027,15 +1057,15 @@ impl From<serde_yaml::Value> for Val {
             }
             serde_yaml::Value::Bool(b) => Val::Bool(b),
             serde_yaml::Value::Sequence(a) => {
-                let v = a.into_iter().map(Val::from).collect();
-                Val::List(Arc::new(v))
+                let v: Vec<Val> = a.into_iter().map(Val::from).collect();
+                Val::List(Arc::from(v))
             }
             serde_yaml::Value::Mapping(o) => {
-                let m = o
+                let m: FastHashMap<Arc<str>, Val> = o
                     .into_iter()
                     .filter_map(|(k, v)| {
                         if let serde_yaml::Value::String(key) = k {
-                            Some((key, Val::from(v)))
+                            Some((Arc::<str>::from(key), Val::from(v)))
                         } else {
                             None
                         }

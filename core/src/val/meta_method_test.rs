@@ -29,7 +29,7 @@ mod tests {
         let program = parser.parse_program()?;
 
         // Empty context
-        let ctx = Val::Map(Arc::new(HashMap::new()));
+        let ctx = HashMap::<String, Val>::new().into();
 
         // Prepare environment with variable c bound to a custom object
         let mut env = crate::stmt::Environment::default();
@@ -41,4 +41,3 @@ mod tests {
         Ok(())
     }
 }
-

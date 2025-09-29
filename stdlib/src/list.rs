@@ -69,7 +69,7 @@ impl ListModule {
                 let mut out = Vec::with_capacity(l.len() + 1);
                 out.extend(l.iter().cloned());
                 out.push(v.clone());
-                Ok(Val::List(Arc::new(out)))
+                Ok(Val::List(Arc::from(out)))
             }
             _ => Err(anyhow::anyhow!("push() first argument must be a list")),
         }
@@ -87,7 +87,7 @@ impl ListModule {
                 let mut out = Vec::with_capacity(a.len() + b.len());
                 out.extend(a.iter().cloned());
                 out.extend(b.iter().cloned());
-                Ok(Val::List(Arc::new(out)))
+                Ok(Val::List(Arc::from(out)))
             }
             (Val::List(_), _) => Err(anyhow::anyhow!("concat() second argument must be a list")),
             _ => Err(anyhow::anyhow!("concat() first argument must be a list")),
@@ -174,15 +174,20 @@ impl ListModule {
         // Resolve callable
         let call = match func {
             Val::Closure { .. } | Val::RustFunction(_) => func,
-            other => return Err(anyhow::anyhow!("map() second argument must be a function, got {}", other.type_name())),
+            other => {
+                return Err(anyhow::anyhow!(
+                    "map() second argument must be a function, got {}",
+                    other.type_name()
+                ));
+            }
         };
 
         let mut out = Vec::with_capacity(list.len());
         for item in list.iter() {
-            let res = call.call(&[item.clone()], env, ctx)?;
+            let res = call.call(std::slice::from_ref(item), env, ctx)?;
             out.push(res);
         }
-        Ok(Val::List(Arc::new(out)))
+        Ok(Val::List(Arc::from(out)))
     }
 
     // Filter list with predicate function: list.filter(|x| cond)
@@ -191,21 +196,25 @@ impl ListModule {
         // Normalize to (list, func)
         let (list, func) = match args {
             [Val::List(l), f] => (l.clone(), f.clone()),
-            _ if args.len() == 2 => return Err(anyhow::anyhow!("filter() expects (list, function)")),
+            _ if args.len() == 2 => {
+                return Err(anyhow::anyhow!("filter() expects (list, function)"));
+            }
             _ => return Err(anyhow::anyhow!("filter() expects 2 arguments")),
         };
 
         let call = match func {
             Val::Closure { .. } | Val::RustFunction(_) => func,
-            other => return Err(anyhow::anyhow!(
-                "filter() second argument must be a function, got {}",
-                other.type_name()
-            )),
+            other => {
+                return Err(anyhow::anyhow!(
+                    "filter() second argument must be a function, got {}",
+                    other.type_name()
+                ));
+            }
         };
 
         let mut out = Vec::with_capacity(list.len());
         for item in list.iter() {
-            let res = call.call(&[item.clone()], env, ctx)?;
+            let res = call.call(std::slice::from_ref(item), env, ctx)?;
             let keep = match res {
                 Val::Bool(b) => b,
                 Val::Nil => false,
@@ -215,7 +224,7 @@ impl ListModule {
                 out.push(item.clone());
             }
         }
-        Ok(Val::List(Arc::new(out)))
+        Ok(Val::List(Arc::from(out)))
     }
 
     // Reduce list with accumulator: list.reduce(init, |acc, x| ...)
@@ -237,7 +246,7 @@ impl ListModule {
                 return Err(anyhow::anyhow!(
                     "reduce() third argument must be a function, got {}",
                     other.type_name()
-                ))
+                ));
             }
         };
 
@@ -279,7 +288,7 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
 
         let mut registry = qcl_core::module::ModuleRegistry::new();
         register_stdlib_modules(&mut registry);
@@ -316,13 +325,13 @@ mod tests {
         // map
         assert_eq!(
             run("return [1,2,3].map(|x| x + 1);")?,
-            Val::List(Arc::new(vec![Val::Int(2), Val::Int(3), Val::Int(4)]))
+            Val::List(Arc::from(vec![Val::Int(2), Val::Int(3), Val::Int(4)]))
         );
 
         // filter
         assert_eq!(
             run("return [1,2,3,4,5].filter(|x| x % 2 == 0);")?,
-            Val::List(Arc::new(vec![Val::Int(2), Val::Int(4)]))
+            Val::List(Arc::from(vec![Val::Int(2), Val::Int(4)]))
         );
 
         // reduce (sum)

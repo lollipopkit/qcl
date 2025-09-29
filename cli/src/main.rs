@@ -1,6 +1,6 @@
 use std::io::{BufRead, IsTerminal};
 use std::path::{Component, Path, PathBuf};
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use qcl_core::stmt::ModuleResolver;
 use qcl_core::{
@@ -13,6 +13,8 @@ use qcl_core::{
 
 #[cfg(feature = "concurrency")]
 use qcl_core::rt;
+
+mod repl;
 
 fn read_file_content(path: &str) -> anyhow::Result<String> {
     std::fs::read_to_string(path)
@@ -41,7 +43,8 @@ fn sanitize_rel_path(raw: &str) -> anyhow::Result<PathBuf> {
 
 fn main() -> anyhow::Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
-    if args.len() < 2 {
+    // Print usage only when no args and not in a terminal
+    if args.len() < 2 && !std::io::stdin().is_terminal() {
         let formats = ["json", "yaml", "toml"];
 
         let format_str = formats.join("|");
@@ -52,37 +55,24 @@ fn main() -> anyhow::Result<()> {
             .join("|");
 
         eprintln!(
-            "Usage: cat <{}> | {} [{}] [--expr] <expr|program|file>",
+            "Usage: cat <{}> | {} [--repl] [{}] [--expr|--stmt] <expr|program|file>",
             format_str, args[0], flag_str
         );
         eprintln!("  Format is auto-detected unless {} is specified", flag_str);
-        eprintln!("  Default is statement mode, use --expr for expression mode");
+        eprintln!("  Default is expression mode, use --stmt for statement mode");
         eprintln!("  If a single argument is a file path, it will be executed");
+        eprintln!("  Use --repl for interactive mode (or run with no args in a TTY)");
         eprintln!(
             "  Note: only relative, sanitized file paths are allowed (no '..', no absolute paths)"
         );
         std::process::exit(1);
     }
 
-    let raw = if std::io::stdin().is_terminal() {
-        // If stdin is a terminal (interactive mode), don't wait for input
-        String::new()
-    } else {
-        // If stdin is piped/redirected, read from it
-        let raw = std::io::stdin()
-            .lock()
-            .lines()
-            .collect::<Result<Vec<_>, _>>();
-
-        match raw {
-            Ok(lines) => lines.join("\n"),
-            Err(_) => String::new(),
-        }
-    };
-
     let mut arg_idx = 1;
     let mut format_override = None;
-    let mut is_statement_mode = true;
+    // Default to expression mode; fallback target is expr when not a file
+    let mut is_statement_mode = false;
+    let mut repl_mode = false;
 
     while arg_idx < args.len() {
         match args[arg_idx].as_str() {
@@ -106,8 +96,39 @@ fn main() -> anyhow::Result<()> {
                 is_statement_mode = false;
                 arg_idx += 1;
             }
+            "--repl" => {
+                repl_mode = true;
+                arg_idx += 1;
+            }
             _ => break,
         }
+    }
+
+    let raw = if std::io::stdin().is_terminal() {
+        // If stdin is a terminal (interactive mode), don't wait for input
+        String::new()
+    } else {
+        // If stdin is piped/redirected, read from it
+        let raw = std::io::stdin()
+            .lock()
+            .lines()
+            .collect::<Result<Vec<_>, _>>();
+
+        match raw {
+            Ok(lines) => lines.join("\n"),
+            Err(_) => String::new(),
+        }
+    };
+
+    let ctx: Val = if raw.is_empty() {
+        Val::Map(Arc::new(Default::default()))
+    } else {
+        de::parse_with_format(&raw, format_override)?
+    };
+
+    // If --repl specified, or no remaining args and in terminal, enter REPL
+    if repl_mode || (arg_idx >= args.len() && std::io::stdin().is_terminal()) {
+        return repl::run(is_statement_mode, ctx);
     }
 
     if arg_idx >= args.len() {
@@ -148,12 +169,6 @@ fn main() -> anyhow::Result<()> {
         // Multiple arguments, treat as expression/program
         input_args.join(" ")
     };
-    let ctx: Val = if raw.is_empty() {
-        Val::Map(Arc::new(HashMap::new()))
-    } else {
-        de::parse_with_format(&raw, format_override)?
-    };
-
     // Initialize runtime for concurrency if needed (for both statement and expression modes)
     #[cfg(feature = "concurrency")]
     {
@@ -202,7 +217,9 @@ fn main() -> anyhow::Result<()> {
 
     match result {
         Ok(res) => {
-            println!("{}", res);
+            if !matches!(res, Val::Nil) {
+                println!("{}", res);
+            }
             Ok(())
         }
         Err(e) => Err(e),

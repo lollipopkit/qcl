@@ -22,6 +22,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 toml = { workspace = true }
+rustyline = "12"
 
 [features]
 default = ["all"]

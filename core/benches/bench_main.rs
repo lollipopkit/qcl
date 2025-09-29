@@ -33,7 +33,7 @@ fn make_context() -> Val {
         "bigstr".to_string(),
         Val::Str(Arc::from(big_string.as_str())),
     );
-    Val::Map(Arc::new(ctx_map))
+    ctx_map.into()
 }
 
 // Benchmark 1: Expression parsing performance (without cache vs with cache)
@@ -144,19 +144,20 @@ fn bench_val_operations(c: &mut Criterion) {
     for i in 0..1000 {
         large_map.insert(format!("key{}", i), Val::Int(i));
     }
-    let val_map = Val::Map(Arc::new(large_map));
+    // Be explicit to avoid type inference issues in benches
+    let val_map: Val = large_map.into();
 
     let large_list: Vec<Val> = (0..1000).map(Val::Int).collect();
-    let val_list = Val::List(Arc::new(large_list));
+    let val_list = Val::List(Arc::from(large_list));
 
     let mut small_map = HashMap::new();
     for i in 0..10 {
         small_map.insert(format!("key{}", i), Val::Int(i));
     }
-    let val_map_small = Val::Map(Arc::new(small_map));
+    let val_map_small: Val = small_map.into();
 
     let small_list: Vec<Val> = (0..10).map(Val::Int).collect();
-    let val_list_small = Val::List(Arc::new(small_list));
+    let val_list_small = Val::List(Arc::from(small_list));
 
     // Benchmark Map + Map operations (merge with capacity optimization)
     c.bench_function("map_add_large", |b| {
@@ -311,8 +312,8 @@ fn bench_complex_arithmetic(c: &mut Criterion) {
     // Create large lists for complex operations
     let list1: Vec<Val> = (0..100).map(Val::Int).collect();
     let list2: Vec<Val> = (50..150).map(Val::Int).collect();
-    ctx_map.insert("list1".to_string(), Val::List(Arc::new(list1)));
-    ctx_map.insert("list2".to_string(), Val::List(Arc::new(list2)));
+    ctx_map.insert("list1".to_string(), Val::List(Arc::from(list1)));
+    ctx_map.insert("list2".to_string(), Val::List(Arc::from(list2)));
 
     // Create large maps for merging operations
     let mut map1 = HashMap::new();
@@ -321,10 +322,10 @@ fn bench_complex_arithmetic(c: &mut Criterion) {
         map1.insert(format!("key{}", i), Val::Int(i));
         map2.insert(format!("key{}", i + 25), Val::Int(i + 25));
     }
-    ctx_map.insert("map1".to_string(), Val::Map(Arc::new(map1)));
-    ctx_map.insert("map2".to_string(), Val::Map(Arc::new(map2)));
+    ctx_map.insert("map1".to_string(), Val::from(map1));
+    ctx_map.insert("map2".to_string(), Val::from(map2));
 
-    let ctx = Val::Map(Arc::new(ctx_map));
+    let ctx = Val::from(ctx_map);
 
     // Complex arithmetic operations that trigger multiple clones
     let expr_list_ops = Expr::parse_cached_arc("@list1 + @list2 - [75, 76, 77]").unwrap();

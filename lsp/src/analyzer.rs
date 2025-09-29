@@ -146,7 +146,7 @@ impl QclAnalyzer {
                 end_expr = j;
                 j += 1;
             }
-            if end_expr >= i + 1 {
+            if end_expr > i {
                 // Parse expression and infer type
                 let expr_tokens = &tokens[i + 1..=end_expr];
                 if !expr_tokens.is_empty() {
@@ -154,10 +154,15 @@ impl QclAnalyzer {
                         let mut checker = TypeChecker::new();
                         if let Ok(typ) = checker.infer_resolved_type(&expr) {
                             // Place hint at end of pattern
-                            let pat_tok_idx = if end_pat >= start_pat { end_pat } else { start_pat };
+                            let pat_tok_idx = if end_pat >= start_pat {
+                                end_pat
+                            } else {
+                                start_pat
+                            };
                             if pat_tok_idx < spans.len() {
                                 let sp = &spans[pat_tok_idx];
-                                let pos = Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1));
+                                let pos =
+                                    Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1));
                                 if pos.line >= range.start.line && pos.line <= range.end.line {
                                     let label = format!(": {}", typ.display());
                                     hints.push(InlayHint {
@@ -407,7 +412,7 @@ impl QclAnalyzer {
                 for t in return_types {
                     by_key.entry(t.display()).or_insert(t);
                 }
-                let parts: Vec<String> = by_key.into_iter().map(|(s, _)| s).collect();
+                let parts: Vec<String> = by_key.into_keys().collect();
                 let label = if parts.len() == 1 {
                     format!(" -> {}", parts[0])
                 } else {
@@ -1603,21 +1608,18 @@ impl QclAnalyzer {
                     for (k, v) in exports {
                         let label = format!("{}.{}", module_name, k);
                         let (kind, detail) = match v {
-                            Val::RustFunction(_) | Val::Closure { .. } => (
-                                CompletionItemKind::FUNCTION,
-                                "function".to_string(),
-                            ),
-                            Val::Int(_) | Val::Float(_) | Val::Bool(_) | Val::Str(_) => (
-                                CompletionItemKind::CONSTANT,
-                                "const".to_string(),
-                            ),
+                            Val::RustFunction(_) | Val::Closure { .. } => {
+                                (CompletionItemKind::FUNCTION, "function".to_string())
+                            }
+                            Val::Int(_) | Val::Float(_) | Val::Bool(_) | Val::Str(_) => {
+                                (CompletionItemKind::CONSTANT, "const".to_string())
+                            }
                             Val::List(_) => (CompletionItemKind::VARIABLE, "list".to_string()),
                             Val::Map(_) => (CompletionItemKind::MODULE, "namespace".to_string()),
                             Val::Task { .. } => (CompletionItemKind::VALUE, "task".to_string()),
-                            Val::Channel { .. } => (
-                                CompletionItemKind::VALUE,
-                                "channel".to_string(),
-                            ),
+                            Val::Channel { .. } => {
+                                (CompletionItemKind::VALUE, "channel".to_string())
+                            }
                             Val::Object { .. } => (CompletionItemKind::VALUE, "object".to_string()),
                             Val::Nil => (CompletionItemKind::VALUE, "nil".to_string()),
                         };
@@ -2585,11 +2587,11 @@ mod tests {
         user_map.insert("id".to_string(), Val::Int(123));
 
         let mut req_map = HashMap::new();
-        req_map.insert("user".to_string(), Val::Map(user_map.into()));
+        req_map.insert("user".to_string(), Val::from(user_map));
 
         let mut context_map = HashMap::new();
-        context_map.insert("req".to_string(), Val::Map(req_map.into()));
-        let context = Val::Map(context_map.into());
+        context_map.insert("req".to_string(), Val::from(req_map));
+        let context = Val::from(context_map);
 
         // Parse expression that uses req.user.role
         let tokens = qcl_core::token::Tokenizer::tokenize("@req.user.role == 'admin'").unwrap();
@@ -2611,11 +2613,11 @@ mod tests {
         inner_map.insert("name".to_string(), Val::Str("test".to_string().into()));
 
         let mut middle_map = HashMap::new();
-        middle_map.insert("user".to_string(), Val::Map(inner_map.into()));
+        middle_map.insert("user".to_string(), Val::from(inner_map));
 
         let mut context_map = HashMap::new();
-        context_map.insert("req".to_string(), Val::Map(middle_map.into()));
-        let context = Val::Map(context_map.into());
+        context_map.insert("req".to_string(), Val::from(middle_map));
+        let context = Val::from(context_map);
 
         // Test existing nested key
         assert!(analyzer.context_has_key(&context, "req.user.name"));

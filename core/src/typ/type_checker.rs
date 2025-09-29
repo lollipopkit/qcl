@@ -290,23 +290,21 @@ impl TypeChecker {
             | crate::op::BinOp::Div
             | crate::op::BinOp::Mod => {
                 // Special-case string concatenation for Add: if either side is String, result is String
-                if matches!(op, crate::op::BinOp::Add) {
-                    if matches!(left_type, Type::String) || matches!(right_type, Type::String) {
-                        // Constrain the other operand to be String when one side is String
-                        if matches!(left_type, Type::String)
-                            && matches!(right_type, Type::Variable(_))
-                        {
-                            self.inference_engine
-                                .add_constraint(Type::String, right_type.clone());
-                        }
-                        if matches!(right_type, Type::String)
-                            && matches!(left_type, Type::Variable(_))
-                        {
-                            self.inference_engine
-                                .add_constraint(Type::String, left_type.clone());
-                        }
-                        return Ok(Type::String);
+                if matches!(op, crate::op::BinOp::Add)
+                    && (matches!(left_type, Type::String) || matches!(right_type, Type::String))
+                {
+                    // Constrain the other operand to be String when one side is String
+                    if matches!(left_type, Type::String) && matches!(right_type, Type::Variable(_))
+                    {
+                        self.inference_engine
+                            .add_constraint(Type::String, right_type.clone());
                     }
+                    if matches!(right_type, Type::String) && matches!(left_type, Type::Variable(_))
+                    {
+                        self.inference_engine
+                            .add_constraint(Type::String, left_type.clone());
+                    }
+                    return Ok(Type::String);
                 }
 
                 // Numeric ops: if any side is Float -> Float, else Int.
@@ -470,7 +468,7 @@ impl TypeChecker {
         for ty in elems {
             by_key.entry(ty.display()).or_insert(ty);
         }
-        let mut uniq: Vec<Type> = by_key.into_iter().map(|(_, t)| t).collect();
+        let mut uniq: Vec<Type> = by_key.into_values().collect();
         let elem_type = if uniq.len() == 1 {
             uniq.remove(0)
         } else {
@@ -515,8 +513,8 @@ impl TypeChecker {
             val_by_str.entry(t.display()).or_insert(t);
         }
 
-        let mut keys: Vec<Type> = key_by_str.into_iter().map(|(_, t)| t).collect();
-        let mut vals: Vec<Type> = val_by_str.into_iter().map(|(_, t)| t).collect();
+        let mut keys: Vec<Type> = key_by_str.into_values().collect();
+        let mut vals: Vec<Type> = val_by_str.into_values().collect();
 
         let key_type = if keys.len() == 1 {
             keys.remove(0)

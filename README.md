@@ -86,6 +86,7 @@ match result {
 - File import safety and resolution:
   - Only relative, sanitized paths are allowed (no `..`, no absolute paths).
   - When importing files, resolution tries `${MOD_NAME}.qcl` then `${MOD_NAME}/mod.qcl` relative to the current directory. Quoted paths with `.qcl` are used directly if they exist.
+ - Output behavior: the CLI and REPL print results only when the value is not `nil`. Use `println(...)` to explicitly print `nil`.
 
 ## License
 

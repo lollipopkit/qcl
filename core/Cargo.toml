@@ -17,6 +17,7 @@ chrono = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 crossbeam = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
+rustc-hash = { workspace = true, optional = true }
 
 [features]
 default = ["all"]
@@ -24,6 +25,8 @@ default = ["all"]
 sem_arith = []
 # Advanced arithmetic support: Map + Map, List + Val etc.
 adv_arith = []
+# Optional: use a faster hash map for Val::Map (requires adding `rustc_hash`)
+fast-hash = ["dep:rustc-hash"]
 # Input format features
 json = ["serde_json"]
 yaml = ["serde_yaml"]

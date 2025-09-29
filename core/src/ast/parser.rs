@@ -95,7 +95,7 @@ impl<'a> Parser<'a> {
     }
 
     /// - `cond ? then : else` (ternary conditional)
-    /// Right-associative; precedence lower than nullish coalescing/or/and.
+    ///   Right-associative; precedence lower than nullish coalescing/or/and.
     fn parse_conditional(&mut self) -> Result<Expr> {
         let mut expr = self.parse_nullish_coalescing()?;
         if !self.eof() && self.tokens[self.pos] == Token::Question {

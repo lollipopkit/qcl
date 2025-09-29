@@ -1,6 +1,6 @@
-mod op;
+mod ops;
 
 #[cfg(test)]
 mod op_test;
 
-pub use op::*;
+pub use ops::*;

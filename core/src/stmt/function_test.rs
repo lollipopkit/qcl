@@ -95,7 +95,7 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
 
         let result = program.execute(&ctx)?;
         assert_eq!(result, Val::Int(7));
@@ -109,7 +109,7 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
 
         let result = program.execute(&ctx)?;
         assert_eq!(result, Val::Str(Arc::from("Hello!")));
@@ -131,7 +131,7 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
 
         let result = program.execute(&ctx)?;
         assert_eq!(result, Val::Int(30));
@@ -151,7 +151,7 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
 
         let result = program.execute(&ctx)?;
         // Should return 6 (5 + 1), not 11 (10 + 1)
@@ -166,7 +166,7 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
 
         let result = program.execute(&ctx)?;
         assert_eq!(result, Val::Nil);
@@ -189,7 +189,7 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
 
         let result = program.execute(&ctx)?;
         assert_eq!(result, Val::Int(120));
@@ -212,8 +212,8 @@ mod tests {
         let mut ctx_map = std::collections::HashMap::new();
         let mut user_map = std::collections::HashMap::new();
         user_map.insert("age".to_string(), Val::Int(25));
-        ctx_map.insert("user".to_string(), Val::Map(Arc::new(user_map)));
-        let ctx = Val::Map(Arc::new(ctx_map));
+        ctx_map.insert("user".to_string(), Val::from(user_map));
+        let ctx = Val::from(ctx_map);
 
         let result = program.execute(&ctx)?;
         assert_eq!(result, Val::Int(25));
@@ -227,7 +227,7 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx: Val = std::collections::HashMap::<String, Val>::new().into();
 
         let result = program.execute(&ctx);
         assert!(result.is_err());
@@ -248,7 +248,7 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx: Val = std::collections::HashMap::<String, Val>::new().into();
 
         let result = program.execute(&ctx);
         assert!(result.is_err());
@@ -264,7 +264,7 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
 
         let result = program.execute(&ctx);
         assert!(result.is_err());
@@ -301,7 +301,7 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
 
         let result = program.execute(&ctx)?;
         assert_eq!(result, Val::Int(10)); // multiply(2, 3) = 6, add(6, 4) = 10

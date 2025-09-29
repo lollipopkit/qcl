@@ -355,7 +355,7 @@ impl Tokenizer {
     /// Parse Rust-style raw string literals: r"...", r#"..."#, r##"..."##, ...
     /// - Supports multi-line
     /// - No escapes or interpolation; contents are verbatim
-    /// Attempts to parse at current 'r'; if pattern doesn't match, restores cursor and returns Err.
+    ///   Attempts to parse at current 'r'; if pattern doesn't match, restores cursor and returns Err.
     fn parse_raw_str(&mut self) -> Result<()> {
         let start_pos = self.current_position();
 
@@ -912,10 +912,11 @@ impl Tokenizer {
             }
             '+' => {
                 let next = self.chars.get(self.idx + 1);
-                if let Some(&c) = next
-                    && c.is_ascii_digit()
-                {
-                    return self.parse_num();
+                if let Some(&c) = next {
+                    // Treat '+<digits>' or '+.<digits>' as a signed number regardless of context
+                    if c.is_ascii_digit() || c == '.' {
+                        return self.parse_num();
+                    }
                 }
                 let start = self.current_position();
                 if self.expect("+=") {
@@ -931,10 +932,11 @@ impl Tokenizer {
             }
             '-' => {
                 let next = self.chars.get(self.idx + 1);
-                if let Some(&c) = next
-                    && c.is_ascii_digit()
-                {
-                    return self.parse_num();
+                if let Some(&c) = next {
+                    // Treat '-<digits>' or '-.<digits>' as a signed number regardless of context
+                    if c.is_ascii_digit() || c == '.' {
+                        return self.parse_num();
+                    }
                 }
                 let start = self.current_position();
                 if self.expect("->") {
@@ -1077,7 +1079,7 @@ impl Tokenizer {
                 }
                 // Try Rust-style raw strings when encountering 'r'
                 'r' => {
-                    if let Err(_) = self.parse_raw_str() {
+                    if self.parse_raw_str().is_err() {
                         // Fallback to keywords/identifiers starting with 'r'
                         self.parse_keywords()?;
                     }

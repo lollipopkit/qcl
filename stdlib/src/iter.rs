@@ -269,7 +269,7 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
 
         let mut registry = qcl_core::module::ModuleRegistry::new();
         register_stdlib_modules(&mut registry);
@@ -283,12 +283,10 @@ mod tests {
         let v = run("import iter; return iter.zip([1,2], [\"a\",\"b\",\"c\"]);")?;
         assert_eq!(
             v,
-            Val::List(
-                Arc::new(vec![
-                    Val::List(vec![Val::Int(1), Val::Str("a".into())].into()),
-                    Val::List(vec![Val::Int(2), Val::Str("b".into())].into()),
-                ])
-            )
+            Val::List(Arc::from(vec![
+                Val::List(vec![Val::Int(1), Val::Str("a".into())].into()),
+                Val::List(vec![Val::Int(2), Val::Str("b".into())].into()),
+            ]))
         );
         Ok(())
     }
@@ -296,25 +294,47 @@ mod tests {
     #[test]
     fn test_iter_take_skip_chain_flatten_unique_chunk() -> Result<()> {
         // take
-        assert_eq!(run("import iter; return iter.take([1,2,3,4], 2);")?, Val::List(Arc::new(vec![Val::Int(1), Val::Int(2)])));
-        assert_eq!(run("import iter; return iter.take([1,2], 0);")?, Val::List(Arc::new(vec![])));
+        assert_eq!(
+            run("import iter; return iter.take([1,2,3,4], 2);")?,
+            Val::List(Arc::from(vec![Val::Int(1), Val::Int(2)]))
+        );
+        assert_eq!(
+            run("import iter; return iter.take([1,2], 0);")?,
+            Val::List(Arc::from(vec![]))
+        );
         // skip
-        assert_eq!(run("import iter; return iter.skip([1,2,3,4], 2);")?, Val::List(Arc::new(vec![Val::Int(3), Val::Int(4)])));
-        assert_eq!(run("import iter; return iter.skip([1,2], 10);")?, Val::List(Arc::new(vec![])));
+        assert_eq!(
+            run("import iter; return iter.skip([1,2,3,4], 2);")?,
+            Val::List(Arc::from(vec![Val::Int(3), Val::Int(4)]))
+        );
+        assert_eq!(
+            run("import iter; return iter.skip([1,2], 10);")?,
+            Val::List(Arc::from(vec![]))
+        );
         // chain
         assert_eq!(
             run("import iter; return iter.chain([1,2], [3,4]);")?,
-            Val::List(Arc::new(vec![Val::Int(1), Val::Int(2), Val::Int(3), Val::Int(4)]))
+            Val::List(Arc::from(vec![
+                Val::Int(1),
+                Val::Int(2),
+                Val::Int(3),
+                Val::Int(4)
+            ]))
         );
         // flatten (one level)
         assert_eq!(
             run("import iter; return iter.flatten([[1,2],[3],4]);")?,
-            Val::List(Arc::new(vec![Val::Int(1), Val::Int(2), Val::Int(3), Val::Int(4)]))
+            Val::List(Arc::from(vec![
+                Val::Int(1),
+                Val::Int(2),
+                Val::Int(3),
+                Val::Int(4)
+            ]))
         );
         // unique (stable)
         assert_eq!(
             run("import iter; return iter.unique([1,2,1,3,2]);")?,
-            Val::List(Arc::new(vec![Val::Int(1), Val::Int(2), Val::Int(3)]))
+            Val::List(Arc::from(vec![Val::Int(1), Val::Int(2), Val::Int(3)]))
         );
         // chunk
         let chunks = run("import iter; return iter.chunk([1,2,3,4,5], 2);")?;

@@ -14,7 +14,7 @@ mod tests {
     }
 
     fn empty_context() -> Val {
-        Val::Map(std::sync::Arc::new(HashMap::new()))
+        Val::Map(std::sync::Arc::new(Default::default()))
     }
 
     #[test]
@@ -227,16 +227,11 @@ mod tests {
 
     #[test]
     fn test_context_access_with_variables() {
-        let mut ctx_map = HashMap::new();
-        ctx_map.insert(
-            "user".to_string(),
-            Val::Map(std::sync::Arc::new({
-                let mut user_map = HashMap::new();
-                user_map.insert("age".to_string(), Val::Int(25));
-                user_map
-            })),
-        );
-        let ctx = Val::Map(std::sync::Arc::new(ctx_map));
+        let mut ctx_map: HashMap<String, Val> = HashMap::new();
+        let mut user_map: HashMap<String, Val> = HashMap::new();
+        user_map.insert("age".to_string(), Val::Int(25));
+        ctx_map.insert("user".to_string(), user_map.into());
+        let ctx: Val = ctx_map.into();
 
         let program = parse_program(
             r#"

@@ -247,7 +247,7 @@ mod test {
 
         expect(
             r#"[{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]"#,
-            vec![Val::Map(map1.into()), Val::Map(map2.into())],
+            vec![Val::from(map1), Val::from(map2)],
         );
 
         // Map with lists

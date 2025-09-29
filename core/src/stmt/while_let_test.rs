@@ -15,9 +15,9 @@ mod tests {
 
         match &args[0] {
             Val::List(list) => {
-                let mut new_list = Vec::clone(&**list);
+                let mut new_list: Vec<Val> = (*list).to_vec();
                 new_list.push(args[1].clone());
-                Ok(Val::List(Arc::new(new_list)))
+                Ok(Val::List(Arc::from(new_list)))
             }
             _ => Err(anyhow::anyhow!("push() first argument must be a list")),
         }
@@ -38,14 +38,13 @@ mod tests {
 
     #[test]
     fn test_while_let_list_destructuring() {
-        let ctx = Val::Map(Arc::new(
-            [(
-                "data".to_string(),
-                Val::List(Arc::new(vec![Val::Int(1), Val::Int(2), Val::Int(3)])),
-            )]
-            .into_iter()
-            .collect(),
-        ));
+        let ctx: Val = [(
+            "data".to_string(),
+            Val::List(Arc::from(vec![Val::Int(1), Val::Int(2), Val::Int(3)])),
+        )]
+        .into_iter()
+        .collect::<std::collections::HashMap<String, Val>>()
+        .into();
 
         let result = parse_and_execute_stmt(
             r#"
@@ -63,15 +62,16 @@ mod tests {
 
         assert_eq!(
             result,
-            Val::List(Arc::new(vec![Val::Int(1), Val::Int(2), Val::Int(3)]))
+            Val::List(Arc::from(vec![Val::Int(1), Val::Int(2), Val::Int(3)]))
         );
     }
 
     #[test]
     fn test_while_let_variable_binding() {
-        let ctx = Val::Map(Arc::new(
-            [("counter".to_string(), Val::Int(5))].into_iter().collect(),
-        ));
+        let ctx: Val = [("counter".to_string(), Val::Int(5))]
+            .into_iter()
+            .collect::<std::collections::HashMap<String, Val>>()
+            .into();
 
         let result = parse_and_execute_stmt(
             r#"
@@ -93,31 +93,28 @@ mod tests {
 
     #[test]
     fn test_while_let_map_destructuring() {
-        let ctx = Val::Map(Arc::new(
-            [(
-                "items".to_string(),
-                Val::List(Arc::new(vec![
-                    Val::Map(Arc::new(
-                        [
-                            ("name".to_string(), Val::Str("Alice".into())),
-                            ("value".to_string(), Val::Int(10)),
-                        ]
-                        .into_iter()
-                        .collect(),
-                    )),
-                    Val::Map(Arc::new(
-                        [
-                            ("name".to_string(), Val::Str("Bob".into())),
-                            ("value".to_string(), Val::Int(20)),
-                        ]
-                        .into_iter()
-                        .collect(),
-                    )),
-                ])),
-            )]
-            .into_iter()
-            .collect(),
-        ));
+        let ctx: Val = [(
+            "items".to_string(),
+            Val::List(Arc::from(vec![
+                ([
+                    ("name".to_string(), Val::Str("Alice".into())),
+                    ("value".to_string(), Val::Int(10)),
+                ]
+                    .into_iter()
+                    .collect::<std::collections::HashMap<String, Val>>()
+                    .into()),
+                ([
+                    ("name".to_string(), Val::Str("Bob".into())),
+                    ("value".to_string(), Val::Int(20)),
+                ]
+                    .into_iter()
+                    .collect::<std::collections::HashMap<String, Val>>()
+                    .into()),
+            ])),
+        )]
+        .into_iter()
+        .collect::<std::collections::HashMap<String, Val>>()
+        .into();
 
         let result = parse_and_execute_stmt(
             r#"
@@ -136,7 +133,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Val::List(Arc::new(vec![
+            Val::List(Arc::from(vec![
                 Val::Str("Alice".into()),
                 Val::Str("Bob".into())
             ]))
@@ -145,14 +142,13 @@ mod tests {
 
     #[test]
     fn test_while_let_wildcard() {
-        let ctx = Val::Map(Arc::new(
-            [(
-                "data".to_string(),
-                Val::List(Arc::new(vec![Val::Int(1), Val::Int(2), Val::Int(3)])),
-            )]
-            .into_iter()
-            .collect(),
-        ));
+        let ctx: Val = [(
+            "data".to_string(),
+            Val::List(Arc::from(vec![Val::Int(1), Val::Int(2), Val::Int(3)])),
+        )]
+        .into_iter()
+        .collect::<std::collections::HashMap<String, Val>>()
+        .into();
 
         let result = parse_and_execute_stmt(
             r#"
@@ -174,9 +170,10 @@ mod tests {
 
     #[test]
     fn test_while_let_no_match() {
-        let ctx = Val::Map(Arc::new(
-            [("data".to_string(), Val::Nil)].into_iter().collect(),
-        ));
+        let ctx: Val = [("data".to_string(), Val::Nil)]
+            .into_iter()
+            .collect::<std::collections::HashMap<String, Val>>()
+            .into();
 
         let result = parse_and_execute_stmt(
             r#"
@@ -197,14 +194,13 @@ mod tests {
 
     #[test]
     fn test_while_let_break_statement() {
-        let ctx = Val::Map(Arc::new(
-            [(
-                "data".to_string(),
-                Val::List(Arc::new(vec![Val::Int(1), Val::Int(2), Val::Int(3)])),
-            )]
-            .into_iter()
-            .collect(),
-        ));
+        let ctx: Val = [(
+            "data".to_string(),
+            Val::List(Arc::from(vec![Val::Int(1), Val::Int(2), Val::Int(3)])),
+        )]
+        .into_iter()
+        .collect::<std::collections::HashMap<String, Val>>()
+        .into();
 
         let result = parse_and_execute_stmt(
             r#"
@@ -221,24 +217,23 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result, Val::List(Arc::new(vec![Val::Int(1), Val::Int(2)])));
+        assert_eq!(result, Val::List(Arc::from(vec![Val::Int(1), Val::Int(2)])));
     }
 
     #[test]
     fn test_while_let_continue_statement() {
-        let ctx = Val::Map(Arc::new(
-            [(
-                "data".to_string(),
-                Val::List(Arc::new(vec![
-                    Val::Int(1),
-                    Val::Int(2),
-                    Val::Int(3),
-                    Val::Int(4),
-                ])),
-            )]
-            .into_iter()
-            .collect(),
-        ));
+        let ctx: Val = [(
+            "data".to_string(),
+            Val::List(Arc::from(vec![
+                Val::Int(1),
+                Val::Int(2),
+                Val::Int(3),
+                Val::Int(4),
+            ])),
+        )]
+        .into_iter()
+        .collect::<std::collections::HashMap<String, Val>>()
+        .into();
 
         let result = parse_and_execute_stmt(
             r#"
@@ -260,27 +255,25 @@ mod tests {
 
         assert_eq!(
             result,
-            Val::List(Arc::new(vec![Val::Int(1), Val::Int(3), Val::Int(4)]))
+            Val::List(Arc::from(vec![Val::Int(1), Val::Int(3), Val::Int(4)]))
         );
     }
 
     #[test]
     fn test_while_let_nested_patterns() {
-        let ctx = Val::Map(Arc::new(
-            [(
-                "data".to_string(),
-                Val::List(Arc::new(vec![Val::Map(Arc::new(
-                    [
-                        ("first".to_string(), Val::Int(1)),
-                        ("second".to_string(), Val::Str("test".into())),
-                    ]
-                    .into_iter()
-                    .collect(),
-                ))])),
-            )]
+        let ctx: Val = [(
+            "data".to_string(),
+            Val::List(Arc::from(vec![([
+                ("first".to_string(), Val::Int(1)),
+                ("second".to_string(), Val::Str("test".into())),
+            ]
             .into_iter()
-            .collect(),
-        ));
+            .collect::<std::collections::HashMap<String, Val>>()
+            .into())])),
+        )]
+        .into_iter()
+        .collect::<std::collections::HashMap<String, Val>>()
+        .into();
 
         let result = parse_and_execute_stmt(
             r#"
@@ -296,19 +289,18 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result, Val::List(Arc::new(vec![Val::Int(1)])));
+        assert_eq!(result, Val::List(Arc::from(vec![Val::Int(1)])));
     }
 
     #[test]
     fn test_while_let_range_pattern() {
-        let ctx = Val::Map(Arc::new(
-            [(
-                "values".to_string(),
-                Val::List(Arc::new(vec![Val::Int(5), Val::Int(15), Val::Int(25)])),
-            )]
-            .into_iter()
-            .collect(),
-        ));
+        let ctx: Val = [(
+            "values".to_string(),
+            Val::List(Arc::from(vec![Val::Int(5), Val::Int(15), Val::Int(25)])),
+        )]
+        .into_iter()
+        .collect::<std::collections::HashMap<String, Val>>()
+        .into();
 
         let result = parse_and_execute_stmt(
             r#"
@@ -327,20 +319,19 @@ mod tests {
 
         assert_eq!(
             result,
-            Val::List(Arc::new(vec![Val::Int(15), Val::Int(25)]))
+            Val::List(Arc::from(vec![Val::Int(15), Val::Int(25)]))
         );
     }
 
     #[test]
     fn test_while_let_variable_scoping() {
-        let ctx = Val::Map(Arc::new(
-            [(
-                "data".to_string(),
-                Val::List(Arc::new(vec![Val::Int(1), Val::Int(2)])),
-            )]
-            .into_iter()
-            .collect(),
-        ));
+        let ctx: Val = [(
+            "data".to_string(),
+            Val::List(Arc::from(vec![Val::Int(1), Val::Int(2)])),
+        )]
+        .into_iter()
+        .collect::<std::collections::HashMap<String, Val>>()
+        .into();
 
         let result = parse_and_execute_stmt(
             r#"
@@ -360,7 +351,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Val::List(Arc::new(vec![
+            Val::List(Arc::from(vec![
                 Val::Int(1),
                 Val::Str("outer".into()),
                 Val::Int(2),
@@ -371,14 +362,13 @@ mod tests {
 
     #[test]
     fn test_while_let_empty_list_termination() {
-        let ctx = Val::Map(Arc::new(
-            [(
-                "data".to_string(),
-                Val::List(Arc::new(vec![Val::Int(1), Val::Int(2), Val::Int(3)])),
-            )]
-            .into_iter()
-            .collect(),
-        ));
+        let ctx: Val = [(
+            "data".to_string(),
+            Val::List(Arc::from(vec![Val::Int(1), Val::Int(2), Val::Int(3)])),
+        )]
+        .into_iter()
+        .collect::<std::collections::HashMap<String, Val>>()
+        .into();
 
         let result = parse_and_execute_stmt(
             r#"
@@ -399,11 +389,12 @@ mod tests {
 
     #[test]
     fn test_while_let_single_element_destructuring() {
-        let ctx = Val::Map(Arc::new(
-            [("data".to_string(), Val::List(Arc::new(vec![Val::Int(42)])))]
-                .into_iter()
-                .collect(),
-        ));
+        let ctx: Val = [
+            ("data".to_string(), Val::List(Arc::from(vec![Val::Int(42)]))),
+        ]
+        .into_iter()
+        .collect::<std::collections::HashMap<String, Val>>()
+        .into();
 
         let result = parse_and_execute_stmt(
             r#"
@@ -419,6 +410,6 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result, Val::List(Arc::new(vec![Val::Int(42)])));
+        assert_eq!(result, Val::List(Arc::from(vec![Val::Int(42)])));
     }
 }

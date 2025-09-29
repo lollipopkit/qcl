@@ -21,7 +21,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
         let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
 
         assert_eq!(result, Val::Int(42));
@@ -37,7 +37,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
         let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
 
         assert_eq!(result, Val::Int(6));
@@ -53,7 +53,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
         let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
 
         assert_eq!(result, Val::Int(3)); // 1 + 2
@@ -69,7 +69,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
         let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
 
         assert_eq!(result, Val::Str(Arc::from("Alice")));
@@ -85,7 +85,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
         let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
 
         assert_eq!(result, Val::Str(Arc::from("Bob")));
@@ -101,7 +101,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
         let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
 
         assert_eq!(result, Val::Int(43));
@@ -117,7 +117,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
         let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
 
         assert_eq!(result, Val::Int(20));
@@ -133,7 +133,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
         let result = program.execute_with_env(&ctx, &mut env.clone());
 
         assert!(result.is_err());
@@ -155,7 +155,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
         let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
 
         assert_eq!(result, Val::Int(3));
@@ -171,7 +171,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
         let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
 
         // Should concatenate first two characters
@@ -191,7 +191,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
         let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
 
         assert_eq!(result, Val::Int(42));
@@ -207,7 +207,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
         let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
 
         assert_eq!(result, Val::Str(Arc::from("success")));
@@ -223,7 +223,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx = Val::Map(Arc::new(Default::default()));
         let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
 
         assert_eq!(result, Val::Str(Arc::from("success")));
@@ -241,7 +241,7 @@ mod tests {
                 rest: Some("rest".to_string()),
             },
             type_annotation: None,
-            value: Box::new(Expr::Val(Val::List(Arc::new(vec![
+            value: Box::new(Expr::Val(Val::List(Arc::from(vec![
                 Val::Int(1),
                 Val::Int(2),
                 Val::Int(3),
@@ -283,9 +283,7 @@ mod tests {
                 rest: None,
             },
             type_annotation: None,
-            value: Box::new(Expr::Val(Val::Map(Arc::new(
-                std::collections::HashMap::new(),
-            )))),
+            value: Box::new(Expr::Val(Val::Map(Arc::new(Default::default())))),
             span: None,
         };
 

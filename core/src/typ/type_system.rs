@@ -324,13 +324,13 @@ impl TypeInferenceEngine {
         let t1 = Self::normalize_union(self.apply_substitution(&t1));
         let t2 = Self::normalize_union(self.apply_substitution(&t2));
 
-        match (&t1, &t2) {
+        match (t1.clone(), t2.clone()) {
             // Same types unify
             (a, b) if a == b => Ok(()),
 
             // Variable unification
             (Type::Variable(var), typ) | (typ, Type::Variable(var)) => {
-                if Self::occurs_check(var, typ) {
+                if Self::occurs_check(&var, &typ) {
                     Err(anyhow!(
                         "Occurs check failed: {} occurs in {}",
                         var,
@@ -361,10 +361,10 @@ impl TypeInferenceEngine {
             }
 
             // Structural unification
-            (Type::List(a), Type::List(b)) => self.unify((**a).clone(), (**b).clone()),
+            (Type::List(a), Type::List(b)) => self.unify(*a, *b),
             (Type::Map(ak, av), Type::Map(bk, bv)) => {
-                self.unify((**ak).clone(), (**bk).clone())?;
-                self.unify((**av).clone(), (**bv).clone())
+                self.unify(*ak, *bk)?;
+                self.unify(*av, *bv)
             }
             (
                 Type::Function {
@@ -379,22 +379,22 @@ impl TypeInferenceEngine {
                 if a_params.len() != b_params.len() {
                     return Err(anyhow!("Function arity mismatch"));
                 }
-                for (a_param, b_param) in a_params.iter().zip(b_params.iter()) {
-                    self.unify(a_param.clone(), b_param.clone())?;
+                for (a_param, b_param) in a_params.into_iter().zip(b_params.into_iter()) {
+                    self.unify(a_param, b_param)?;
                 }
-                self.unify((**a_ret).clone(), (**b_ret).clone())
+                self.unify(*a_ret, *b_ret)
             }
-            (Type::Optional(a), Type::Optional(b)) => self.unify((**a).clone(), (**b).clone()),
-            (Type::Task(a), Type::Task(b)) => self.unify((**a).clone(), (**b).clone()),
-            (Type::Channel(a), Type::Channel(b)) => self.unify((**a).clone(), (**b).clone()),
+            (Type::Optional(a), Type::Optional(b)) => self.unify(*a, *b),
+            (Type::Task(a), Type::Task(b)) => self.unify(*a, *b),
+            (Type::Channel(a), Type::Channel(b)) => self.unify(*a, *b),
 
             // Union type unification
-            (&Type::Union(ref a_types), &Type::Union(ref b_types)) => {
+            (Type::Union(a_types), Type::Union(b_types)) => {
                 // Intersect the two unions by assignability; if intersection empty, error
                 let mut result = Vec::new();
                 for at in a_types.iter() {
                     for bt in b_types.iter() {
-                        if at.is_assignable_to(bt) || bt.is_assignable_to(&at) {
+                        if at.is_assignable_to(bt) || bt.is_assignable_to(at) {
                             result.push(at.clone().clone());
                             break;
                         }
@@ -423,7 +423,6 @@ impl TypeInferenceEngine {
                     let compatibles: Vec<Type> = types
                         .into_iter()
                         .filter(|u| u.is_assignable_to(&t) || t.is_assignable_to(u))
-                        .cloned()
                         .collect();
                     if compatibles.is_empty() {
                         Err(anyhow!("Cannot unify {} with union type", t.display()))
