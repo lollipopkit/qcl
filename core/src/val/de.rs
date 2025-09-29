@@ -40,7 +40,7 @@ impl<'de> Visitor<'de> for ValVisitor {
     }
 
     fn visit_string<E>(self, value: String) -> Result<Val, E> {
-        Ok(Val::Str(Arc::from(value.as_str())))
+        Ok(Val::Str(Arc::<str>::from(value)))
     }
 
     fn visit_none<E>(self) -> Result<Val, E> {

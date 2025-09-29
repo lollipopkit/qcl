@@ -178,7 +178,7 @@ mod tests {
         map.insert("age".to_string(), Val::Int(30));
         map.insert("active".to_string(), Val::Bool(true));
 
-        let val = Val::Map(map.into());
+        let val = Val::from(map);
 
         // Test access
         assert_eq!(
@@ -200,12 +200,12 @@ mod tests {
         inner_map.insert("name".to_string(), Val::Str("Alice".into()));
         inner_map.insert("age".to_string(), Val::Int(30));
 
-        let users_list = vec![Val::Map(inner_map.into())];
+        let users_list = vec![Val::from(inner_map)];
 
         let mut outer_map = HashMap::new();
         outer_map.insert("users".to_string(), Val::List(users_list.into()));
 
-        let val = Val::Map(outer_map.into());
+        let val = Val::from(outer_map);
 
         // Test nested access
         let users = val.access(&Val::Str("users".into())).unwrap();
@@ -279,9 +279,9 @@ mod tests {
         map3.insert("a".to_string(), Val::Int(1));
         map3.insert("b".to_string(), Val::Int(3));
 
-        let val1 = Val::Map(map1.into());
-        let val2 = Val::Map(map2.into());
-        let val3 = Val::Map(map3.into());
+        let val1 = Val::from(map1);
+        let val2 = Val::from(map2);
+        let val3 = Val::from(map3);
 
         assert_eq!(val1, val2);
         assert_ne!(val1, val3);
@@ -298,7 +298,7 @@ mod tests {
         let mut map = HashMap::new();
         map.insert("name".to_string(), Val::Str("Alice".into()));
         map.insert("age".to_string(), Val::Int(30));
-        let val = Val::Map(map.into());
+        let val = Val::from(map);
         let display = format!("{}", val);
         assert!(
             display.contains("name")
@@ -368,7 +368,7 @@ mod tests {
         let mut expected_map = HashMap::new();
         expected_map.insert("name".to_string(), Val::Str("Alice".into()));
         expected_map.insert("age".to_string(), Val::Int(30));
-        let expected = Val::Map(expected_map.into());
+        let expected = Val::from(expected_map);
 
         assert_eq!(val, expected);
     }

@@ -207,7 +207,7 @@ impl ImportContext {
 
         // Get module exports as a map
         let exports = module_def.exports();
-        let module_value = Val::Map(exports.into());
+        let module_value = Val::from(exports);
 
         Ok(module_value)
     }

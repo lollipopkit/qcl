@@ -3,7 +3,6 @@ use qcl_core::module::Module;
 use qcl_core::val::Val;
 use std::collections::HashMap;
 use std::io::{BufRead, Read, Write};
-use std::sync::Arc;
 
 fn make_stdin_object() -> Val {
     let mut methods = HashMap::new();
@@ -12,7 +11,7 @@ fn make_stdin_object() -> Val {
     methods.insert("read_all".to_string(), Val::RustFunction(stdin_read_all));
     // stdin flush is a no-op for convenience; returns true
     methods.insert("flush".to_string(), Val::RustFunction(stdin_flush));
-    Val::Map(Arc::new(methods))
+    methods.into()
 }
 
 fn make_stdout_object() -> Val {
@@ -20,7 +19,7 @@ fn make_stdout_object() -> Val {
     methods.insert("write".to_string(), Val::RustFunction(stdout_write));
     methods.insert("writeln".to_string(), Val::RustFunction(stdout_writeln));
     methods.insert("flush".to_string(), Val::RustFunction(stdout_flush));
-    Val::Map(Arc::new(methods))
+    methods.into()
 }
 
 fn make_stderr_object() -> Val {
@@ -28,7 +27,7 @@ fn make_stderr_object() -> Val {
     methods.insert("write".to_string(), Val::RustFunction(stderr_write));
     methods.insert("writeln".to_string(), Val::RustFunction(stderr_writeln));
     methods.insert("flush".to_string(), Val::RustFunction(stderr_flush));
-    Val::Map(Arc::new(methods))
+    methods.into()
 }
 
 fn stdin_read(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {

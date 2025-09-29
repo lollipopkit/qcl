@@ -212,8 +212,8 @@ mod tests {
         let mut ctx_map = std::collections::HashMap::new();
         let mut user_map = std::collections::HashMap::new();
         user_map.insert("age".to_string(), Val::Int(25));
-        ctx_map.insert("user".to_string(), Val::Map(Arc::new(user_map)));
-        let ctx = Val::Map(Arc::new(ctx_map));
+        ctx_map.insert("user".to_string(), Val::from(user_map));
+        let ctx = Val::from(ctx_map);
 
         let result = program.execute(&ctx)?;
         assert_eq!(result, Val::Int(25));
@@ -227,7 +227,7 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx: Val = std::collections::HashMap::<String, Val>::new().into();
 
         let result = program.execute(&ctx);
         assert!(result.is_err());
@@ -248,7 +248,7 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(std::collections::HashMap::new()));
+        let ctx: Val = std::collections::HashMap::<String, Val>::new().into();
 
         let result = program.execute(&ctx);
         assert!(result.is_err());

@@ -10,10 +10,13 @@ use anyhow::{Result, anyhow};
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
 
-use crate::op::{BinOp, err_op};
+use crate::{
+    op::{BinOp, err_op},
+    stmt,
+};
 
 /// Type for Rust functions that can be called from QCL
-pub type RustFunction = fn(args: &[Val], env: &crate::stmt::Environment, ctx: &Val) -> Result<Val>;
+pub type RustFunction = fn(args: &[Val], env: &stmt::Environment, ctx: &Val) -> Result<Val>;
 
 #[derive(Debug, Default)]
 pub enum Val {
@@ -29,9 +32,9 @@ pub enum Val {
     /// Closure - contains parameters and body with captured environment
     Closure {
         params: Arc<Vec<String>>,
-        body: Arc<crate::stmt::Stmt>,
+        body: Arc<stmt::Stmt>,
         /// Captured environment for closure support
-        env: Arc<crate::stmt::Environment>,
+        env: Arc<stmt::Environment>,
     },
     /// Rust function - contains a function pointer that can be called
     RustFunction(RustFunction),
@@ -512,6 +515,7 @@ impl Type {
 }
 
 impl Val {
+    #[inline]
     pub fn type_name(&self) -> &'static str {
         match self {
             Val::Str(_) => "String",
@@ -530,6 +534,7 @@ impl Val {
     }
 
     /// Construct a runtime object of a named custom type
+    #[inline]
     pub fn object<T: AsRef<str>>(type_name: T, fields: HashMap<String, Val>) -> Val {
         Val::Object {
             type_name: Arc::from(type_name.as_ref()),
@@ -538,7 +543,8 @@ impl Val {
     }
 
     /// Call this value as a function with the given arguments
-    pub fn call(&self, args: &[Val], env: &crate::stmt::Environment, ctx: &Val) -> Result<Val> {
+    #[inline]
+    pub fn call(&self, args: &[Val], env: &stmt::Environment, ctx: &Val) -> Result<Val> {
         match self {
             Val::Closure {
                 params,
@@ -566,9 +572,9 @@ impl Val {
                 // Execute function body. If the closure body is an expression statement,
                 // evaluate the inner expression directly to preserve its value.
                 match &**body {
-                    crate::stmt::Stmt::Expr(expr) => expr.eval_with_env(ctx, Some(&call_env)),
+                    stmt::Stmt::Expr(expr) => expr.eval_with_env(ctx, Some(&call_env)),
                     other => match other.execute(&mut call_env, ctx)? {
-                        crate::stmt::ControlFlow::Return(val) => Ok(val),
+                        stmt::ControlFlow::Return(val) => Ok(val),
                         _ => Ok(Val::Nil), // Functions return nil by default
                     },
                 }
@@ -580,6 +586,7 @@ impl Val {
             _ => Err(anyhow!("{} is not a function", self.type_name())),
         }
     }
+    #[inline]
     pub(crate) fn access(&self, field: &Val) -> Option<Val> {
         match (self, field) {
             (Val::Map(m), Val::Str(s)) => m.get(s.as_ref()).cloned(),
@@ -614,17 +621,19 @@ impl Val {
         }
     }
 
-    /// Efficient string concatenation using Cow to avoid intermediate allocations
+    /// Efficient string concatenation using preallocated buffer
+    #[inline]
     fn concat_strings(a: &str, b: &str) -> Val {
         if a.is_empty() {
             Val::Str(Arc::from(b))
         } else if b.is_empty() {
             Val::Str(Arc::from(a))
         } else {
-            let mut result = String::with_capacity(a.len() + b.len());
-            result.push_str(a);
-            result.push_str(b);
-            Val::Str(Arc::from(result.as_str()))
+            let mut s = String::with_capacity(a.len() + b.len());
+            s.push_str(a);
+            s.push_str(b);
+            // Convert owned String directly to Arc<str>
+            Val::Str(Arc::<str>::from(s))
         }
     }
 }
@@ -635,6 +644,7 @@ impl Add for &Val {
     /// - Str + Num may leads to unexpected behavior.
     /// - List can + Val, but Val + List is not supported.
     /// - Map can + Map, but Map can't + Val, since the value of the map is not defined.
+    #[inline]
     fn add(self, other: Self) -> Self::Output {
         match (self, other) {
             (Val::Int(a), Val::Int(b)) => Ok(Val::Int(a + b)),
@@ -701,6 +711,7 @@ impl Add for &Val {
 impl Sub for &Val {
     type Output = Result<Val>;
 
+    #[inline]
     fn sub(self, other: Self) -> Self::Output {
         match (self, other) {
             (Val::Int(a), Val::Int(b)) => Ok((a - b).into()),
@@ -764,6 +775,7 @@ impl Sub for &Val {
 impl Mul for &Val {
     type Output = Result<Val>;
 
+    #[inline]
     fn mul(self, other: Self) -> Self::Output {
         match (self, other) {
             (Val::Int(a), Val::Int(b)) => Ok((a * b).into()),
@@ -778,6 +790,7 @@ impl Mul for &Val {
 impl Div for &Val {
     type Output = Result<Val>;
 
+    #[inline]
     fn div(self, other: Self) -> Self::Output {
         match (self, other) {
             #[cfg(feature = "sem_arith")]
@@ -802,6 +815,7 @@ impl Div for &Val {
 impl Rem for &Val {
     type Output = Result<Val>;
 
+    #[inline]
     fn rem(self, other: Self) -> Self::Output {
         match (self, other) {
             (Val::Int(a), Val::Int(b)) => Ok((a % b).into()),
@@ -816,7 +830,7 @@ impl Rem for &Val {
 impl From<String> for Val {
     #[inline]
     fn from(s: String) -> Self {
-        Val::Str(Arc::from(s.as_str()))
+        Val::Str(Arc::<str>::from(s))
     }
 }
 
@@ -854,10 +868,11 @@ where
     S: AsRef<str>,
 {
     fn from(m: HashMap<S, V>) -> Self {
-        let inner = m
-            .into_iter()
-            .map(|(k, v)| (k.as_ref().to_string(), v.into()))
-            .collect();
+        // Avoid rehashing by reserving exact capacity
+        let mut inner: HashMap<String, Val> = HashMap::with_capacity(m.len());
+        for (k, v) in m.into_iter() {
+            inner.insert(k.as_ref().to_owned(), v.into());
+        }
         Val::Map(Arc::new(inner))
     }
 }
@@ -924,7 +939,7 @@ impl From<(u64, i64, Type)> for Val {
 impl From<serde_json::Value> for Val {
     fn from(val: serde_json::Value) -> Self {
         match val {
-            serde_json::Value::String(s) => Val::Str(Arc::from(s.as_str())),
+            serde_json::Value::String(s) => Val::Str(Arc::<str>::from(s)),
             serde_json::Value::Number(n) => {
                 if let Some(i) = n.as_i64() {
                     Val::Int(i)
@@ -952,7 +967,7 @@ impl From<serde_json::Value> for Val {
 impl From<serde_yaml::Value> for Val {
     fn from(val: serde_yaml::Value) -> Self {
         match val {
-            serde_yaml::Value::String(s) => Val::Str(Arc::from(s.as_str())),
+            serde_yaml::Value::String(s) => Val::Str(Arc::<str>::from(s)),
             serde_yaml::Value::Number(n) => {
                 if let Some(i) = n.as_i64() {
                     Val::Int(i)

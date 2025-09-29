@@ -104,7 +104,7 @@ impl ModuleResolver {
         // Try to get from stdlib registry first
         if let Ok(module) = self.stdlib_registry.get_module(name) {
             let exports = module.exports();
-            return Ok(Val::Map(exports.into()));
+            return Ok(Val::from(exports));
         }
 
         // Check cache
@@ -212,7 +212,7 @@ impl ModuleResolver {
 
         // Collect top-level definitions as exports
         let exports = env.export_symbols();
-        Ok(Val::Map(exports.into()))
+        Ok(Val::from(exports))
     }
 }
 
@@ -262,7 +262,7 @@ impl ImportContext {
                 if let Val::Map(exports) = mod_def {
                     for item in items {
                         let export_value = exports
-                            .get(&item.name)
+                    .get(item.name.as_str())
                             .ok_or_else(|| anyhow!("Export '{}' not found in module", item.name))?;
 
                         let symbol_name = item.alias.as_ref().unwrap_or(&item.name);

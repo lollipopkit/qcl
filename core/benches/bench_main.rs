@@ -33,7 +33,7 @@ fn make_context() -> Val {
         "bigstr".to_string(),
         Val::Str(Arc::from(big_string.as_str())),
     );
-    Val::Map(Arc::new(ctx_map))
+    ctx_map.into()
 }
 
 // Benchmark 1: Expression parsing performance (without cache vs with cache)
@@ -144,7 +144,7 @@ fn bench_val_operations(c: &mut Criterion) {
     for i in 0..1000 {
         large_map.insert(format!("key{}", i), Val::Int(i));
     }
-    let val_map = Val::Map(Arc::new(large_map));
+    let val_map = large_map.into();
 
     let large_list: Vec<Val> = (0..1000).map(Val::Int).collect();
     let val_list = Val::List(Arc::new(large_list));
@@ -153,7 +153,7 @@ fn bench_val_operations(c: &mut Criterion) {
     for i in 0..10 {
         small_map.insert(format!("key{}", i), Val::Int(i));
     }
-    let val_map_small = Val::Map(Arc::new(small_map));
+    let val_map_small = small_map.into();
 
     let small_list: Vec<Val> = (0..10).map(Val::Int).collect();
     let val_list_small = Val::List(Arc::new(small_list));

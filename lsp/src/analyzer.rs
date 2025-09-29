@@ -2587,11 +2587,11 @@ mod tests {
         user_map.insert("id".to_string(), Val::Int(123));
 
         let mut req_map = HashMap::new();
-        req_map.insert("user".to_string(), Val::Map(user_map.into()));
+        req_map.insert("user".to_string(), Val::from(user_map));
 
         let mut context_map = HashMap::new();
-        context_map.insert("req".to_string(), Val::Map(req_map.into()));
-        let context = Val::Map(context_map.into());
+        context_map.insert("req".to_string(), Val::from(req_map));
+        let context = Val::from(context_map);
 
         // Parse expression that uses req.user.role
         let tokens = qcl_core::token::Tokenizer::tokenize("@req.user.role == 'admin'").unwrap();
@@ -2613,11 +2613,11 @@ mod tests {
         inner_map.insert("name".to_string(), Val::Str("test".to_string().into()));
 
         let mut middle_map = HashMap::new();
-        middle_map.insert("user".to_string(), Val::Map(inner_map.into()));
+        middle_map.insert("user".to_string(), Val::from(inner_map));
 
         let mut context_map = HashMap::new();
-        context_map.insert("req".to_string(), Val::Map(middle_map.into()));
-        let context = Val::Map(context_map.into());
+        context_map.insert("req".to_string(), Val::from(middle_map));
+        let context = Val::from(context_map);
 
         // Test existing nested key
         assert!(analyzer.context_has_key(&context, "req.user.name"));

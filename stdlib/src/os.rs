@@ -12,7 +12,7 @@ impl EnvObject {
         methods.insert("get".to_string(), Val::RustFunction(Self::get));
         methods.insert("set".to_string(), Val::RustFunction(Self::set));
         methods.insert("unset".to_string(), Val::RustFunction(Self::unset));
-        Val::Map(Arc::new(methods))
+        methods.into()
     }
 
     fn get(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
@@ -100,7 +100,7 @@ impl DirObject {
         methods.insert("list".to_string(), Val::RustFunction(Self::list));
         methods.insert("temp".to_string(), Val::RustFunction(Self::temp_dir));
         methods.insert("current".to_string(), Val::RustFunction(Self::current_dir));
-        Val::Map(Arc::new(methods))
+        methods.into()
     }
 
     fn list(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {

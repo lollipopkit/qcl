@@ -1253,7 +1253,7 @@ fn bind_pattern(pattern: &ForPattern, value: &Val, env: &mut Environment) -> Res
         ForPattern::Object(entries) => match value {
             Val::Map(map) => {
                 for (key, subpat) in entries {
-                    if let Some(v) = map.get(key) {
+                    if let Some(v) = map.get(key.as_str()) {
                         bind_pattern(subpat, v, env)?;
                     } else {
                         return Err(anyhow!("Missing key '{}' in object pattern", key));

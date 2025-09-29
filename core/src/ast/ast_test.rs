@@ -193,7 +193,7 @@ mod test {
 
         let ts = Tokenizer::tokenize(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::Val(Val::Map(Arc::new(std::collections::HashMap::new())));
+        let expected = Expr::Val(std::collections::HashMap::<String, Val>::new().into());
         assert_eq!(parsed, expected);
     }
 
@@ -206,7 +206,7 @@ mod test {
         let mut expected_map = std::collections::HashMap::new();
         expected_map.insert("name".to_string(), Val::Str("Alice".into()));
         expected_map.insert("age".to_string(), Val::Int(30));
-        let expected = Expr::Val(Val::Map(Arc::new(expected_map)));
+        let expected = Expr::Val(expected_map.into());
         assert_eq!(parsed, expected);
     }
 
@@ -219,7 +219,7 @@ mod test {
         let mut expected_map = std::collections::HashMap::new();
         expected_map.insert("sum".to_string(), Val::Int(3));
         expected_map.insert("product".to_string(), Val::Int(12));
-        let expected = Expr::Val(Val::Map(Arc::new(expected_map)));
+        let expected = Expr::Val(expected_map.into());
         assert_eq!(parsed, expected);
     }
 
@@ -233,7 +233,7 @@ mod test {
         expected_map.insert("42".to_string(), Val::Str("number".into()));
         expected_map.insert("true".to_string(), Val::Str("bool".into()));
         expected_map.insert("key".to_string(), Val::Str("string".into()));
-        let expected = Expr::Val(Val::Map(Arc::new(expected_map)));
+        let expected = Expr::Val(expected_map.into());
         assert_eq!(parsed, expected);
     }
 
@@ -246,9 +246,9 @@ mod test {
         let mut inner_map = std::collections::HashMap::new();
         inner_map.insert("name".to_string(), Val::Str("Alice".into()));
         inner_map.insert("age".to_string(), Val::Int(30));
-        let mut outer_map = std::collections::HashMap::new();
-        outer_map.insert("user".to_string(), Val::Map(Arc::new(inner_map)));
-        let expected = Expr::Val(Val::Map(Arc::new(outer_map)));
+        let mut outer_map: std::collections::HashMap<String, Val> = std::collections::HashMap::new();
+        outer_map.insert("user".to_string(), inner_map.into());
+        let expected = Expr::Val(outer_map.into());
         assert_eq!(parsed, expected);
     }
 
@@ -261,7 +261,7 @@ mod test {
         let mut expected_map = std::collections::HashMap::new();
         expected_map.insert("a".to_string(), Val::Int(1));
         expected_map.insert("b".to_string(), Val::Int(2));
-        let expected = Expr::Val(Val::Map(Arc::new(expected_map)));
+        let expected = Expr::Val(expected_map.into());
         assert_eq!(parsed, expected);
     }
 
@@ -287,8 +287,8 @@ mod test {
         );
 
         let expected = Expr::Val(Val::List(Arc::new(vec![
-            Val::Map(Arc::new(alice_map)),
-            Val::Map(Arc::new(bob_map)),
+            alice_map.into(),
+            bob_map.into(),
         ])));
         assert_eq!(parsed, expected);
     }
