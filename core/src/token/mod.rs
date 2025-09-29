@@ -1,8 +1,8 @@
 mod error;
-mod token;
+mod lexer;
 
 #[cfg(test)]
 mod token_test;
 
 pub use error::*;
-pub use token::*;
+pub use lexer::*;

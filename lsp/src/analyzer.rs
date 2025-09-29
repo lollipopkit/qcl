@@ -59,6 +59,7 @@ impl QclAnalyzer {
 
     /// Compute type inlay hints for simple `let name = expr;` without explicit annotations.
     /// Places a TYPE hint like `: Int` right after the pattern (before '=').
+    #[allow(dead_code)]
     pub fn compute_type_inlay_hints(&self, content: &str, range: Range) -> Vec<InlayHint> {
         let (tokens, spans) = match Tokenizer::tokenize_enhanced_with_spans(content) {
             Ok(pair) => pair,
@@ -145,7 +146,7 @@ impl QclAnalyzer {
                 end_expr = j;
                 j += 1;
             }
-            if end_expr >= i + 1 {
+            if end_expr > i {
                 // Parse expression and infer type
                 let expr_tokens = &tokens[i + 1..=end_expr];
                 if !expr_tokens.is_empty() {
@@ -153,10 +154,15 @@ impl QclAnalyzer {
                         let mut checker = TypeChecker::new();
                         if let Ok(typ) = checker.infer_resolved_type(&expr) {
                             // Place hint at end of pattern
-                            let pat_tok_idx = if end_pat >= start_pat { end_pat } else { start_pat };
+                            let pat_tok_idx = if end_pat >= start_pat {
+                                end_pat
+                            } else {
+                                start_pat
+                            };
                             if pat_tok_idx < spans.len() {
                                 let sp = &spans[pat_tok_idx];
-                                let pos = Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1));
+                                let pos =
+                                    Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1));
                                 if pos.line >= range.start.line && pos.line <= range.end.line {
                                     let label = format!(": {}", typ.display());
                                     hints.push(InlayHint {
@@ -193,6 +199,7 @@ impl QclAnalyzer {
     }
 
     /// Compute type hints for short declarations: `name := expr;`
+    #[allow(dead_code)]
     pub fn compute_define_type_hints(&self, content: &str, range: Range) -> Vec<InlayHint> {
         let (tokens, spans) = match Tokenizer::tokenize_enhanced_with_spans(content) {
             Ok(pair) => pair,
@@ -274,6 +281,7 @@ impl QclAnalyzer {
     /// Compute type inlay hints for function return types: place a TYPE hint like `-> Int`
     /// after the parameter list. If multiple return statements exist (e.g., branches),
     /// the displayed type is a union of all discovered return expression types.
+    #[allow(dead_code)]
     pub fn compute_function_return_type_hints(
         &self,
         content: &str,
@@ -404,7 +412,7 @@ impl QclAnalyzer {
                 for t in return_types {
                     by_key.entry(t.display()).or_insert(t);
                 }
-                let parts: Vec<String> = by_key.into_iter().map(|(s, _)| s).collect();
+                let parts: Vec<String> = by_key.into_keys().collect();
                 let label = if parts.len() == 1 {
                     format!(" -> {}", parts[0])
                 } else {
@@ -1600,21 +1608,18 @@ impl QclAnalyzer {
                     for (k, v) in exports {
                         let label = format!("{}.{}", module_name, k);
                         let (kind, detail) = match v {
-                            Val::RustFunction(_) | Val::Closure { .. } => (
-                                CompletionItemKind::FUNCTION,
-                                "function".to_string(),
-                            ),
-                            Val::Int(_) | Val::Float(_) | Val::Bool(_) | Val::Str(_) => (
-                                CompletionItemKind::CONSTANT,
-                                "const".to_string(),
-                            ),
+                            Val::RustFunction(_) | Val::Closure { .. } => {
+                                (CompletionItemKind::FUNCTION, "function".to_string())
+                            }
+                            Val::Int(_) | Val::Float(_) | Val::Bool(_) | Val::Str(_) => {
+                                (CompletionItemKind::CONSTANT, "const".to_string())
+                            }
                             Val::List(_) => (CompletionItemKind::VARIABLE, "list".to_string()),
                             Val::Map(_) => (CompletionItemKind::MODULE, "namespace".to_string()),
                             Val::Task { .. } => (CompletionItemKind::VALUE, "task".to_string()),
-                            Val::Channel { .. } => (
-                                CompletionItemKind::VALUE,
-                                "channel".to_string(),
-                            ),
+                            Val::Channel { .. } => {
+                                (CompletionItemKind::VALUE, "channel".to_string())
+                            }
                             Val::Object { .. } => (CompletionItemKind::VALUE, "object".to_string()),
                             Val::Nil => (CompletionItemKind::VALUE, "nil".to_string()),
                         };

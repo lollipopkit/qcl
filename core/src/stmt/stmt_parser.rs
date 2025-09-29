@@ -1152,7 +1152,7 @@ impl<'a> StmtParser<'a> {
                     // Union types
                     Token::Pipe => result.push_str(" | "),
                     // Do NOT insert space before '<'
-                    Token::Lt => result.push_str("<"),
+                    Token::Lt => result.push('<'),
                     // No leading space before these closers / separators
                     Token::Gt | Token::Comma | Token::RParen | Token::RBracket | Token::RBrace => {
                         result.push_str(&self.token_to_string(token));

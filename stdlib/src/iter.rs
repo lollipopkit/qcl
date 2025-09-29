@@ -283,12 +283,10 @@ mod tests {
         let v = run("import iter; return iter.zip([1,2], [\"a\",\"b\",\"c\"]);")?;
         assert_eq!(
             v,
-            Val::List(
-                Arc::new(vec![
-                    Val::List(vec![Val::Int(1), Val::Str("a".into())].into()),
-                    Val::List(vec![Val::Int(2), Val::Str("b".into())].into()),
-                ])
-            )
+            Val::List(Arc::new(vec![
+                Val::List(vec![Val::Int(1), Val::Str("a".into())].into()),
+                Val::List(vec![Val::Int(2), Val::Str("b".into())].into()),
+            ]))
         );
         Ok(())
     }
@@ -296,20 +294,42 @@ mod tests {
     #[test]
     fn test_iter_take_skip_chain_flatten_unique_chunk() -> Result<()> {
         // take
-        assert_eq!(run("import iter; return iter.take([1,2,3,4], 2);")?, Val::List(Arc::new(vec![Val::Int(1), Val::Int(2)])));
-        assert_eq!(run("import iter; return iter.take([1,2], 0);")?, Val::List(Arc::new(vec![])));
+        assert_eq!(
+            run("import iter; return iter.take([1,2,3,4], 2);")?,
+            Val::List(Arc::new(vec![Val::Int(1), Val::Int(2)]))
+        );
+        assert_eq!(
+            run("import iter; return iter.take([1,2], 0);")?,
+            Val::List(Arc::new(vec![]))
+        );
         // skip
-        assert_eq!(run("import iter; return iter.skip([1,2,3,4], 2);")?, Val::List(Arc::new(vec![Val::Int(3), Val::Int(4)])));
-        assert_eq!(run("import iter; return iter.skip([1,2], 10);")?, Val::List(Arc::new(vec![])));
+        assert_eq!(
+            run("import iter; return iter.skip([1,2,3,4], 2);")?,
+            Val::List(Arc::new(vec![Val::Int(3), Val::Int(4)]))
+        );
+        assert_eq!(
+            run("import iter; return iter.skip([1,2], 10);")?,
+            Val::List(Arc::new(vec![]))
+        );
         // chain
         assert_eq!(
             run("import iter; return iter.chain([1,2], [3,4]);")?,
-            Val::List(Arc::new(vec![Val::Int(1), Val::Int(2), Val::Int(3), Val::Int(4)]))
+            Val::List(Arc::new(vec![
+                Val::Int(1),
+                Val::Int(2),
+                Val::Int(3),
+                Val::Int(4)
+            ]))
         );
         // flatten (one level)
         assert_eq!(
             run("import iter; return iter.flatten([[1,2],[3],4]);")?,
-            Val::List(Arc::new(vec![Val::Int(1), Val::Int(2), Val::Int(3), Val::Int(4)]))
+            Val::List(Arc::new(vec![
+                Val::Int(1),
+                Val::Int(2),
+                Val::Int(3),
+                Val::Int(4)
+            ]))
         );
         // unique (stable)
         assert_eq!(

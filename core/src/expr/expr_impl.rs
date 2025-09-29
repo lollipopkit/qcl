@@ -32,7 +32,6 @@ use std::sync::Mutex;
 /// list    ::= '[' [expr {',' expr}] ']'
 /// map     ::= '{' [expr ':' expr {',' expr ':' expr}] '}'
 ///
-///
 /// Select case pattern for select statements
 #[derive(Debug, Clone, PartialEq)]
 pub enum SelectPattern {

@@ -1,5 +1,5 @@
 pub mod import;
-mod stmt;
+mod stmt_impl;
 pub mod stmt_parser;
 
 #[cfg(test)]
@@ -18,5 +18,5 @@ mod stmt_test;
 mod while_let_test;
 
 pub use import::*;
-pub use stmt::*;
+pub use stmt_impl::*;
 pub use stmt_parser::*;

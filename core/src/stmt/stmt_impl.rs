@@ -342,10 +342,10 @@ impl Stmt {
                     let val = value.eval_with_env(ctx, Some(env))?;
 
                     // 在 while let/if let 语境下，变量模式不匹配 nil
-                    if let crate::expr::Pattern::Variable(_) = pattern {
-                        if val == Val::Nil {
-                            break;
-                        }
+                    if let crate::expr::Pattern::Variable(_) = pattern
+                        && val == Val::Nil
+                    {
+                        break;
                     }
 
                     // 对列表前缀匹配做放宽：允许 [a] 匹配 [a, b, ...]
@@ -390,12 +390,11 @@ impl Stmt {
 
                         // 如果是前缀放宽匹配，且 value 是变量，记录 rest 以便在循环体执行后推进该变量
                         let mut pending_prefix_advance: Option<(String, Val)> = None;
-                        if prefix_relaxed {
-                            if let crate::expr::Expr::Var(var_name) = value.as_ref() {
-                                if let Some(rest_val) = env.get("__whilelet_rest").cloned() {
-                                    pending_prefix_advance = Some((var_name.clone(), rest_val));
-                                }
-                            }
+                        if prefix_relaxed
+                            && let crate::expr::Expr::Var(var_name) = value.as_ref()
+                            && let Some(rest_val) = env.get("__whilelet_rest").cloned()
+                        {
+                            pending_prefix_advance = Some((var_name.clone(), rest_val));
                         }
 
                         // 执行循环体
@@ -434,17 +433,15 @@ impl Stmt {
                         env.pop_scope();
 
                         // 针对 x[0] 的场景：在不匹配时尝试推进 x 到其余切片后继续尝试
-                        if let Some(var_name) = scan_head_var {
-                            if let Some(current) = env.get(&var_name).cloned() {
-                                if let Val::List(list) = current {
-                                    if list.len() > 0 {
-                                        let tail: Vec<Val> = list.iter().skip(1).cloned().collect();
-                                        let _ = env.assign(&var_name, Val::List(Arc::new(tail)));
-                                        // 不立即 break，继续下一轮尝试
-                                        continue;
-                                    }
-                                }
-                            }
+                        if let Some(var_name) = scan_head_var
+                            && let Some(current) = env.get(&var_name).cloned()
+                            && let Val::List(list) = current
+                            && !list.is_empty()
+                        {
+                            let tail: Vec<Val> = list.iter().skip(1).cloned().collect();
+                            let _ = env.assign(&var_name, Val::List(Arc::new(tail)));
+                            // 不立即 break，继续下一轮尝试
+                            continue;
                         }
 
                         break;
@@ -497,22 +494,22 @@ impl Stmt {
                 let val = value.eval_with_env(ctx, Some(env))?;
 
                 // Validate type annotation if provided
-                if let Some(expected_type) = type_annotation {
-                    if let Err(_e) = expected_type.validate(&val) {
-                        let error_msg = format!(
-                            "Type mismatch in pattern: expected {}, got {}",
-                            expected_type.display(),
-                            val.type_name()
-                        );
-                        return if let Some(span) = span {
-                            Err(anyhow::anyhow!(ParseError::with_span(
-                                error_msg,
-                                span.clone()
-                            )))
-                        } else {
-                            Err(anyhow::anyhow!(error_msg))
-                        };
-                    }
+                if let Some(expected_type) = type_annotation
+                    && let Err(_e) = expected_type.validate(&val)
+                {
+                    let error_msg = format!(
+                        "Type mismatch in pattern: expected {}, got {}",
+                        expected_type.display(),
+                        val.type_name()
+                    );
+                    return if let Some(span) = span {
+                        Err(anyhow::anyhow!(ParseError::with_span(
+                            error_msg,
+                            span.clone()
+                        )))
+                    } else {
+                        Err(anyhow::anyhow!(error_msg))
+                    };
                 }
 
                 // Handle pattern matching and variable binding
@@ -607,17 +604,14 @@ impl Stmt {
                 // Heuristic: if this is a method call like `var.method(...)` and
                 // the method is known to return an updated receiver (e.g. List.push),
                 // assign the result back to the variable to simulate mutating methods.
-                if let crate::expr::Expr::CallExpr(callee, _args) = expr.as_ref() {
-                    if let crate::expr::Expr::Access(obj_expr, field_expr) = callee.as_ref() {
-                        if let crate::expr::Expr::Var(var_name) = obj_expr.as_ref() {
-                            if let crate::expr::Expr::Val(Val::Str(method)) = field_expr.as_ref() {
-                                // For now, treat 'push' as mutating for Lists
-                                if method.as_ref() == "push" {
-                                    let _ = env.assign(var_name, value.clone());
-                                }
-                            }
-                        }
-                    }
+                if let crate::expr::Expr::CallExpr(callee, _args) = expr.as_ref()
+                    && let crate::expr::Expr::Access(obj_expr, field_expr) = callee.as_ref()
+                    && let crate::expr::Expr::Var(var_name) = obj_expr.as_ref()
+                    && let crate::expr::Expr::Val(Val::Str(method)) = field_expr.as_ref()
+                    && method.as_ref() == "push"
+                {
+                    // For now, treat 'push' as mutating for Lists
+                    let _ = env.assign(var_name, value.clone());
                 }
 
                 Ok(ControlFlow::None)
@@ -854,7 +848,7 @@ impl Stmt {
                     for t in flat {
                         by_key.entry(t.display()).or_insert(t);
                     }
-                    let mut uniq: Vec<Type> = by_key.into_iter().map(|(_, t)| t).collect();
+                    let mut uniq: Vec<Type> = by_key.into_values().collect();
                     if uniq.len() == 1 {
                         uniq.remove(0)
                     } else {

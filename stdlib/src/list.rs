@@ -174,12 +174,17 @@ impl ListModule {
         // Resolve callable
         let call = match func {
             Val::Closure { .. } | Val::RustFunction(_) => func,
-            other => return Err(anyhow::anyhow!("map() second argument must be a function, got {}", other.type_name())),
+            other => {
+                return Err(anyhow::anyhow!(
+                    "map() second argument must be a function, got {}",
+                    other.type_name()
+                ));
+            }
         };
 
         let mut out = Vec::with_capacity(list.len());
         for item in list.iter() {
-            let res = call.call(&[item.clone()], env, ctx)?;
+            let res = call.call(std::slice::from_ref(item), env, ctx)?;
             out.push(res);
         }
         Ok(Val::List(Arc::new(out)))
@@ -191,21 +196,25 @@ impl ListModule {
         // Normalize to (list, func)
         let (list, func) = match args {
             [Val::List(l), f] => (l.clone(), f.clone()),
-            _ if args.len() == 2 => return Err(anyhow::anyhow!("filter() expects (list, function)")),
+            _ if args.len() == 2 => {
+                return Err(anyhow::anyhow!("filter() expects (list, function)"));
+            }
             _ => return Err(anyhow::anyhow!("filter() expects 2 arguments")),
         };
 
         let call = match func {
             Val::Closure { .. } | Val::RustFunction(_) => func,
-            other => return Err(anyhow::anyhow!(
-                "filter() second argument must be a function, got {}",
-                other.type_name()
-            )),
+            other => {
+                return Err(anyhow::anyhow!(
+                    "filter() second argument must be a function, got {}",
+                    other.type_name()
+                ));
+            }
         };
 
         let mut out = Vec::with_capacity(list.len());
         for item in list.iter() {
-            let res = call.call(&[item.clone()], env, ctx)?;
+            let res = call.call(std::slice::from_ref(item), env, ctx)?;
             let keep = match res {
                 Val::Bool(b) => b,
                 Val::Nil => false,
@@ -237,7 +246,7 @@ impl ListModule {
                 return Err(anyhow::anyhow!(
                     "reduce() third argument must be a function, got {}",
                     other.type_name()
-                ))
+                ));
             }
         };
 
