@@ -7,7 +7,9 @@ use std::sync::Arc;
 use tokio::time::{sleep, Duration};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
+use tower_lsp::lsp_types::{notification::Progress as ProgressNotification, request::WorkDoneProgressCreate};
 use tower_lsp::{Client, LanguageServer, LspService, Server};
+use serde::Deserialize;
 use tracing::info;
 use twox_hash::XxHash64;
 
@@ -21,6 +23,8 @@ const MAX_SEMANTIC_TOKENS: usize = 12000;
 
 #[cfg(test)]
 mod bench_test;
+#[cfg(test)]
+mod inlay_hint_test;
 
 #[derive(Debug, Default)]
 struct Document {
@@ -47,6 +51,7 @@ struct QclLanguageServer {
     client: Client,
     documents: Arc<DashMap<Url, Document>>,
     analyzer: std::sync::Mutex<QclAnalyzer>,
+    config: std::sync::Mutex<ServerConfig>,
 }
 
 impl QclLanguageServer {
@@ -55,6 +60,7 @@ impl QclLanguageServer {
             client,
             documents: Arc::new(DashMap::new()),
             analyzer: std::sync::Mutex::new(QclAnalyzer::new()),
+            config: std::sync::Mutex::new(ServerConfig::default()),
         }
     }
 
@@ -168,6 +174,63 @@ impl QclLanguageServer {
     }
 }
 
+// ----------------------
+// Server configuration
+// ----------------------
+
+#[derive(Debug, Clone, Default)]
+struct ServerConfig {
+    inlay_hints_enabled: bool,
+    inlay_hints_parameters: bool,
+    inlay_hints_types: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct QclLspConfigSection {
+    #[serde(default)]
+    inlay_hints: InlayHintsConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct InlayHintsConfig {
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    parameters: InlayKindConfig,
+    #[serde(default)]
+    types: InlayKindConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct InlayKindConfig {
+    enabled: Option<bool>,
+}
+
+impl QclLanguageServer {
+    async fn load_config(&self) {
+        // Ask client for the 'qcl.lsp' section
+        let items = vec![ConfigurationItem { scope_uri: None, section: Some("qcl.lsp".to_string()) }];
+        if let Ok(values) = self.client.configuration(items).await {
+            if let Some(val) = values.into_iter().next() {
+                if let Ok(cfg) = serde_json::from_value::<QclLspConfigSection>(val) {
+                    let mut guard = self.config.lock().unwrap();
+                    // Defaults are true unless explicitly disabled
+                    guard.inlay_hints_enabled = cfg.inlay_hints.enabled.unwrap_or(true);
+                    guard.inlay_hints_parameters = cfg
+                        .inlay_hints
+                        .parameters
+                        .enabled
+                        .unwrap_or(true);
+                    guard.inlay_hints_types = cfg.inlay_hints.types.enabled.unwrap_or(true);
+                }
+            }
+        }
+    }
+}
+
 #[tower_lsp::async_trait]
 impl LanguageServer for QclLanguageServer {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
@@ -190,9 +253,16 @@ impl LanguageServer for QclLanguageServer {
                     all_commit_characters: None,
                     completion_item: None,
                 }),
+                signature_help_provider: Some(SignatureHelpOptions {
+                    trigger_characters: Some(vec!["(".to_string(), ",".to_string()]),
+                    retrigger_characters: None,
+                    work_done_progress_options: Default::default(),
+                }),
                 document_symbol_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
                 definition_provider: Some(OneOf::Left(true)),
+                document_highlight_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Left(true)),
                 diagnostic_provider: Some(DiagnosticServerCapabilities::Options(
                     DiagnosticOptions {
                         identifier: Some("qcl".to_string()),
@@ -235,6 +305,17 @@ impl LanguageServer for QclLanguageServer {
                     ),
                 ),
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                code_lens_provider: Some(CodeLensOptions {
+                    resolve_provider: Some(false),
+                }),
+                document_formatting_provider: Some(OneOf::Left(true)),
+                inlay_hint_provider: Some(OneOf::Right(
+                    InlayHintServerCapabilities::Options(InlayHintOptions {
+                        work_done_progress_options: Default::default(),
+                        resolve_provider: Some(false),
+                    }),
+                )),
+                // Workspace capabilities left default; client will still send configuration changes
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -250,11 +331,18 @@ impl LanguageServer for QclLanguageServer {
             .client
             .log_message(MessageType::INFO, "QCL Language Server started")
             .await;
+        // Load initial configuration from client
+        self.load_config().await;
     }
 
     async fn shutdown(&self) -> Result<()> {
         info!("QCL Language Server shutting down");
         Ok(())
+    }
+
+    async fn did_change_configuration(&self, _params: DidChangeConfigurationParams) {
+        // Reload configuration when the client notifies of changes
+        self.load_config().await;
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
@@ -636,6 +724,213 @@ impl LanguageServer for QclLanguageServer {
         Ok(None)
     }
 
+    async fn document_highlight(
+        &self,
+        params: DocumentHighlightParams,
+    ) -> Result<Option<Vec<DocumentHighlight>>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+        let content = if let Some(doc) = self.documents.get(uri) {
+            doc.content.to_string()
+        } else {
+            String::new()
+        };
+        if let Some(symbol) = self.find_symbol_at_position(&content, position).await {
+            let locs = self.find_all_references(&content, &symbol, uri).await;
+            if !locs.is_empty() {
+                let highlights = locs
+                    .into_iter()
+                    .map(|loc| DocumentHighlight {
+                        range: loc.range,
+                        kind: Some(DocumentHighlightKind::TEXT),
+                    })
+                    .collect();
+                return Ok(Some(highlights));
+            }
+        }
+        Ok(None)
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let uri = &params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let new_name = params.new_name.clone();
+
+        // Basic identifier validation: letters, digits, underscore; not starting with digit
+        let is_valid_name = {
+            let mut chars = new_name.chars();
+            match chars.next() {
+                Some(c) if c.is_ascii_alphabetic() || c == '_' => {
+                    chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+                }
+                _ => false,
+            }
+        };
+        if !is_valid_name {
+            return Ok(None);
+        }
+
+        // Snapshot content
+        let content = if let Some(doc) = self.documents.get(uri) {
+            doc.content.to_string()
+        } else {
+            String::new()
+        };
+
+        // Find symbol name at position
+        let Some(symbol_name) = self.find_symbol_at_position(&content, position).await else {
+            return Ok(None);
+        };
+        // Disallow renaming context paths (e.g., @req.user)
+        if symbol_name.starts_with('@') {
+            return Ok(None);
+        }
+
+        // Gather all references in the same document
+        let locations = self.find_all_references(&content, &symbol_name, uri).await;
+        if locations.is_empty() {
+            return Ok(None);
+        }
+        let edits: Vec<TextEdit> = locations
+            .into_iter()
+            .map(|loc| TextEdit {
+                range: loc.range,
+                new_text: new_name.clone(),
+            })
+            .collect();
+        let mut changes = std::collections::HashMap::new();
+        changes.insert(uri.clone(), edits);
+        Ok(Some(WorkspaceEdit {
+            changes: Some(changes),
+            ..Default::default()
+        }))
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let uri = &params.text_document.uri;
+        let position = params.position;
+        // Snapshot content
+        let (content, line_text) = if let Some(doc) = self.documents.get(uri) {
+            let rope = &doc.content;
+            let line_idx = position.line as usize;
+            let line = if line_idx < rope.len_lines() {
+                rope.line(line_idx).to_string()
+            } else {
+                String::new()
+            };
+            (rope.to_string(), line)
+        } else {
+            (String::new(), String::new())
+        };
+
+        let Some(symbol_name) = self.find_symbol_at_position(&content, position).await else {
+            return Ok(None);
+        };
+        if symbol_name.starts_with('@') || symbol_name.is_empty() {
+            return Ok(None);
+        }
+
+        // Compute the word range on the line around the cursor
+        let mut start = position.character as usize;
+        let mut end = position.character as usize;
+        let chars: Vec<char> = line_text.chars().collect();
+        while start > 0 && (chars[start - 1].is_alphanumeric() || chars[start - 1] == '_') {
+            start -= 1;
+        }
+        while end < chars.len() && (chars[end].is_alphanumeric() || chars[end] == '_') {
+            end += 1;
+        }
+        let range = Range::new(
+            Position::new(position.line, start as u32),
+            Position::new(position.line, end as u32),
+        );
+        Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
+            range,
+            placeholder: symbol_name,
+        }))
+    }
+
+    async fn signature_help(
+        &self,
+        params: SignatureHelpParams,
+    ) -> Result<Option<SignatureHelp>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+
+        // Snapshot content
+        let content = if let Some(doc) = self.documents.get(uri) {
+            doc.content.to_string()
+        } else {
+            String::new()
+        };
+
+        // Heuristically find the function name and active parameter index
+        let (func_name, active_param) = infer_call_at_position(&content, position);
+        if func_name.is_empty() {
+            return Ok(None);
+        }
+
+        // Collect signatures from built-ins and current document definitions
+        let mut signatures: Vec<SignatureInformation> = Vec::new();
+
+        // Built-ins
+        match func_name.as_str() {
+            "print" => signatures.push(sig(
+                "print(fmt, ...args)",
+                ["fmt", "...args"].as_slice(),
+                "Global function - print without newline",
+            )),
+            "println" => signatures.push(sig(
+                "println(fmt, ...args)",
+                ["fmt", "...args"].as_slice(),
+                "Global function - print with newline",
+            )),
+            "panic" => signatures.push(sig(
+                "panic(message)",
+                ["message"].as_slice(),
+                "Global function - raise runtime error",
+            )),
+            _ => {}
+        }
+
+        // Scan current document for fn definitions matching the name
+        let re = Regex::new(&format!(r"(?m)\bfn\s+{}\s*\(([^)]*)\)", regex::escape(&func_name)))
+            .unwrap();
+        for caps in re.captures_iter(&content) {
+            if let Some(params_m) = caps.get(1) {
+                let params_str = params_m.as_str();
+                let params_list: Vec<String> = params_str
+                    .split(',')
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.split(':').next().unwrap_or("").trim().to_string())
+                    .collect();
+                let label = format!("{}({})", func_name, params_list.join(", "));
+                signatures.push(sig_owned(label, params_list, "User-defined function"));
+            }
+        }
+
+        if signatures.is_empty() {
+            return Ok(None);
+        }
+
+        let active = active_param.unwrap_or(0).min(
+            signatures
+                .get(0)
+                .and_then(|s| s.parameters.as_ref())
+                .map(|v| v.len().saturating_sub(1))
+                .unwrap_or(0),
+        ) as u32;
+        Ok(Some(SignatureHelp {
+            signatures,
+            active_signature: Some(0),
+            active_parameter: Some(active),
+        }))
+    }
+
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,
@@ -663,6 +958,110 @@ impl LanguageServer for QclLanguageServer {
         }
 
         Ok(None)
+    }
+
+    async fn code_lens(&self, params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
+        let uri = &params.text_document.uri;
+        let mut lenses: Vec<CodeLens> = Vec::new();
+        // Lens: Analyze file
+        lenses.push(CodeLens {
+            range: Range::new(Position::new(0, 0), Position::new(0, 0)),
+            command: Some(Command {
+                title: "Analyze file".to_string(),
+                command: "qcl.analyzeCurrentFile".to_string(),
+                arguments: None,
+            }),
+            data: None,
+        });
+
+        // Lens: Context keys used (if any)
+        if let Some(analysis) = self.get_or_compute_analysis(uri).await {
+            if !analysis.context_references.is_empty() {
+                let mut keys: Vec<_> = analysis.context_references.iter().cloned().collect();
+                keys.sort();
+                let preview = if keys.len() <= 3 {
+                    keys.join(", ")
+                } else {
+                    format!("{}, … ({} total)", keys[0..3].join(", "), keys.len())
+                };
+                lenses.push(CodeLens {
+                    range: Range::new(Position::new(0, 0), Position::new(0, 0)),
+                    command: Some(Command {
+                        title: format!("Context keys: {}", preview),
+                        command: "qcl.showStatusBarMenu".to_string(),
+                        arguments: None,
+                    }),
+                    data: None,
+                });
+            }
+        }
+
+        Ok(Some(lenses))
+    }
+
+    async fn formatting(
+        &self,
+        params: DocumentFormattingParams,
+    ) -> Result<Option<Vec<TextEdit>>> {
+        let uri = &params.text_document.uri;
+        let options = params.options;
+        let content = if let Some(doc) = self.documents.get(uri) {
+            doc.content.to_string()
+        } else {
+            String::new()
+        };
+        let formatted = format_qcl(&content, &options);
+        if formatted == content {
+            return Ok(Some(vec![]));
+        }
+        // Full document replacement
+        let rope = Rope::from_str(&content);
+        let end = Position::new(
+            rope.len_lines().saturating_sub(1) as u32,
+            rope.line(rope.len_lines().saturating_sub(1)).len_chars() as u32,
+        );
+        let edit = TextEdit { range: Range::new(Position::new(0, 0), end), new_text: formatted };
+        Ok(Some(vec![edit]))
+    }
+
+    async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
+        let uri = &params.text_document.uri;
+        let content = if let Some(doc) = self.documents.get(uri) {
+            doc.content.to_string()
+        } else {
+            String::new()
+        };
+        // Apply server-side configuration for inlay hints
+        let cfg = self.config.lock().unwrap().clone();
+        if !cfg.inlay_hints_enabled {
+            return Ok(None);
+        }
+
+        // Combine parameter hints and type hints, but skip computing disabled kinds for performance
+        let mut hints: Vec<InlayHint> = Vec::new();
+        if cfg.inlay_hints_parameters {
+            hints.extend(compute_inlay_hints(&content, params.range.clone()));
+        }
+        if cfg.inlay_hints_types {
+            if let Ok(analyzer) = self.analyzer.lock() {
+                let mut type_hints = analyzer.compute_type_inlay_hints(&content, params.range.clone());
+                let mut define_hints = analyzer.compute_define_type_hints(&content, params.range.clone());
+                let mut fn_return_hints = analyzer.compute_function_return_type_hints(&content, params.range.clone());
+                hints.append(&mut type_hints);
+                hints.append(&mut define_hints);
+                hints.append(&mut fn_return_hints);
+            }
+        }
+        // Filter kinds based on config flags
+        let filtered: Vec<InlayHint> = hints
+            .into_iter()
+            .filter(|h| match h.kind.unwrap_or(InlayHintKind::TYPE) {
+                InlayHintKind::PARAMETER => cfg.inlay_hints_parameters,
+                InlayHintKind::TYPE => cfg.inlay_hints_types,
+                _ => true,
+            })
+            .collect();
+        Ok((!filtered.is_empty()).then_some(filtered))
     }
 
     async fn semantic_tokens_full(
@@ -925,6 +1324,7 @@ impl QclLanguageServer {
         delay_ms: u64,
     ) {
         let documents = self.documents.clone();
+        let client = self.client.clone();
         tokio::spawn(async move {
             sleep(Duration::from_millis(delay_ms)).await;
 
@@ -935,6 +1335,27 @@ impl QclLanguageServer {
                 } else {
                     return;
                 };
+
+            // Create and begin a work-done progress to surface checking state in clients
+            let token = NumberOrString::String(format!("qcl:diag:{}", uri));
+            let _ = client
+                .send_request::<WorkDoneProgressCreate>(WorkDoneProgressCreateParams {
+                    token: token.clone(),
+                })
+                .await;
+            let _ = client
+                .send_notification::<ProgressNotification>(ProgressParams {
+                    token: token.clone(),
+                    value: ProgressParamsValue::WorkDone(WorkDoneProgress::Begin(
+                        WorkDoneProgressBegin {
+                            title: "QCL: Checking".to_string(),
+                            cancellable: Some(false),
+                            message: Some(uri.to_string()),
+                            percentage: None,
+                        },
+                    )),
+                })
+                .await;
 
             // Compute analysis on snapshot off the runtime thread.
             // Avoid generating full semantic tokens here; that is computed lazily
@@ -954,7 +1375,19 @@ impl QclLanguageServer {
             .await
             {
                 Ok(pair) => pair,
-                Err(_) => return,
+                Err(_) => {
+                    let _ = client
+                        .send_notification::<ProgressNotification>(ProgressParams {
+                            token: token.clone(),
+                            value: ProgressParamsValue::WorkDone(
+                                WorkDoneProgress::End(WorkDoneProgressEnd {
+                                    message: Some("Analysis cancelled".to_string()),
+                                }),
+                            ),
+                        })
+                        .await;
+                    return;
+                }
             };
 
             // Try to store caches if document still matches snapshot
@@ -968,6 +1401,18 @@ impl QclLanguageServer {
                     // Tokens will be generated on demand by semanticTokens requests.
                 }
             }
+
+            // End work-done progress
+            let _ = client
+                .send_notification::<ProgressNotification>(ProgressParams {
+                    token: token.clone(),
+                    value: ProgressParamsValue::WorkDone(WorkDoneProgress::End(
+                        WorkDoneProgressEnd {
+                            message: Some("Diagnostics updated".to_string()),
+                        },
+                    )),
+                })
+                .await;
         });
     }
 
@@ -1393,6 +1838,334 @@ fn describe_token_hover(tokens: &[CoreToken], _spans: &[CoreSpan], idx: usize) -
         T::Match => "Keyword: match".to_string(),
     }
 }
+
+// Infer the function call under the cursor and the active parameter index.
+fn infer_call_at_position(content: &str, position: Position) -> (String, Option<usize>) {
+    let lines: Vec<&str> = content.lines().collect();
+    let line_idx = position.line as usize;
+    if line_idx >= lines.len() {
+        return (String::new(), None);
+    }
+    let col = position.character as isize;
+    let line = lines[line_idx];
+    let prefix = &line[..line.len().min(col.max(0) as usize)];
+
+    // Walk backwards to find the nearest '(' and count commas for active parameter
+    let mut depth = 0i32;
+    let mut commas = 0usize;
+    for (i, ch) in prefix.chars().rev().enumerate() {
+        match ch {
+            ')' => depth += 1,
+            '(' => {
+                if depth == 0 {
+                    // Identify the function name before '('
+                    let start = prefix.len().saturating_sub(i + 1);
+                    let before = &prefix[..start];
+                    let fname = before
+                        .trim_end()
+                        .chars()
+                        .rev()
+                        .take_while(|c| c.is_alphanumeric() || *c == '_')
+                        .collect::<String>()
+                        .chars()
+                        .rev()
+                        .collect::<String>();
+                    return (fname, Some(commas));
+                } else {
+                    depth -= 1;
+                }
+            }
+            ',' if depth == 0 => commas += 1,
+            _ => {}
+        }
+    }
+    (String::new(), None)
+}
+
+fn sig(label: &str, params: &[&str], doc: &str) -> SignatureInformation {
+    SignatureInformation {
+        label: label.to_string(),
+        documentation: Some(Documentation::String(doc.to_string())),
+        parameters: Some(
+            params
+                .iter()
+                .map(|p| ParameterInformation {
+                    label: ParameterLabel::Simple((*p).to_string()),
+                    documentation: None,
+                })
+                .collect(),
+        ),
+        active_parameter: None,
+    }
+}
+
+fn sig_owned(label: String, params: Vec<String>, doc: &str) -> SignatureInformation {
+    SignatureInformation {
+        label,
+        documentation: Some(Documentation::String(doc.to_string())),
+        parameters: Some(
+            params
+                .into_iter()
+                .map(|p| ParameterInformation {
+                    label: ParameterLabel::Simple(p),
+                    documentation: None,
+                })
+                .collect(),
+        ),
+        active_parameter: None,
+    }
+}
+
+fn format_qcl(input: &str, options: &FormattingOptions) -> String {
+    // Simple indentation formatter based on braces and parentheses.
+    let mut out = String::with_capacity(input.len() + 16);
+    let use_spaces = options.insert_spaces;
+    let tab_size = (options.tab_size.max(1).min(8)) as usize;
+    let mut indent = 0isize;
+
+    for raw_line in input.lines() {
+        let line = raw_line.trim();
+        // Reduce indent if line starts with a closing token
+        let leading_closers = line.chars().take_while(|c| c.is_whitespace() || *c == '}' || *c == ')' || *c == ']').filter(|c| *c == '}' || *c == ')' || *c == ']').count();
+        if leading_closers > 0 && indent > 0 {
+            indent -= leading_closers as isize;
+            if indent < 0 { indent = 0; }
+        }
+
+        // Emit indentation
+        if use_spaces {
+            for _ in 0..(indent.max(0) as usize * tab_size) { out.push(' '); }
+        } else {
+            for _ in 0..indent.max(0) { out.push('\t'); }
+        }
+        out.push_str(line);
+        out.push('\n');
+
+        // Adjust indent increases for next line
+        let mut delta = 0isize;
+        for ch in line.chars() {
+            match ch {
+                '{' | '(' | '[' => delta += 1,
+                '}' | ')' | ']' => delta -= 1,
+                _ => {}
+            }
+        }
+        indent += delta;
+        if indent < 0 { indent = 0; }
+    }
+
+    // Preserve trailing newline convention similar to input
+    out
+}
+
+fn compute_inlay_hints(content: &str, range: Range) -> Vec<InlayHint> {
+    // Collect function parameter names from local fn definitions
+    let mut defs: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    if let Ok(re) = Regex::new(r"(?m)\bfn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)") {
+        for caps in re.captures_iter(content) {
+            let name = caps.get(1).map(|m| m.as_str()).unwrap_or("").to_string();
+            let params_str = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+            let params: Vec<String> = params_str
+                .split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.split(':').next().unwrap_or("").trim().to_string())
+                .collect();
+            if !name.is_empty() { defs.insert(name, params); }
+        }
+    }
+    // Built-ins
+    defs.entry("print".to_string()).or_insert_with(|| vec!["fmt".into(), "...args".into()]);
+    defs.entry("println".to_string()).or_insert_with(|| vec!["fmt".into(), "...args".into()]);
+    defs.entry("panic".to_string()).or_insert_with(|| vec!["message".into()]);
+
+    // Precompute line starts for mapping offsets to (line,col)
+    let mut line_starts: Vec<usize> = Vec::new();
+    line_starts.push(0);
+    for (i, b) in content.as_bytes().iter().enumerate() {
+        if *b == b'\n' { line_starts.push(i + 1); }
+    }
+    let within_range = |ofs: usize| -> bool {
+        let mut line = 0usize;
+        for (idx, start) in line_starts.iter().enumerate() {
+            if *start > ofs { break; }
+            line = idx;
+        }
+        let line_u = line as u32;
+        line_u >= range.start.line && line_u <= range.end.line
+    };
+
+    let mut hints = Vec::new();
+    let bytes = content.as_bytes();
+    let mut i = 0usize;
+    let mut in_string: Option<u8> = None;
+    let mut in_line_comment = false;
+    while i < bytes.len() {
+        if bytes[i] == b'\n' { in_line_comment = false; i += 1; continue; }
+        if in_line_comment { i += 1; continue; }
+        if in_string.is_none() && i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'/' {
+            in_line_comment = true; i += 2; continue;
+        }
+        if let Some(q) = in_string {
+            if bytes[i] == b'\\' { i = (i + 2).min(bytes.len()); continue; }
+            if bytes[i] == q { in_string = None; i += 1; continue; }
+            i += 1; continue;
+        } else if bytes[i] == b'"' || bytes[i] == b'\'' { in_string = Some(bytes[i]); i += 1; continue; }
+
+        if !(bytes[i].is_ascii_alphabetic() || bytes[i] == b'_') { i += 1; continue; }
+        let name_start = i;
+        while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') { i += 1; }
+        let name_end = i;
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() { i += 1; }
+        if i >= bytes.len() || bytes[i] != b'(' { continue; }
+
+        // Skip function definitions like `fn name(`
+        let mut j = name_start;
+        while j > 0 && bytes[j - 1].is_ascii_whitespace() { j -= 1; }
+        let is_fn_def = if j >= 2 {
+            let kw = &bytes[j - 2..j];
+            kw == b"fn" && (j < 3 || !bytes[j - 3].is_ascii_alphanumeric() && bytes[j - 3] != b'_')
+        } else { false };
+        if is_fn_def { i += 1; continue; }
+
+        let name = &content[name_start..name_end];
+        let Some(params) = defs.get(name).cloned() else { i += 1; continue; };
+
+        // Scan arguments across lines
+        let mut pos = i + 1;
+        let mut arg_index = 0usize;
+        let mut depth = 0i32;
+        let mut str_state: Option<u8> = None;
+        let mut line_comment = false;
+        let mut arg_start = pos;
+        while pos < bytes.len() {
+            let ch = bytes[pos];
+            if ch == b'\n' { line_comment = false; pos += 1; continue; }
+            if line_comment { pos += 1; continue; }
+            if str_state.is_none() && pos + 1 < bytes.len() && bytes[pos] == b'/' && bytes[pos + 1] == b'/' { line_comment = true; pos += 2; continue; }
+            if let Some(q) = str_state {
+                if ch == b'\\' { pos = (pos + 2).min(bytes.len()); continue; }
+                if ch == q { str_state = None; pos += 1; continue; }
+                pos += 1; continue;
+            } else if ch == b'"' || ch == b'\'' { str_state = Some(ch); pos += 1; continue; }
+
+            match ch as char {
+                '(' | '[' | '{' => {
+                    if ch == b'(' && depth == 0 {
+                        // Attempt nested call parsing just before this '('
+                        let mut l = pos;
+                        // skip whitespace between ident and '('
+                        while l > 0 && bytes[l - 1].is_ascii_whitespace() { l -= 1; }
+                        let mut k = l;
+                        while k > 0 && (bytes[k - 1].is_ascii_alphanumeric() || bytes[k - 1] == b'_') { k -= 1; }
+                        if k < l {
+                            let nested_name = &content[k..l];
+                            if let Some(nested_params) = defs.get(nested_name).cloned() {
+                                // Parse nested args from pos+1
+                                let mut np = pos + 1;
+                                let mut ndepth = 0i32;
+                                let mut nstr: Option<u8> = None;
+                                let mut nline_comment = false;
+                                let mut nstart = np;
+                                let mut nidx = 0usize;
+                                while np < bytes.len() {
+                                    let nch = bytes[np];
+                                    if nch == b'\n' { nline_comment = false; np += 1; continue; }
+                                    if nline_comment { np += 1; continue; }
+                                    if nstr.is_none() && np + 1 < bytes.len() && bytes[np] == b'/' && bytes[np + 1] == b'/' { nline_comment = true; np += 2; continue; }
+                                    if let Some(q) = nstr {
+                                        if nch == b'\\' { np = (np + 2).min(bytes.len()); continue; }
+                                        if nch == q { nstr = None; np += 1; continue; }
+                                        np += 1; continue;
+                                    } else if nch == b'"' || nch == b'\'' { nstr = Some(nch); np += 1; continue; }
+
+                                    match nch as char {
+                                        '(' | '[' | '{' => { ndepth += 1; }
+                                        ')' => {
+                                            if ndepth == 0 {
+                                                let (hp, ok) = first_sig_pos(content, nstart, np);
+                                                if ok && nidx < nested_params.len() && within_range(hp) {
+                                                    hints.push(make_param_hint(&nested_params[nidx], hp, &line_starts));
+                                                }
+                                                break;
+                                            } else { ndepth -= 1; }
+                                        }
+                                        ',' => {
+                                            if ndepth == 0 {
+                                                let (hp, ok) = first_sig_pos(content, nstart, np);
+                                                if ok && nidx < nested_params.len() && within_range(hp) {
+                                                    hints.push(make_param_hint(&nested_params[nidx], hp, &line_starts));
+                                                }
+                                                nidx += 1; nstart = np + 1;
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                    np += 1;
+                                }
+                            }
+                        }
+                    }
+                    depth += 1;
+                }
+                ')' => {
+                    if depth == 0 {
+                        let (hint_pos, ok) = first_sig_pos(content, arg_start, pos);
+                        if ok && arg_index < params.len() && within_range(hint_pos) {
+                            hints.push(make_param_hint(&params[arg_index], hint_pos, &line_starts));
+                        }
+                        i = pos + 1; // advance outer scanner
+                        break;
+                    } else { depth -= 1; }
+                }
+                ',' => {
+                    if depth == 0 {
+                        let (hint_pos, ok) = first_sig_pos(content, arg_start, pos);
+                        if ok && arg_index < params.len() && within_range(hint_pos) {
+                            hints.push(make_param_hint(&params[arg_index], hint_pos, &line_starts));
+                        }
+                        arg_index += 1; arg_start = pos + 1;
+                    }
+                }
+                _ => {}
+            }
+            pos += 1;
+        }
+        if pos >= bytes.len() { i = pos; }
+    }
+    hints
+}
+
+fn first_sig_pos(content: &str, start: usize, end: usize) -> (usize, bool) {
+    let slice = &content[start..end];
+    let mut acc = 0usize;
+    for ch in slice.chars() {
+        if !ch.is_whitespace() { return (start + acc, true); }
+        acc += ch.len_utf8();
+    }
+    (start, false)
+}
+
+fn make_param_hint(param: &str, ofs: usize, line_starts: &[usize]) -> InlayHint {
+    let mut line = 0usize;
+    for (idx, start) in line_starts.iter().enumerate() {
+        if *start > ofs { break; }
+        line = idx;
+    }
+    let col = ofs - line_starts[line];
+    InlayHint {
+        position: Position::new(line as u32, col as u32),
+        label: InlayHintLabel::from(format!("{}:", param)),
+        kind: Some(InlayHintKind::PARAMETER),
+        text_edits: None,
+        tooltip: None,
+        padding_left: Some(true),
+        padding_right: Some(false),
+        data: None,
+    }
+}
+
+// replaced by multi-line aware helpers above
 
 // Given a token index that is part of an @context path, reconstruct the full path string
 fn extract_context_path(tokens: &[CoreToken], idx: usize) -> Option<String> {

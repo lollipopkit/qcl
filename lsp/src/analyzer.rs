@@ -1,6 +1,7 @@
 use qcl_core::{
     ast::Parser as ExprParser, expr::Expr, module::ModuleRegistry,
     stmt::{Stmt, stmt_parser::StmtParser, ImportStmt}, token::{Tokenizer, Span}, val::Val,
+    typ::TypeChecker,
 };
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -50,6 +51,279 @@ impl QclAnalyzer {
             registry,
             base_dir: None,
         }
+    }
+
+    /// Compute type inlay hints for simple `let name = expr;` without explicit annotations.
+    /// Places a TYPE hint like `: Int` right after the pattern (before '=').
+    pub fn compute_type_inlay_hints(&self, content: &str, range: Range) -> Vec<InlayHint> {
+        let mut hints: Vec<InlayHint> = Vec::new();
+        let (tokens, spans) = match Tokenizer::tokenize_enhanced_with_spans(content) {
+            Ok(pair) => pair,
+            Err(_) => return hints,
+        };
+
+        use qcl_core::token::Token as T;
+        let mut i = 0usize;
+        while i < tokens.len() {
+            if !matches!(tokens[i], T::Let) { i += 1; continue; }
+            let let_idx = i;
+            i += 1;
+
+            // Capture pattern region until top-level ':' (annotation) or '=' (assignment)
+            let start_pat = i;
+            let mut end_pat = i;
+            let mut paren = 0i32; let mut bracket = 0i32; let mut brace = 0i32;
+            let mut saw_colon = false; let mut found_assign = false;
+            while i < tokens.len() {
+                match &tokens[i] {
+                    T::LParen => { paren += 1; }
+                    T::RParen => { if paren > 0 { paren -= 1; } }
+                    T::LBracket => { bracket += 1; }
+                    T::RBracket => { if bracket > 0 { bracket -= 1; } }
+                    T::LBrace => { brace += 1; }
+                    T::RBrace => { if brace > 0 { brace -= 1; } }
+                    T::Assign if paren == 0 && bracket == 0 && brace == 0 => {
+                        found_assign = true; break;
+                    }
+                    T::Colon if paren == 0 && bracket == 0 && brace == 0 => {
+                        saw_colon = true; break;
+                    }
+                    _ => {}
+                }
+                end_pat = i; i += 1;
+            }
+            if !found_assign { continue; }
+            // Skip cases with explicit type annotation
+            if saw_colon { continue; }
+
+            // Determine RHS expression token range: after '=' until next top-level ';'
+            let mut j = i + 1; // i at '='
+            let mut depth = 0i32;
+            let mut end_expr = j;
+            while j < tokens.len() {
+                match &tokens[j] {
+                    T::LParen | T::LBracket | T::LBrace => { depth += 1; }
+                    T::RParen | T::RBracket | T::RBrace => { depth -= 1; }
+                    T::Semicolon if depth == 0 => { break; }
+                    _ => {}
+                }
+                end_expr = j; j += 1;
+            }
+            if end_expr < j && end_expr >= i + 1 {
+                // Parse expression and infer type
+                let expr_tokens = &tokens[i+1 ..= end_expr];
+                if !expr_tokens.is_empty() {
+                    if let Ok(expr) = ExprParser::new(expr_tokens).parse() {
+                        let mut checker = TypeChecker::new();
+                        if let Ok(typ) = checker.infer_resolved_type(&expr) {
+                            // Place hint at end of pattern
+                            let pat_tok_idx = if end_pat >= start_pat { end_pat } else { start_pat };
+                            if pat_tok_idx < spans.len() {
+                                let sp = &spans[pat_tok_idx];
+                                let pos = Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1));
+                                if pos.line >= range.start.line && pos.line <= range.end.line {
+                                    let label = format!(": {}", typ.display());
+                                    hints.push(InlayHint {
+                                        position: pos,
+                                        label: InlayHintLabel::from(label),
+                                        kind: Some(InlayHintKind::TYPE),
+                                        text_edits: None,
+                                        tooltip: None,
+                                        padding_left: Some(true),
+                                        padding_right: Some(false),
+                                        data: None,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Advance to end of statement
+            i = j;
+            while i < tokens.len() && !matches!(tokens[i], T::Semicolon) { i += 1; }
+            if i < tokens.len() { i += 1; }
+            // Prevent infinite loop on invalid sequences
+            if i <= let_idx { i = let_idx + 1; }
+        }
+
+        hints
+    }
+
+    /// Compute type hints for short declarations: `name := expr;`
+    pub fn compute_define_type_hints(&self, content: &str, range: Range) -> Vec<InlayHint> {
+        let mut hints: Vec<InlayHint> = Vec::new();
+        let (tokens, spans) = match Tokenizer::tokenize_enhanced_with_spans(content) {
+            Ok(pair) => pair,
+            Err(_) => return hints,
+        };
+        use qcl_core::token::Token as T;
+        let mut i = 0usize;
+        while i + 2 < tokens.len() {
+            match (&tokens[i], &tokens[i + 1], &tokens[i + 2]) {
+                (T::Id(_), T::Colon, T::Assign) => {
+                    // Parse expression from i+3 to next top-level ';'
+                    let mut j = i + 3;
+                    let mut depth = 0i32;
+                    let mut end_expr = j;
+                    while j < tokens.len() {
+                        match &tokens[j] {
+                            T::LParen | T::LBracket | T::LBrace => depth += 1,
+                            T::RParen | T::RBracket | T::RBrace => depth -= 1,
+                            T::Semicolon if depth == 0 => break,
+                            _ => {}
+                        }
+                        end_expr = j; j += 1;
+                    }
+                    if end_expr >= i + 3 {
+                        let expr_tokens = &tokens[i+3 ..= end_expr];
+                        if let Ok(expr) = ExprParser::new(expr_tokens).parse() {
+                            let mut checker = TypeChecker::new();
+                            if let Ok(typ) = checker.infer_resolved_type(&expr) {
+                                let sp = &spans[i];
+                                let pos = Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1));
+                                if pos.line >= range.start.line && pos.line <= range.end.line {
+                                    let label = format!(": {}", typ.display());
+                                    hints.push(InlayHint {
+                                        position: pos,
+                                        label: InlayHintLabel::from(label),
+                                        kind: Some(InlayHintKind::TYPE),
+                                        text_edits: None,
+                                        tooltip: None,
+                                        padding_left: Some(true),
+                                        padding_right: Some(false),
+                                        data: None,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    // Advance to next ';'
+                    i = j;
+                    while i < tokens.len() && !matches!(tokens[i], T::Semicolon) { i += 1; }
+                    if i < tokens.len() { i += 1; }
+                }
+                _ => i += 1,
+            }
+        }
+        hints
+    }
+
+    /// Compute type inlay hints for function return types: place a TYPE hint like `-> Int`
+    /// after the parameter list. If multiple return statements exist (e.g., branches),
+    /// the displayed type is a union of all discovered return expression types.
+    pub fn compute_function_return_type_hints(&self, content: &str, range: Range) -> Vec<InlayHint> {
+        let mut hints: Vec<InlayHint> = Vec::new();
+        let (tokens, spans) = match Tokenizer::tokenize_enhanced_with_spans(content) {
+            Ok(pair) => pair,
+            Err(_) => return hints,
+        };
+        use qcl_core::token::Token as T;
+        let mut i = 0usize;
+        while i < tokens.len() {
+            if !matches!(tokens[i], T::Fn) { i += 1; continue; }
+            // fn name ( params ) { body }
+            let mut j = i + 1;
+            // Skip function name if present
+            if matches!(tokens.get(j), Some(T::Id(_))) { j += 1; } else { i += 1; continue; }
+            // Expect parameter list
+            if !matches!(tokens.get(j), Some(T::LParen)) { i += 1; continue; }
+            let mut depth = 0i32;
+            // find matching ')'
+            while j < tokens.len() {
+                match &tokens[j] {
+                    T::LParen => depth += 1,
+                    T::RParen => { depth -= 1; if depth == 0 { j += 1; break; } },
+                    _ => {}
+                }
+                j += 1;
+            }
+            let rparen_idx = j.saturating_sub(1);
+            // Expect function body starting '{'
+            if !matches!(tokens.get(j), Some(T::LBrace)) { i = j; continue; }
+            // Find matching '}' for the body
+            let mut body_depth = 0i32;
+            let body_start = j + 1; // after '{'
+            j += 1;
+            let mut body_end = body_start;
+            while j < tokens.len() {
+                match &tokens[j] {
+                    T::LBrace => { body_depth += 1; }
+                    T::RBrace => {
+                        if body_depth == 0 { body_end = j; break; }
+                        body_depth -= 1;
+                    }
+                    _ => {}
+                }
+                j += 1;
+            }
+            if body_end <= body_start { i = j + 1; continue; }
+            // Within body, scan for all `return <expr>;` occurrences (including inside branches)
+            let mut k = body_start;
+            let mut return_types: Vec<qcl_core::val::Type> = Vec::new();
+            while k < body_end {
+                if matches!(tokens[k], T::Return) {
+                    // capture expression until next top-level `;` relative to paren/brace depth of this expression
+                    let mut e = k + 1;
+                    let mut expr_depth = 0i32;
+                    let mut last = e;
+                    while e < body_end {
+                        match &tokens[e] {
+                            T::LParen | T::LBracket | T::LBrace => expr_depth += 1,
+                            T::RParen | T::RBracket | T::RBrace => expr_depth -= 1,
+                            T::Semicolon if expr_depth == 0 => { break; }
+                            _ => {}
+                        }
+                        last = e; e += 1;
+                    }
+                    if last > k {
+                        let expr_tokens = &tokens[k + 1 ..= last];
+                        if !expr_tokens.is_empty() {
+                            if let Ok(expr) = qcl_core::ast::Parser::new(expr_tokens).parse() {
+                                let mut checker = qcl_core::typ::TypeChecker::new();
+                                if let Ok(ret_ty) = checker.infer_resolved_type(&expr) {
+                                    return_types.push(ret_ty);
+                                }
+                            }
+                        }
+                    }
+                    // Advance past this statement terminator if present
+                    k = e + 1;
+                    continue;
+                }
+                k += 1;
+            }
+
+            if !return_types.is_empty() {
+                // Deduplicate by display string for stable union label
+                use std::collections::BTreeMap;
+                let mut by_key: BTreeMap<String, qcl_core::val::Type> = BTreeMap::new();
+                for t in return_types { by_key.entry(t.display()).or_insert(t); }
+                let parts: Vec<String> = by_key.into_iter().map(|(s, _)| s).collect();
+                let label = if parts.len() == 1 { format!(" -> {}", parts[0]) } else { format!(" -> {}", parts.join(" | ")) };
+
+                // Place hint right after the parameter list, at the end of ')'
+                if rparen_idx < spans.len() {
+                    let sp = &spans[rparen_idx];
+                    let pos = Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1));
+                    if pos.line >= range.start.line && pos.line <= range.end.line {
+                        hints.push(InlayHint {
+                            position: pos,
+                            label: InlayHintLabel::from(label),
+                            kind: Some(InlayHintKind::TYPE),
+                            text_edits: None,
+                            tooltip: None,
+                            padding_left: Some(true),
+                            padding_right: Some(false),
+                            data: None,
+                        });
+                    }
+                }
+            }
+            i = j + 1;
+        }
+        hints
     }
 
     /// Clear caches - useful when memory usage becomes high

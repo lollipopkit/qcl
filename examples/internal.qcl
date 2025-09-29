@@ -1,1 +1,1 @@
-return "hello".len() + [1].len() + {}.len();
+return "hello".len() + [1].len() + {}.len() + 

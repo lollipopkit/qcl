@@ -750,12 +750,85 @@ impl Stmt {
                 // 弹出参数作用域
                 type_checker.pop_scope();
 
+                // 推断函数返回类型（若未显式注解）。策略：
+                // - 收集所有显式 return 语句的表达式类型，合并为去重后的并集。
+                // - 如果函数体内没有显式 return，则返回类型推断为 Nil（运行时默认返回）。
+                fn collect_return_types(stmt: &Stmt, tc: &mut TypeChecker, out: &mut Vec<Type>) -> anyhow::Result<()> {
+                    match stmt {
+                        Stmt::Return { value } => {
+                            if let Some(expr) = value {
+                                let ty = expr.type_check(tc)?;
+                                out.push(ty);
+                            } else {
+                                out.push(Type::Nil);
+                            }
+                        }
+                        Stmt::If { condition, then_stmt, else_stmt } => {
+                            // 先检查条件表达式，保证条件类型合法
+                            let _ = condition.type_check(tc)?;
+                            collect_return_types(then_stmt, tc, out)?;
+                            if let Some(es) = else_stmt.as_deref() {
+                                collect_return_types(es, tc, out)?;
+                            }
+                        }
+                        Stmt::IfLet { then_stmt, else_stmt, value: _, pattern: _ } => {
+                            collect_return_types(then_stmt, tc, out)?;
+                            if let Some(es) = else_stmt.as_deref() {
+                                collect_return_types(es, tc, out)?;
+                            }
+                        }
+                        Stmt::While { condition, body } => {
+                            let _ = condition.type_check(tc)?;
+                            collect_return_types(body, tc, out)?;
+                        }
+                        Stmt::WhileLet { body, .. } => {
+                            collect_return_types(body, tc, out)?;
+                        }
+                        Stmt::For { body, .. } => {
+                            collect_return_types(body, tc, out)?;
+                        }
+                        Stmt::Block { statements } => {
+                            for s in statements { collect_return_types(s, tc, out)?; }
+                        }
+                        // 不应深入到嵌套函数内的 return
+                        Stmt::Function { .. } => {}
+                        // 其余语句不包含返回
+                        _ => {}
+                    }
+                    Ok(())
+                }
+
+                fn normalize_union(mut tys: Vec<Type>) -> Type {
+                    // 展开并去重（按 display 排序保证稳定）
+                    let mut flat: Vec<Type> = Vec::new();
+                    for t in tys.drain(..) {
+                        match t {
+                            Type::Union(inner) => flat.extend(inner),
+                            other => flat.push(other),
+                        }
+                    }
+                    use std::collections::BTreeMap;
+                    let mut by_key: BTreeMap<String, Type> = BTreeMap::new();
+                    for t in flat { by_key.entry(t.display()).or_insert(t); }
+                    let mut uniq: Vec<Type> = by_key.into_iter().map(|(_, t)| t).collect();
+                    if uniq.len() == 1 { uniq.remove(0) } else { Type::Union(uniq) }
+                }
+
+                let inferred_return: Type = if return_type.is_none() {
+                    let mut rtys: Vec<Type> = Vec::new();
+                    collect_return_types(body, type_checker, &mut rtys)?;
+                    if rtys.is_empty() { Type::Nil } else { normalize_union(rtys) }
+                } else {
+                    // 已显式注解则直接使用
+                    return_type.clone().unwrap()
+                };
+
                 // 将函数添加到当前作用域，类型为 Function
                 let func_type = Type::Function {
                     params: params.iter().enumerate().map(|(i, _)| {
                         param_types.get(i).cloned().flatten().unwrap_or(Type::Any)
                     }).collect(),
-                    return_type: Box::new(return_type.clone().unwrap_or(Type::Any)),
+                    return_type: Box::new(inferred_return),
                 };
                 type_checker.add_local_type(name.clone(), func_type);
 

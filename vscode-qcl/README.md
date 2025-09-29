@@ -42,6 +42,17 @@ The QCL LSP server is built separately in the `lsp/` directory of the main QCL p
   - Hover information
   - Go to definition
   - Document symbols
+  - Inlay hints (parameter + type hints)
+
+## Status Bar and Inlay Hints
+
+- The status bar shows QCL LSP state, including a spinner during analysis (Checking…). Click it for actions.
+- Quick actions include restart/disable and toggles for inlay hints.
+- Configure inlay hints via settings:
+  - `qcl.lsp.inlayHints.enabled`
+  - `qcl.lsp.inlayHints.parameters.enabled`
+  - `qcl.lsp.inlayHints.types.enabled`
+  - `qcl.lsp.inlayHints.throttleMs`
 
 ## Requirements
 

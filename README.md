@@ -1,3 +1,5 @@
+English | [简体中文](README.zh-CN.md)
+
 <div align="center">
     <h2>QCL</h2>
     <h5>a simple language that allows you to check the eval result of a query. </h5>
@@ -29,7 +31,7 @@ Let's break it down:
 
 The above example is a simple ACL system that checks if the user has access to a record.
 
-More language details can be found in [LANG.md](LANG.md).
+More language details: [LANG.md](LANG.md) · [LANG_zh.md](LANG_zh.md).
 
 ## Features
 

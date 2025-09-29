@@ -183,6 +183,16 @@ impl TypeChecker {
         }
     }
 
+    /// Type check an expression and return a type with current constraints solved
+    pub fn infer_resolved_type(&mut self, expr: &Expr) -> Result<Type> {
+        let ty = self.check_expr(expr)?;
+        // Attempt to solve constraints and substitute into the resulting type
+        match self.inference_engine.solve_constraints() {
+            Ok(subs) => Ok(ty.substitute(&subs)),
+            Err(_) => Ok(ty), // On failure, return the unsolved type to avoid hard errors in tooling
+        }
+    }
+
     /// Check identifier type
     fn check_identifier(&mut self, name: &str) -> Result<Type> {
         // Check local variables first
@@ -221,6 +231,20 @@ impl TypeChecker {
             // Arithmetic operators
             crate::op::BinOp::Add | crate::op::BinOp::Sub |
             crate::op::BinOp::Mul | crate::op::BinOp::Div | crate::op::BinOp::Mod => {
+                // Special-case string concatenation for Add: if either side is String, result is String
+                if matches!(op, crate::op::BinOp::Add) {
+                    if matches!(left_type, Type::String) || matches!(right_type, Type::String) {
+                        // Constrain the other operand to be String when one side is String
+                        if matches!(left_type, Type::String) && matches!(right_type, Type::Variable(_)) {
+                            self.inference_engine.add_constraint(Type::String, right_type.clone());
+                        }
+                        if matches!(right_type, Type::String) && matches!(left_type, Type::Variable(_)) {
+                            self.inference_engine.add_constraint(Type::String, left_type.clone());
+                        }
+                        return Ok(Type::String);
+                    }
+                }
+
                 // Numeric ops: if any side is Float -> Float, else Int.
                 // Add constraints to steer inference towards numeric types.
                 // If non-numeric types appear, leave to runtime ops or future strict checks.
@@ -333,14 +357,24 @@ impl TypeChecker {
             return Ok(Type::List(Box::new(elem_type)));
         }
 
-        // Check all items have compatible types
-        let first_type = self.check_expr(&items[0])?;
-        let elem_type = first_type.clone();
-
-        for item in &items[1..] {
-            let item_type = self.check_expr(item)?;
-            self.inference_engine.add_constraint(elem_type.clone(), item_type);
+        // Collect element types and build a normalized union when heterogeneous
+        let mut elems: Vec<Type> = Vec::with_capacity(items.len());
+        for item in items {
+            let t = self.check_expr(item)?;
+            match t {
+                Type::Union(ts) => elems.extend(ts.into_iter()),
+                other => elems.push(other),
+            }
         }
+
+        // Deduplicate and produce a stable order by display string
+        use std::collections::BTreeMap;
+        let mut by_key: BTreeMap<String, Type> = BTreeMap::new();
+        for ty in elems {
+            by_key.entry(ty.display()).or_insert(ty);
+        }
+        let mut uniq: Vec<Type> = by_key.into_iter().map(|(_, t)| t).collect();
+        let elem_type = if uniq.len() == 1 { uniq.remove(0) } else { Type::Union(uniq) };
 
         Ok(Type::List(Box::new(elem_type)))
     }
@@ -354,18 +388,27 @@ impl TypeChecker {
             return Ok(Type::Map(Box::new(key_type), Box::new(value_type)));
         }
 
-        // Check all key/value pairs have compatible types
-        let (first_key, first_value) = &pairs[0];
-        let key_type = self.check_expr(first_key)?;
-        let value_type = self.check_expr(first_value)?;
-
-        for (key, value) in &pairs[1..] {
-            let key_expr_type = self.check_expr(key)?;
-            let value_expr_type = self.check_expr(value)?;
-
-            self.inference_engine.add_constraint(key_type.clone(), key_expr_type);
-            self.inference_engine.add_constraint(value_type.clone(), value_expr_type);
+        // Collect key/value types and build normalized unions when heterogeneous
+        let mut key_tys: Vec<Type> = Vec::with_capacity(pairs.len());
+        let mut val_tys: Vec<Type> = Vec::with_capacity(pairs.len());
+        for (k, v) in pairs {
+            let kt = self.check_expr(k)?;
+            let vt = self.check_expr(v)?;
+            match kt { Type::Union(ts) => key_tys.extend(ts.into_iter()), other => key_tys.push(other) }
+            match vt { Type::Union(ts) => val_tys.extend(ts.into_iter()), other => val_tys.push(other) }
         }
+
+        use std::collections::BTreeMap;
+        let mut key_by_str: BTreeMap<String, Type> = BTreeMap::new();
+        for t in key_tys { key_by_str.entry(t.display()).or_insert(t); }
+        let mut val_by_str: BTreeMap<String, Type> = BTreeMap::new();
+        for t in val_tys { val_by_str.entry(t.display()).or_insert(t); }
+
+        let mut keys: Vec<Type> = key_by_str.into_iter().map(|(_, t)| t).collect();
+        let mut vals: Vec<Type> = val_by_str.into_iter().map(|(_, t)| t).collect();
+
+        let key_type = if keys.len() == 1 { keys.remove(0) } else { Type::Union(keys) };
+        let value_type = if vals.len() == 1 { vals.remove(0) } else { Type::Union(vals) };
 
         Ok(Type::Map(Box::new(key_type), Box::new(value_type)))
     }
@@ -687,6 +730,18 @@ mod tests {
         let result_type = checker.check_expr(&add_expr).unwrap();
         // Now numeric ops infer Int for Int+Int
         assert!(matches!(result_type, Type::Int));
+    }
+
+    #[test]
+    fn test_string_addition_type() {
+        let mut checker = TypeChecker::new();
+        let add_expr = Expr::Bin(
+            Box::new(Expr::Val(Val::Str("a".into()))),
+            crate::op::BinOp::Add,
+            Box::new(Expr::Val(Val::Str("b".into()))),
+        );
+        let result_type = checker.check_expr(&add_expr).unwrap();
+        assert!(matches!(result_type, Type::String));
     }
 
     #[test]

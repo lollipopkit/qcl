@@ -24,7 +24,8 @@
     "onLanguage:qcl",
     "onCommand:qcl.restartServer",
     "onCommand:qcl.startServer",
-    "onCommand:qcl.showStatusBarMenu"
+    "onCommand:qcl.showStatusBarMenu",
+    "onCommand:qcl.analyzeCurrentFile"
   ],
   "contributes": {
     "commands": [
@@ -41,6 +42,11 @@
       {
         "command": "qcl.showStatusBarMenu",
         "title": "QCL: Show Status Bar Menu",
+        "category": "QCL"
+      },
+      {
+        "command": "qcl.analyzeCurrentFile",
+        "title": "QCL: Analyze Current File",
         "category": "QCL"
       }
     ],
@@ -228,6 +234,27 @@
           "default": 25,
           "minimum": 0,
           "description": "Throttle consecutive semantic token requests per document (ms). Set 0 to disable."
+        },
+        "qcl.lsp.inlayHints.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable inlay hints (inline editor hints) from QCL LSP"
+        },
+        "qcl.lsp.inlayHints.throttleMs": {
+          "type": "number",
+          "default": 25,
+          "minimum": 0,
+          "description": "Throttle consecutive inlay hint requests per document (ms). Set 0 to disable."
+        },
+        "qcl.lsp.inlayHints.parameters.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show parameter name hints at call sites"
+        },
+        "qcl.lsp.inlayHints.types.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inferred type hints for declarations (let/define)"
         }
       }
     }
