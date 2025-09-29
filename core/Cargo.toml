@@ -17,7 +17,7 @@ chrono = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 crossbeam = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
-rustc-hash = { workspace = true, optional = true }
+ 
 
 [features]
 default = ["all"]
@@ -25,8 +25,6 @@ default = ["all"]
 sem_arith = []
 # Advanced arithmetic support: Map + Map, List + Val etc.
 adv_arith = []
-# Optional: use a faster hash map for Val::Map (requires adding `rustc_hash`)
-fast-hash = ["dep:rustc-hash"]
 # Input format features
 json = ["serde_json"]
 yaml = ["serde_yaml"]
@@ -35,6 +33,11 @@ toml = ["dep:toml"]
 concurrency = ["tokio", "crossbeam", "futures"]
 tokio-rt-multi-thread = ["concurrency", "tokio/rt-multi-thread"]
 tokio-rt-current-thread = ["concurrency", "tokio/rt"]
+# VM and slot-resolution features (opt-in, off by default)
+# `vm`: enables the register bytecode VM subsystem
+# `slots`: enables name resolution to slot indices
+vm = []
+slots = []
 all = ["sem_arith", "adv_arith", "json", "yaml", "toml", "concurrency"]
 
 [dev-dependencies]

@@ -290,7 +290,7 @@ impl Pattern {
                     // Create temporary environment with pattern bindings for guard evaluation
                     let guard_env = if let Some(env) = env {
                         let mut new_env = env.clone();
-                        new_env.push_scope();
+                        new_env.push_scope_with_capacity(temp_bindings.len());
                         for (name, val) in &temp_bindings {
                             new_env.define(name.clone(), val.clone());
                         }
@@ -450,6 +450,20 @@ impl Expr {
 
     /// 支持变量环境的表达式求值
     pub fn eval_with_env(&self, ctx: &Val, env: Option<&crate::stmt::Environment>) -> Result<Val> {
+        // Optional fast-path: if VM feature is enabled and the environment flag
+        // `QCL_VM_LITE` is set, route trivially compilable expressions through the VM.
+        // This is a minimal integration to validate the VM scaffold end-to-end.
+        #[cfg(feature = "vm")]
+        {
+            if std::env::var("QCL_VM_LITE").is_ok() {
+                if matches!(self, Expr::Val(_)) {
+                    let c = crate::vm::Compiler::new();
+                    let f = c.compile_expr(self);
+                    let mut vm = crate::vm::Vm::new();
+                    return vm.exec(&f);
+                }
+            }
+        }
         match self {
             Expr::Bin(l, op, r) => {
                 let left_val = l.eval_with_env(ctx, env)?;
@@ -571,8 +585,8 @@ impl Expr {
             Expr::Paren(expr) => expr.eval_with_env(ctx, env),
             Expr::Var(name) => {
                 if let Some(env) = env {
-                    if let Some(var_val) = env.get(name) {
-                        Ok(var_val.clone())
+                    if let Some(val) = env.get_value(name) {
+                        Ok(val)
                     } else {
                         Err(anyhow!("Undefined variable: {}", name))
                     }
@@ -582,15 +596,13 @@ impl Expr {
             }
             Expr::Call(func_name, args) => {
                 if let Some(env) = env {
-                    // Look up the function in the environment
-                    if let Some(func_val) = env.get(func_name) {
-                        // Evaluate arguments
-                        let mut arg_values = Vec::new();
+                    // Prefer slot-mapped fast path for function lookup
+                    if let Some(func_val) = env.get_value(func_name) {
+                        // Evaluate arguments (预分配容量)
+                        let mut arg_values = Vec::with_capacity(args.len());
                         for arg in args {
                             arg_values.push(arg.eval_with_env(ctx, Some(env))?);
                         }
-
-                        // Delegate call to Val::call to support both closures and native functions
                         func_val.call(&arg_values, env, ctx)
                     } else {
                         Err(anyhow!("Undefined function: {}", func_name))
@@ -613,8 +625,8 @@ impl Expr {
                         if let Some(prop_val) = obj_val.access(&Val::Str(method_name.clone())) {
                             match prop_val {
                                 Val::Closure { .. } | Val::RustFunction(_) => {
-                                    // Evaluate arguments
-                                    let mut arg_values = Vec::new();
+                                    // Evaluate arguments (预分配容量)
+                                    let mut arg_values = Vec::with_capacity(args.len());
                                     for arg in args {
                                         arg_values.push(arg.eval_with_env(ctx, env)?);
                                     }
@@ -662,8 +674,8 @@ impl Expr {
                 // Default: call the evaluated expression as a function
                 let func_val = expr.eval_with_env(ctx, env)?;
 
-                // Evaluate arguments
-                let mut arg_values = Vec::new();
+                // Evaluate arguments (预分配容量)
+                let mut arg_values = Vec::with_capacity(args.len());
                 for arg in args {
                     arg_values.push(arg.eval_with_env(ctx, env)?);
                 }
@@ -986,7 +998,7 @@ impl Expr {
                         // Create new environment with pattern bindings
                         let new_env = if let Some(env) = env {
                             let mut new_env = env.clone();
-                            new_env.push_scope();
+                            new_env.push_scope_with_capacity(bindings.len());
                             for (name, val) in bindings {
                                 new_env.define(name, val);
                             }
@@ -1014,6 +1026,7 @@ impl Expr {
                     params: Arc::new(params.clone()),
                     body: Arc::new(stmt),
                     env: Arc::new(env),
+                    upvalues: Arc::new(Vec::new()),
                 })
             }
             Expr::Val(val) => Ok(val.clone()), // Clone necessary as eval returns owned Val

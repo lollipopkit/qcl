@@ -138,7 +138,7 @@ pub enum ControlFlow {
 }
 
 /// 变量作用域管理
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Environment {
     /// 变量存储栈，每个作用域对应一个 HashMap
     scopes: Vec<HashMap<String, Val>>,
@@ -148,6 +148,8 @@ pub struct Environment {
     resolver: Arc<ModuleResolver>,
     /// Type checker for static type analysis
     type_checker: Option<TypeChecker>,
+    /// 轻量运行时栈帧父链（用于槽位访问与调用帧）
+    current_frame: Option<Arc<crate::rt::EnvFrame>>,
 }
 
 impl Default for Environment {
@@ -159,19 +161,21 @@ impl Default for Environment {
 impl Environment {
     pub fn new() -> Self {
         Self {
-            scopes: vec![HashMap::new()], // 全局作用域
+            scopes: vec![HashMap::with_capacity(0)], // 全局作用域
             import_ctx: ImportContext::new(),
             resolver: Arc::new(ModuleResolver::new()),
             type_checker: None,
+            current_frame: None,
         }
     }
 
     pub fn with_resolver(resolver: Arc<ModuleResolver>) -> Self {
         Self {
-            scopes: vec![HashMap::new()],
+            scopes: vec![HashMap::with_capacity(0)],
             import_ctx: ImportContext::new(),
             resolver,
             type_checker: None,
+            current_frame: None,
         }
     }
 
@@ -196,7 +200,67 @@ impl Environment {
 
     /// 进入新的作用域
     pub fn push_scope(&mut self) {
-        self.scopes.push(HashMap::new());
+        self.scopes.push(HashMap::with_capacity(0));
+        if let Some(frame) = &self.current_frame {
+            if let Ok(mut scopes) = frame.slot_scopes.lock() {
+                scopes.push(HashMap::new());
+            }
+        }
+    }
+
+    /// 以指定初始容量进入新的作用域（减少函数实参绑定等热路径中的重分配）
+    pub fn push_scope_with_capacity(&mut self, capacity: usize) {
+        // 使用给定容量预分配，避免逐次 insert 时扩容与重哈希
+        self.scopes.push(HashMap::with_capacity(capacity));
+        if let Some(frame) = &self.current_frame {
+            if let Ok(mut scopes) = frame.slot_scopes.lock() {
+                scopes.push(HashMap::new());
+            }
+        }
+    }
+
+    /// Push a lightweight "call frame" for function invocation.
+    ///
+    /// Currently this is an alias to pushing a new scope with preallocated
+    /// capacity; future work will migrate this to an `EnvFrame` parent chain.
+    pub fn push_call_frame(&mut self, nlocals: usize) {
+        let parent = self.current_frame.clone();
+        let frame = crate::rt::EnvFrame {
+            parent,
+            locals: std::sync::Mutex::new(vec![Val::Nil; nlocals]),
+            slot_scopes: std::sync::Mutex::new(vec![HashMap::new()]),
+            next: std::sync::Mutex::new(0),
+        };
+        self.current_frame = Some(Arc::new(frame));
+    }
+
+    /// Pop the most recent call frame (or scope) after function returns.
+    pub fn pop_frame(&mut self) {
+        if let Some(cur) = &self.current_frame {
+            self.current_frame = cur.parent.clone();
+        }
+    }
+
+    /// Create a lightweight environment for function calls.
+    /// Clones only the global scope and reuses resolver/import/type_checker.
+    /// Then pre-pushes a parameter scope with the requested capacity.
+    pub fn shallow_call_env(&self, param_capacity: usize) -> Self {
+        // Clone top-level (global) scope only; avoid cloning full scope stack.
+        let global = self
+            .scopes
+            .first()
+            .cloned()
+            .unwrap_or_else(|| HashMap::with_capacity(0));
+
+        let mut env = Self {
+            scopes: vec![global],
+            import_ctx: self.import_ctx.clone(),
+            resolver: self.resolver.clone(),
+            type_checker: self.type_checker.clone(),
+            current_frame: self.current_frame.clone(),
+        };
+        env.push_scope_with_capacity(param_capacity);
+        env
     }
 
     /// 退出当前作用域
@@ -204,24 +268,64 @@ impl Environment {
         if self.scopes.len() > 1 {
             self.scopes.pop();
         }
+        if let Some(frame) = &self.current_frame {
+            if let Ok(mut scopes) = frame.slot_scopes.lock() {
+                if scopes.len() > 1 { scopes.pop(); }
+            }
+        }
     }
 
     /// 定义变量 (在当前作用域中)
     pub fn define(&mut self, name: String, value: Val) {
         if let Some(current_scope) = self.scopes.last_mut() {
-            current_scope.insert(name, value);
+            current_scope.insert(name.clone(), value.clone());
+        }
+        // 若处在函数调用帧中，则为参数/局部 let 分配槽位并写入
+        if let Some(frame) = &self.current_frame {
+            if let (Ok(mut next), Ok(mut locals), Ok(mut scopes)) =
+                (frame.next.lock(), frame.locals.lock(), frame.slot_scopes.lock())
+            {
+                if let Some(top) = scopes.last_mut() {
+                    let idx = *next as usize;
+                    if idx < locals.len() {
+                        locals[idx] = value;
+                    } else if idx == locals.len() {
+                        locals.push(value);
+                    } else {
+                        // Should not happen: next index skipped ahead
+                        locals.push(value);
+                    }
+                    top.insert(name, *next);
+                    *next = next.saturating_add(1);
+                }
+            }
         }
     }
 
     /// 赋值变量 (在最近的包含该变量的作用域中)
     pub fn assign(&mut self, name: &str, value: Val) -> Result<()> {
+        // First, update HashMap-based scopes for correctness and reference stability
+        let mut updated_hash = false;
         for scope in self.scopes.iter_mut().rev() {
-            if scope.contains_key(name) {
-                scope.insert(name.to_string(), value);
-                return Ok(());
+            if let Some(slot) = scope.get_mut(name) {
+                *slot = value.clone();
+                updated_hash = true;
+                break;
             }
         }
-        Err(anyhow!("Undefined variable: {}", name))
+        if !updated_hash { return Err(anyhow!("Undefined variable: {}", name)); }
+        // Then, if a slot mapping exists, mirror the write to the slot
+        if let Some(frame) = &self.current_frame {
+            let idx_opt = frame
+                .slot_scopes
+                .lock()
+                .ok()
+                .and_then(|scopes| scopes.iter().rev().find_map(|m| m.get(name).copied()));
+            if let Some(idx) = idx_opt {
+                let _ = self.set_slot(0, idx, value); // mirror to slot; ignore errors
+            }
+        }
+        Ok(())
     }
 
     /// 获取变量值
@@ -241,9 +345,54 @@ impl Environment {
         self.resolver.get_builtin(name)
     }
 
+    /// Get variable value by name, preferring slot-mapped fast path when available.
+    pub fn get_value(&self, name: &str) -> Option<Val> {
+        if let Some(frame) = &self.current_frame {
+            if let (Ok(scopes), Ok(locals)) = (frame.slot_scopes.lock(), frame.locals.lock()) {
+                for map in scopes.iter().rev() {
+                    if let Some(&idx) = map.get(name) {
+                        return locals.get(idx as usize).cloned();
+                    }
+                }
+            }
+        }
+        self.get(name).cloned()
+    }
+
     /// Execute import statement
     pub fn execute_import(&mut self, import: &ImportStmt) -> Result<()> {
         self.import_ctx.execute_import(import, &self.resolver)
+    }
+}
+
+impl Environment {
+    /// Resolve frame by `depth` (0 = current frame), returning cloned Arc.
+    fn frame_at_depth(&self, mut depth: u16) -> Option<Arc<crate::rt::EnvFrame>> {
+        let mut cur = self.current_frame.clone();
+        while depth > 0 {
+            if let Some(f) = cur { cur = f.parent.clone(); } else { return None; }
+            depth -= 1;
+        }
+        cur
+    }
+
+    /// Get a cloned value from a slot if available (scaffold API).
+    pub fn get_slot(&self, depth: u16, index: u16) -> Option<Val> {
+        let frame = self.frame_at_depth(depth)?;
+        let locals = frame.locals.lock().ok()?;
+        locals.get(index as usize).cloned()
+    }
+
+    /// Set a value into a slot if available (scaffold API).
+    pub fn set_slot(&mut self, depth: u16, index: u16, val: Val) -> Result<()> {
+        if let Some(frame) = self.frame_at_depth(depth) {
+            let mut locals = frame.locals.lock().map_err(|_| anyhow!("frame locals poisoned"))?;
+            if let Some(slot) = locals.get_mut(index as usize) {
+                *slot = val;
+                return Ok(());
+            }
+        }
+        Err(anyhow!("slot out of bounds or frame not found"))
     }
 }
 
@@ -303,12 +452,12 @@ impl Stmt {
                     env.pop_scope(); // 清理未使用的作用域
 
                     // 执行else分支（如果有）
-                    if let Some(else_stmt) = else_stmt {
-                        else_stmt.execute(env, ctx)
-                    } else {
-                        Ok(ControlFlow::None)
-                    }
+                if let Some(else_stmt) = else_stmt {
+                    else_stmt.execute(env, ctx)
+                } else {
+                    Ok(ControlFlow::None)
                 }
+            }
             }
             Stmt::While { condition, body } => {
                 loop {
@@ -392,7 +541,7 @@ impl Stmt {
                         let mut pending_prefix_advance: Option<(String, Val)> = None;
                         if prefix_relaxed
                             && let crate::expr::Expr::Var(var_name) = value.as_ref()
-                            && let Some(rest_val) = env.get("__whilelet_rest").cloned()
+                            && let Some(rest_val) = env.get_value("__whilelet_rest")
                         {
                             pending_prefix_advance = Some((var_name.clone(), rest_val));
                         }
@@ -434,7 +583,7 @@ impl Stmt {
 
                         // 针对 x[0] 的场景：在不匹配时尝试推进 x 到其余切片后继续尝试
                         if let Some(var_name) = scan_head_var
-                            && let Some(current) = env.get(&var_name).cloned()
+                            && let Some(current) = env.get_value(&var_name)
                             && let Val::List(list) = current
                             && !list.is_empty()
                         {
@@ -454,27 +603,84 @@ impl Stmt {
                 iterable,
                 body,
             } => {
-                // 求值可迭代表达式
+                // Fast path for numeric ranges: avoid materializing a Vec (Lua-style numeric for)
+                if let Expr::Range { start, end, inclusive } = iterable.as_ref() {
+                    let start_val = match start {
+                        Some(s) => s.eval_with_env(ctx, Some(env))?,
+                        None => Val::Int(0),
+                    };
+                    let end_val = match end {
+                        Some(e) => e.eval_with_env(ctx, Some(env))?,
+                        None => return Err(anyhow!("Open-ended ranges not supported in for loops")),
+                    };
+
+                    if let (Val::Int(mut i), Val::Int(e)) = (start_val, end_val) {
+                        let step: i64 = if i <= e { 1 } else { -1 };
+                        let done = |cur: i64| -> bool {
+                            if step > 0 {
+                                if *inclusive { cur > e } else { cur >= e }
+                            } else {
+                                if *inclusive { cur < e } else { cur <= e }
+                            }
+                        };
+
+                        while !done(i) {
+                            // Fast path: no-op for `_` pattern (no scope needed)
+                            if matches!(pattern, ForPattern::Ignore) {
+                                let result = body.execute(env, ctx);
+                                match result? {
+                                    ControlFlow::Break => break,
+                                    ControlFlow::Continue => { i += step; continue; }
+                                    ControlFlow::Return(val) => return Ok(ControlFlow::Return(val)),
+                                    ControlFlow::None => {}
+                                }
+                                i += step;
+                                continue;
+                            }
+
+                            env.push_scope();
+                            let item = Val::Int(i);
+                            if let Err(e) = bind_pattern(pattern, &item, env) {
+                                env.pop_scope();
+                                return Err(e);
+                            }
+                            let result = body.execute(env, ctx);
+                            env.pop_scope();
+                            match result? {
+                                ControlFlow::Break => break,
+                                ControlFlow::Continue => { i += step; continue; }
+                                ControlFlow::Return(val) => return Ok(ControlFlow::Return(val)),
+                                ControlFlow::None => {}
+                            }
+                            i += step;
+                        }
+                        return Ok(ControlFlow::None);
+                    }
+                    // Non-integer bounds fallthrough to generic path below
+                }
+
+                // Generic path: evaluate iterable and iterate elements
                 let iter_val = iterable.eval_with_env(ctx, Some(env))?;
-
-                // 获取迭代器
                 let iterator = create_iterator(&iter_val)?;
-
-                // 执行循环
                 for item in iterator {
-                    // 进入新作用域用于模式绑定
-                    env.push_scope();
-
-                    // 根据模式绑定变量 (类似 Rust 的模式匹配)
-                    if let Err(e) = bind_pattern(pattern, &item, env) {
-                        env.pop_scope(); // 清理作用域
-                        return Err(e);
+                    if matches!(pattern, ForPattern::Ignore) {
+                        let result = body.execute(env, ctx);
+                        match result? {
+                            ControlFlow::Break => break,
+                            ControlFlow::Continue => continue,
+                            ControlFlow::Return(val) => return Ok(ControlFlow::Return(val)),
+                            ControlFlow::None => {}
+                        }
+                        continue;
                     }
 
-                    // 执行循环体
+                    env.push_scope();
+                    if let Err(e) = bind_pattern(pattern, &item, env) {
+                        env.pop_scope();
+                        return Err(e);
+                    }
                     let result = body.execute(env, ctx);
-                    env.pop_scope(); // 清理循环变量作用域
-
+                    env.pop_scope();
                     match result? {
                         ControlFlow::Break => break,
                         ControlFlow::Continue => continue,
@@ -553,7 +759,7 @@ impl Stmt {
                 span: _,
             } => {
                 // Get current value of variable
-                let current_val = env.get(name).cloned().ok_or_else(|| {
+                let current_val = env.get_value(name).ok_or_else(|| {
                     anyhow!("Undefined variable for compound assignment: {}", name)
                 })?;
 
@@ -593,6 +799,7 @@ impl Stmt {
                     params: Arc::new(params.clone()),
                     body: Arc::new((**body).clone()),
                     env: Arc::new(env.clone()),
+                    upvalues: Arc::new(Vec::new()),
                 };
                 env.define(name.clone(), func_val);
                 Ok(ControlFlow::None)

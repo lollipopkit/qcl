@@ -6,12 +6,7 @@ use std::{
     sync::Arc,
 };
 
-// Optional fast hash map alias (disabled by default).
-// Enable by building with `--features fast-hash` and adding `rustc_hash` dependency.
-#[cfg(feature = "fast-hash")]
-pub type FastHashMap<K, V> = rustc_hash::FxHashMap<K, V>;
-#[cfg(not(feature = "fast-hash"))]
-pub type FastHashMap<K, V> = std::collections::HashMap<K, V>;
+// Using standard HashMap for maps and environments
 
 use anyhow::{Result, anyhow};
 use serde::ser::SerializeMap;
@@ -34,7 +29,7 @@ pub enum Val {
     Bool(bool),
     /// Map type, wrapped in Arc<HashMap> to avoid deep cloning
     /// Keys use Arc<str> to reduce key-string cloning and allocations
-    Map(Arc<FastHashMap<Arc<str>, Val>>),
+    Map(Arc<HashMap<Arc<str>, Val>>),
     /// List type, stored as Arc<[Val]> for compact, immutable sharing
     List(Arc<[Val]>),
     /// Closure - contains parameters and body with captured environment
@@ -43,6 +38,8 @@ pub enum Val {
         body: Arc<stmt::Stmt>,
         /// Captured environment for closure support
         env: Arc<stmt::Environment>,
+        /// Captured upvalues for lightweight frames (future use)
+        upvalues: Arc<Vec<crate::rt::Upvalue>>,
     },
     /// Rust function - contains a function pointer that can be called
     RustFunction(RustFunction),
@@ -76,10 +73,11 @@ impl Clone for Val {
             Val::Bool(b) => Val::Bool(*b),
             Val::Map(m) => Val::Map(m.clone()),
             Val::List(l) => Val::List(l.clone()),
-            Val::Closure { params, body, env } => Val::Closure {
+            Val::Closure { params, body, env, upvalues } => Val::Closure {
                 params: params.clone(),
                 body: body.clone(),
                 env: env.clone(),
+                upvalues: upvalues.clone(),
             },
             Val::RustFunction(f) => Val::RustFunction(*f),
             Val::Task { id, value } => {
@@ -558,6 +556,7 @@ impl Val {
                 params,
                 body,
                 env: _,
+                ..
             } => {
                 // Check parameter count
                 if args.len() != params.len() {
@@ -568,24 +567,32 @@ impl Val {
                     ));
                 }
 
-                // Create new scope for function execution using the provided environment
-                let mut call_env = env.clone();
-                call_env.push_scope();
+                // Create a lightweight call environment: reuse resolver/imports,
+                // clone only the global scope, and preallocate param scope.
+                let mut call_env = env.shallow_call_env(params.len());
 
-                // Bind parameters to arguments
+                // Establish a call frame (slots) for this invocation.
+                call_env.push_call_frame(params.len());
+
+                // Bind parameters to arguments (name->value map retained for compatibility)
                 for (param, arg_val) in params.iter().zip(args.iter()) {
                     call_env.define(param.clone(), arg_val.clone());
                 }
 
-                // Execute function body. If the closure body is an expression statement,
-                // evaluate the inner expression directly to preserve its value.
-                match &**body {
+                // Execute function body and ensure we pop the frame afterward.
+                let ret: Result<Val> = match &**body {
                     stmt::Stmt::Expr(expr) => expr.eval_with_env(ctx, Some(&call_env)),
-                    other => match other.execute(&mut call_env, ctx)? {
-                        stmt::ControlFlow::Return(val) => Ok(val),
-                        _ => Ok(Val::Nil), // Functions return nil by default
-                    },
-                }
+                    other => {
+                        let flow = other.execute(&mut call_env, ctx);
+                        match flow? {
+                            stmt::ControlFlow::Return(val) => Ok(val),
+                            _ => Ok(Val::Nil), // Functions return nil by default
+                        }
+                    }
+                };
+                // Pop the call frame regardless of success.
+                call_env.pop_frame();
+                ret
             }
             Val::RustFunction(func) => {
                 // Call the Rust function directly
@@ -684,10 +691,7 @@ impl Add for &Val {
             (Val::Map(l), Val::Map(r)) => {
                 // Map + Map: merge with right side overriding left side for same keys
                 // Use with_capacity for better performance
-                let mut merged = FastHashMap::with_capacity_and_hasher(
-                    l.len() + r.len(),
-                    Default::default(),
-                );
+                let mut merged = HashMap::with_capacity(l.len() + r.len());
                 // First insert all from left map
                 for (k, v) in l.iter() {
                     merged.insert(k.clone(), v.clone());
@@ -820,7 +824,7 @@ impl Sub for &Val {
             }
             #[cfg(feature = "adv_arith")]
             (Val::Map(l), Val::Map(r)) => {
-                let mut result = FastHashMap::with_capacity_and_hasher(l.len(), Default::default());
+                let mut result = HashMap::with_capacity(l.len());
                 for (k, v) in l.iter() {
                     if !r.contains_key(k) {
                         result.insert(k.clone(), v.clone());
@@ -831,8 +835,7 @@ impl Sub for &Val {
             #[cfg(feature = "adv_arith")]
             (Val::Map(l), r) => {
                 if let Val::Str(k) = r {
-                    let mut result =
-                        FastHashMap::with_capacity_and_hasher(l.len(), Default::default());
+                    let mut result = HashMap::with_capacity(l.len());
                     for (existing_k, v) in l.iter() {
                         if existing_k.as_ref() != k.as_ref() {
                             result.insert(existing_k.clone(), v.clone());
@@ -945,8 +948,7 @@ where
 {
     fn from(m: HashMap<S, V, H>) -> Self {
         // Avoid rehashing by reserving exact capacity
-        let mut inner: FastHashMap<Arc<str>, Val> =
-            FastHashMap::with_capacity_and_hasher(m.len(), Default::default());
+        let mut inner: HashMap<Arc<str>, Val> = HashMap::with_capacity(m.len());
         for (k, v) in m.into_iter() {
             inner.insert(Arc::from(k.as_ref()), v.into());
         }
@@ -1032,7 +1034,7 @@ impl From<serde_json::Value> for Val {
                 Val::List(Arc::from(v))
             }
             serde_json::Value::Object(o) => {
-                let m: FastHashMap<Arc<str>, Val> =
+                let m: HashMap<Arc<str>, Val> =
                     o.into_iter().map(|(k, v)| (Arc::<str>::from(k), Val::from(v))).collect();
                 Val::Map(Arc::new(m))
             }
@@ -1061,7 +1063,7 @@ impl From<serde_yaml::Value> for Val {
                 Val::List(Arc::from(v))
             }
             serde_yaml::Value::Mapping(o) => {
-                let m: FastHashMap<Arc<str>, Val> = o
+                let m: HashMap<Arc<str>, Val> = o
                     .into_iter()
                     .filter_map(|(k, v)| {
                         if let serde_yaml::Value::String(key) = k {
@@ -1103,11 +1105,13 @@ impl PartialEq for Val {
                     params: params_a,
                     body: body_a,
                     env: env_a,
+                    ..
                 },
                 Val::Closure {
                     params: params_b,
                     body: body_b,
                     env: env_b,
+                    ..
                 },
             ) => params_a == params_b && Arc::ptr_eq(body_a, body_b) && Arc::ptr_eq(env_a, env_b),
             (Val::RustFunction(a), Val::RustFunction(b)) => {

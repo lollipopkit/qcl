@@ -285,6 +285,7 @@ mod tests {
             params: Arc::new(vec!["x".to_string(), "y".to_string()]),
             body: Arc::new(Stmt::Empty),
             env: Arc::new(Environment::new()),
+            upvalues: Arc::new(Vec::new()),
         };
 
         assert_eq!(func_val.to_string(), "fn(x, y)");

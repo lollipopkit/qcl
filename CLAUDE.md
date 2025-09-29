@@ -16,7 +16,6 @@ QCL (Query Check Language) is a domain-specific language for access control eval
 
 ### Building
 
-- `cargo build` - Debug build
 - `cargo build --release` - Release build
 - `cargo run -p qcl-cli -- --expr <expression>` - Run CLI with expression (reads context from stdin)
 - `cargo run -p qcl-cli -- --stmt <program>` - Run CLI with statement program
@@ -112,7 +111,6 @@ The `Expr::parse_cached()` method uses `once_cell::sync::Lazy` for caching parse
 - `@` prefix accesses context objects (e.g., `@req.user.name`)
 - Context must be provided as `Val` (typically parsed from JSON/YAML/TOML)
 - Use `expr.requested_ctx()` to discover required context keys
-
 
 #### Feature Flags
 
