@@ -140,13 +140,19 @@ impl ModuleResolver {
     fn resolve_file_path(&self, path: &str) -> Result<PathBuf> {
         let path = Path::new(path);
 
-        // If absolute path, use directly
-        if path.is_absolute() {
-            if path.exists() {
-                return Ok(path.to_path_buf());
-            } else {
-                return Err(anyhow!("File not found: {}", path.display()));
-            }
+        // Enforce security: only allow relative, sanitized paths (no absolute, no `..`).
+        if !path.is_relative() {
+            return Err(anyhow!(
+                "Absolute paths are not allowed for imports: {}",
+                path.display()
+            ));
+        }
+
+        if path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+            return Err(anyhow!(
+                "Parent directory components ('..') are not allowed in imports: {}",
+                path.display()
+            ));
         }
 
         // Search in search paths
@@ -279,6 +285,7 @@ impl Default for ImportContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn test_import_stmt_variants() {
@@ -320,5 +327,23 @@ mod tests {
         // Test that nonexistent modules fail
         let result = ctx.execute_import(&import, &resolver);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_resolve_file_path_security() {
+        let resolver = ModuleResolver::new();
+
+        // Absolute paths are rejected
+        let abs = std::env::current_dir().unwrap();
+        let abs_str = abs.to_string_lossy().to_string();
+        assert!(resolver.resolve_file_path(&abs_str).is_err());
+
+        // Parent directory components are rejected
+        assert!(resolver.resolve_file_path("../foo.qcl").is_err());
+
+        // Relative simple path that likely does not exist should return not found
+        // (error message still OK but not due to security check)
+        let rel = PathBuf::from("does_not_exist.qcl");
+        assert!(resolver.resolve_file_path(&rel.to_string_lossy()).is_err());
     }
 }

@@ -83,6 +83,8 @@ match result {
     <img src="https://cdn.lpkt.cn/img/capture/qcl.png" alt="QCL" />
 </div>
 
+- Note: when passing a file to the CLI, only relative, sanitized paths are allowed (no `..`, no absolute paths).
+
 ## License
 
 ```plaintext

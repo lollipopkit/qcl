@@ -84,6 +84,8 @@ match result {
     
 </div>
 
+注意：通过 CLI 传入文件路径时，仅允许相对且已净化的路径（不允许 `..`，不允许绝对路径）。
+
 示例（在项目根目录运行）：
 
 ```bash
@@ -95,4 +97,3 @@ echo '{"req":{"user":{"id":1}}}' | cargo run -p qcl-cli -- --expr "@req.user.id 
 ```plaintext
 Apache-2.0 lollipopkit
 ```
-

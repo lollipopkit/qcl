@@ -1,4 +1,5 @@
 use std::io::{BufRead, IsTerminal};
+use std::path::{Component, Path, PathBuf};
 use std::{collections::HashMap, sync::Arc};
 
 use qcl_core::stmt::ModuleResolver;
@@ -16,6 +17,26 @@ use qcl_core::rt;
 fn read_file_content(path: &str) -> anyhow::Result<String> {
     std::fs::read_to_string(path)
         .map_err(|e| anyhow::anyhow!("Failed to read file '{}': {}", path, e))
+}
+
+fn sanitize_rel_path(raw: &str) -> anyhow::Result<PathBuf> {
+    let p = Path::new(raw);
+    // Only allow strictly relative paths without any parent directory components
+    if !p.is_relative() {
+        return Err(anyhow::anyhow!(
+            "Absolute paths are not allowed. Use a relative path."
+        ));
+    }
+
+    for comp in p.components() {
+        if matches!(comp, Component::ParentDir) {
+            return Err(anyhow::anyhow!(
+                "Parent directory components ('..') are not allowed in file paths."
+            ));
+        }
+    }
+
+    Ok(p.to_path_buf())
 }
 
 fn main() -> anyhow::Result<()> {
@@ -36,7 +57,12 @@ fn main() -> anyhow::Result<()> {
         );
         eprintln!("  Format is auto-detected unless {} is specified", flag_str);
         eprintln!("  Default is statement mode, use --expr for expression mode");
-        eprintln!("  If a single argument is a file path, it will be executed");
+        eprintln!(
+            "  If a single argument is a file path, it will be executed"
+        );
+        eprintln!(
+            "  Note: only relative, sanitized file paths are allowed (no '..', no absolute paths)"
+        );
         std::process::exit(1);
     }
 
@@ -97,15 +123,26 @@ fn main() -> anyhow::Result<()> {
     let input = if input_args.len() == 1 {
         let potential_file = &input_args[0];
 
-        // Try to read as file first
-        match read_file_content(potential_file) {
-            Ok(content) => {
-                // When reading from file, default to statement mode
-                is_statement_mode = true;
-                content
+        // If it looks like an existing file, enforce path safety then read.
+        match std::fs::metadata(potential_file) {
+            Ok(meta) if meta.is_file() => {
+                // Enforce repository security policy: only relative, sanitized paths
+                let safe = sanitize_rel_path(potential_file).map_err(|e| {
+                    eprintln!("Error: {}", e);
+                    e
+                });
+                match safe {
+                    Ok(safe_path) => {
+                        // When reading from file, default to statement mode
+                        is_statement_mode = true;
+                        let sp = safe_path.to_string_lossy().to_string();
+                        read_file_content(&sp)?
+                    }
+                    Err(_) => std::process::exit(1),
+                }
             }
-            Err(_) => {
-                // Not a file, treat as expression/program
+            _ => {
+                // Not an existing file, treat as expression/program
                 input_args.join(" ")
             }
         }
