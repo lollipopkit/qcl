@@ -84,8 +84,8 @@ impl ModuleResolver {
             stdlib_registry: std::sync::Arc::new(registry),
             stdlib_modules: HashMap::new(),
             file_modules: Arc::new(RwLock::new(HashMap::new())),
-            // Only current directory; no hardcoded modules/lib search
-            search_paths: vec![PathBuf::from(".")],
+            // Prefer current directory; also allow `core/` for workspace runs.
+            search_paths: vec![PathBuf::from("."), PathBuf::from("core")],
         }
     }
 
@@ -158,27 +158,32 @@ impl ModuleResolver {
             ));
         }
 
-        // Candidate patterns (relative to current directory):
+        // Candidate patterns (searched under each `search_paths` root):
         // 1) ${MOD_NAME}.qcl
         // 2) ${MOD_NAME}/mod.qcl
         // If the input already contains an extension, also allow it directly.
         let base = PathBuf::from(path);
 
-        // If the input already includes .qcl and exists, accept it
-        if base.extension().and_then(|s| s.to_str()) == Some("qcl") && base.exists() {
-            return Ok(base);
-        }
+        for root in &self.search_paths {
+            // If the input already includes .qcl and exists under this root, accept it
+            if base.extension().and_then(|s| s.to_str()) == Some("qcl") {
+                let p = root.join(&base);
+                if p.exists() {
+                    return Ok(p);
+                }
+            }
 
-        // Try ${MOD_NAME}.qcl
-        let candidate1 = base.with_extension("qcl");
-        if candidate1.exists() {
-            return Ok(candidate1);
-        }
+            // Try ${MOD_NAME}.qcl
+            let candidate1 = root.join(base.with_extension("qcl"));
+            if candidate1.exists() {
+                return Ok(candidate1);
+            }
 
-        // Try ${MOD_NAME}/mod.qcl
-        let candidate2 = base.join("mod.qcl");
-        if candidate2.exists() {
-            return Ok(candidate2);
+            // Try ${MOD_NAME}/mod.qcl
+            let candidate2 = root.join(base.join("mod.qcl"));
+            if candidate2.exists() {
+                return Ok(candidate2);
+            }
         }
 
         Err(anyhow!(

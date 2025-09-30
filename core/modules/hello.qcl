@@ -1,9 +1,0 @@
-// Sample module for tests
-let answer = 42;
-
-fn double(x: Int) -> Int {
-    return x + x;
-}
-
-let data = {"k": 1};
-

@@ -165,7 +165,7 @@ fn main() -> anyhow::Result<()> {
         let resolver = Arc::new(ModuleResolver::with_registry(registry));
         let mut env = stmt::Environment::with_resolver(resolver);
 
-        if use_vm {
+        let exec_result = if use_vm {
             #[cfg(feature = "vm")]
             {
                 // Compile entire program block to bytecode and execute with VM
@@ -174,18 +174,19 @@ fn main() -> anyhow::Result<()> {
                 };
                 let func = qcl_core::vm::Compiler::new().compile_stmt(&block);
                 let mut vm = qcl_core::vm::Vm::new();
-                return vm.exec_with(&func, Some(&mut env), &ctx);
+                vm.exec_with(&func, Some(&mut env), &ctx, None)
             }
             #[cfg(not(feature = "vm"))]
             {
                 eprintln!(
                     "Warning: --vm specified but this binary was built without 'vm' feature; falling back to interpreter."
                 );
+                program.execute_with_env(&ctx, &mut env)
             }
-        }
-
-        // Interpreter fallback
-        program.execute_with_env(&ctx, &mut env)
+        } else {
+            program.execute_with_env(&ctx, &mut env)
+        };
+        exec_result
     } else {
         // Expression mode
         if use_vm {
@@ -195,7 +196,7 @@ fn main() -> anyhow::Result<()> {
                 let compiler = qcl_core::vm::Compiler::new();
                 let func = compiler.compile_expr(&expr);
                 let mut vm = qcl_core::vm::Vm::new();
-                vm.exec_with(&func, None, &ctx)
+                vm.exec_with(&func, None, &ctx, None)
             }
             #[cfg(not(feature = "vm"))]
             {

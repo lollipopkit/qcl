@@ -33,12 +33,11 @@ toml = ["dep:toml"]
 concurrency = ["tokio", "crossbeam", "futures"]
 tokio-rt-multi-thread = ["concurrency", "tokio/rt-multi-thread"]
 tokio-rt-current-thread = ["concurrency", "tokio/rt"]
-# VM and slot-resolution features (opt-in, off by default)
 # `vm`: enables the register bytecode VM subsystem
-# `slots`: enables name resolution to slot indices
 vm = []
+# `slots`: enables name resolution to slot indices
 slots = []
-all = ["sem_arith", "adv_arith", "json", "yaml", "toml", "concurrency"]
+all = ["sem_arith", "adv_arith", "json", "yaml", "toml", "concurrency", "vm", "slots"]
 
 [dev-dependencies]
 criterion = "0.3"

@@ -621,6 +621,7 @@ impl Stmt {
                     start,
                     end,
                     inclusive,
+                    step,
                 } = iterable.as_ref()
                 {
                     let start_val = match start {
@@ -635,7 +636,22 @@ impl Stmt {
                     };
 
                     if let (Val::Int(mut i), Val::Int(e)) = (start_val, end_val) {
-                        let step: i64 = if i <= e { 1 } else { -1 };
+                        // Determine step: explicit if provided, else +/-1 based on bounds
+                        let step: i64 = match step {
+                            Some(st_expr) => match st_expr.eval_with_env(ctx, Some(env))? {
+                                Val::Int(0) => {
+                                    return Err(anyhow!("Range step cannot be zero"));
+                                }
+                                Val::Int(s) => s,
+                                other => {
+                                    return Err(anyhow!(
+                                        "Range step must be integer, got {:?}",
+                                        other
+                                    ))
+                                }
+                            },
+                            None => if i <= e { 1 } else { -1 },
+                        };
                         let done = |cur: i64| -> bool {
                             if step > 0 {
                                 if *inclusive { cur > e } else { cur >= e }
@@ -828,6 +844,8 @@ impl Stmt {
                     body: Arc::new((**body).clone()),
                     env: Arc::new(env.clone()),
                     upvalues: Arc::new(Vec::new()),
+                    #[cfg(feature = "vm")]
+                    code: Arc::new(once_cell::sync::OnceCell::new()),
                 };
                 env.define(name.clone(), func_val);
                 Ok(ControlFlow::None)

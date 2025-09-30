@@ -1,9 +1,4 @@
-// Sample module at project root for core crate tests
+// Test module for import.rs tests
 let answer = 42;
-
-fn double(x: Int) -> Int {
-    return x + x;
-}
-
-let data = {"k": 1};
-
+fn double(x) { return x * 2; }
+let data = [1, 2, 3];

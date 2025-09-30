@@ -10,6 +10,9 @@ pub struct Function {
     pub code: Vec<Op>,
     pub n_regs: u16,
     pub protos: Vec<ClosureProto>,
+    // Register indices for parameters in the order declared by the closure/function.
+    // Empty for expression/statement wrappers that are not functions.
+    pub param_regs: Vec<u16>,
 }
 
 #[derive(Debug, Clone)]
@@ -44,6 +47,13 @@ pub enum Op {
     LoadCtx(u16 /*dst*/),
     // Access and constructors
     Access(u16 /*dst*/, u16 /*base*/, u16 /*field*/),
+    // Length and index helpers
+    Len { dst: u16, src: u16 },
+    Index { dst: u16, base: u16, idx: u16 },
+    // Normalize a value into an iterable for for-in loops.
+    // - List, Str: passthrough
+    // - Map: materialize a stable, sorted list of [key, value] pairs once
+    ToIter { dst: u16, src: u16 },
     BuildList {
         dst: u16,
         base: u16,
@@ -54,6 +64,12 @@ pub enum Op {
         base: u16,
         len: u16,
     }, // base..base+2*len-1 as k,v pairs
+    // List slicing helpers
+    ListSlice {
+        dst: u16,   // destination register for result list
+        src: u16,   // source list register
+        start: u16, // start index (inclusive) in register (must be Int)
+    },
     MakeClosure {
         dst: u16,
         proto: u16,
@@ -69,6 +85,31 @@ pub enum Op {
     Ret {
         base: u16,
         retc: u8,
+    },
+    // Numeric for-range (specialized fast path):
+    // Usage pattern compiled as:
+    //   ForRangePrep { idx, limit, step, inclusive, explicit }
+    //   ForRangeGuard { idx, limit, step, inclusive, ofs: end } // jump to end when done
+    //   ... body ... (optional: move idx into loop variable before body)
+    //   ForRangeStep { idx, step, back_ofs: guard } // idx += step; jump back to guard
+    ForRangePrep {
+        idx: u16,
+        limit: u16,
+        step: u16,       // register holding step (+1 or -1)
+        inclusive: bool, // ..= vs ..
+        explicit: bool,  // if true, keep provided step as-is
+    },
+    ForRangeGuard {
+        idx: u16,
+        limit: u16,
+        step: u16,
+        inclusive: bool,
+        ofs: i16, // jump to end when guard fails
+    },
+    ForRangeStep {
+        idx: u16,
+        step: u16,
+        back_ofs: i16, // jump back to guard
     },
 }
 
@@ -94,11 +135,17 @@ impl fmt::Debug for Op {
             Op::DefineGlobal(k, s) => write!(f, "DefineGlobal k{}, r{}", k, s),
             Op::LoadCtx(d) => write!(f, "LoadCtx r{}", d),
             Op::Access(d, b, fld) => write!(f, "Access r{}, r{}, r{}", d, b, fld),
+            Op::Len { dst, src } => write!(f, "Len r{}, r{}", dst, src),
+            Op::Index { dst, base, idx } => write!(f, "Index r{}, r{}, r{}", dst, base, idx),
+            Op::ToIter { dst, src } => write!(f, "ToIter r{}, r{}", dst, src),
             Op::BuildList { dst, base, len } => {
                 write!(f, "BuildList r{}, base={}, len={}", dst, base, len)
             }
             Op::BuildMap { dst, base, len } => {
                 write!(f, "BuildMap r{}, base={}, len={}", dst, base, len)
+            }
+            Op::ListSlice { dst, src, start } => {
+                write!(f, "ListSlice r{}, r{}, r{}", dst, src, start)
             }
             Op::MakeClosure { dst, proto } => write!(f, "MakeClosure r{}, p{}", dst, proto),
             Op::Jmp(ofs) => write!(f, "Jmp {}", ofs),
@@ -114,6 +161,21 @@ impl fmt::Debug for Op {
                 rf, base, argc, retc
             ),
             Op::Ret { base, retc } => write!(f, "Ret base={}, retc={}", base, retc),
+            Op::ForRangePrep { idx, limit, step, inclusive, explicit } => write!(
+                f,
+                "ForRangePrep idx=r{}, limit=r{}, step=r{}, inclusive={}, explicit={}",
+                idx, limit, step, inclusive, explicit
+            ),
+            Op::ForRangeGuard { idx, limit, step, inclusive, ofs } => write!(
+                f,
+                "ForRangeGuard idx=r{}, limit=r{}, step=r{}, inclusive={}, ofs={}",
+                idx, limit, step, inclusive, ofs
+            ),
+            Op::ForRangeStep { idx, step, back_ofs } => write!(
+                f,
+                "ForRangeStep idx=r{}, step=r{}, back_ofs={}",
+                idx, step, back_ofs
+            ),
         }
     }
 }

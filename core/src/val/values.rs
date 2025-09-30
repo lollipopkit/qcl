@@ -40,6 +40,9 @@ pub enum Val {
         env: Arc<stmt::Environment>,
         /// Captured upvalues for lightweight frames (future use)
         upvalues: Arc<Vec<crate::rt::Upvalue>>,
+        /// Cached compiled bytecode for VM fast-path
+        #[cfg(feature = "vm")]
+        code: Arc<once_cell::sync::OnceCell<crate::vm::Function>>,
     },
     /// Rust function - contains a function pointer that can be called
     RustFunction(RustFunction),
@@ -78,11 +81,15 @@ impl Clone for Val {
                 body,
                 env,
                 upvalues,
+                #[cfg(feature = "vm")]
+                code,
             } => Val::Closure {
                 params: params.clone(),
                 body: body.clone(),
                 env: env.clone(),
                 upvalues: upvalues.clone(),
+                #[cfg(feature = "vm")]
+                code: code.clone(),
             },
             Val::RustFunction(f) => Val::RustFunction(*f),
             Val::Task { id, value } => {
@@ -560,7 +567,9 @@ impl Val {
             Val::Closure {
                 params,
                 body,
-                env: _,
+                env: _captured_env,
+                #[cfg(feature = "vm")]
+                code,
                 ..
             } => {
                 // Check parameter count
@@ -574,6 +583,10 @@ impl Val {
 
                 // Create a lightweight call environment: reuse resolver/imports,
                 // clone only the global scope, and preallocate param scope.
+                // Build a lightweight call environment from the caller's env.
+                // Captured env is kept on the closure for future upvalue work,
+                // but we continue to base lookups on the caller to preserve
+                // existing recursive and dynamic name resolution semantics.
                 let mut call_env = env.shallow_call_env(params.len());
 
                 // Establish a call frame (slots) for this invocation.
@@ -584,14 +597,46 @@ impl Val {
                     call_env.define(param.clone(), arg_val.clone());
                 }
 
-                // Execute function body and ensure we pop the frame afterward.
-                let ret: Result<Val> = match &**body {
-                    stmt::Stmt::Expr(expr) => expr.eval_with_env(ctx, Some(&call_env)),
-                    other => {
-                        let flow = other.execute(&mut call_env, ctx);
-                        match flow? {
-                            stmt::ControlFlow::Return(val) => Ok(val),
-                            _ => Ok(Val::Nil), // Functions return nil by default
+                // Merge in missing globals from the caller's environment to support
+                // recursion and mutual recursion without a full upvalue system. We only
+                // add names that are not present in the captured environment.
+                let caller_globals = env.export_symbols();
+                for (k, v) in caller_globals.into_iter() {
+                    if call_env.get(&k).is_none() {
+                        call_env.define(k, v);
+                    }
+                }
+
+                // Execute function body (VM fast-path when available), then pop frame.
+                #[cfg(feature = "vm")]
+                let ret: Result<Val> = {
+                    thread_local! {
+                        static VM_POOL: std::cell::RefCell<Option<crate::vm::Vm>> = std::cell::RefCell::new(None);
+                    }
+                    let fun = code.get_or_init(|| {
+                        let c = crate::vm::Compiler::new();
+                        c.compile_function(params, &*body)
+                    });
+                    // Acquire a VM from the thread-local pool if available
+                    let mut vm = VM_POOL.with(|cell| cell.borrow_mut().take()).unwrap_or_else(crate::vm::Vm::new);
+                    // Execute
+                    let res = vm.exec_with(fun, Some(&mut call_env), ctx, Some(args));
+                    // Return VM to pool regardless of result
+                    VM_POOL.with(|cell| {
+                        let _ = cell.borrow_mut().replace(vm);
+                    });
+                    res
+                };
+                #[cfg(not(feature = "vm"))]
+                let ret: Result<Val> = {
+                    match &**body {
+                        stmt::Stmt::Expr(expr) => expr.eval_with_env(ctx, Some(&call_env)),
+                        other => {
+                            let flow = other.execute(&mut call_env, ctx);
+                            match flow? {
+                                stmt::ControlFlow::Return(val) => Ok(val),
+                                _ => Ok(Val::Nil), // Functions return nil by default
+                            }
                         }
                     }
                 };
@@ -609,7 +654,15 @@ impl Val {
     #[inline]
     pub(crate) fn access(&self, field: &Val) -> Option<Val> {
         match (self, field) {
+            // Map: field lookup by key only (do not shadow keys with synthetic fields)
             (Val::Map(m), Val::Str(s)) => m.get(s.as_ref()).cloned(),
+            // String indexing and metadata
+            (Val::Str(s), Val::Int(i)) => {
+                if *i < 0 { return None; }
+                let idx = *i as usize;
+                let ch = s.chars().nth(idx)?;
+                Some(Val::Str(ch.to_string().into()))
+            }
             (Val::List(l), Val::Int(i)) => {
                 if *i < 0 {
                     return None;
@@ -617,8 +670,17 @@ impl Val {
                 l.get(*i as usize).cloned()
             }
             (Val::List(l), Val::Str(s)) if s.as_ref() == "len" => Some(Val::Int(l.len() as i64)),
-            (Val::Str(s), Val::Str(field)) if field.as_ref() == "len" => {
-                Some(Val::Int(s.len() as i64))
+            (Val::Str(s), Val::Str(field)) if field.as_ref() == "len" => Some(Val::Int(s.len() as i64)),
+            // Map index -> [key, value]
+            (Val::Map(m), Val::Int(i)) => {
+                if *i < 0 { return None; }
+                let mut keys: Vec<&str> = m.keys().map(|k| k.as_ref()).collect();
+                keys.sort(); // stable order by key for deterministic iteration
+                let idx = *i as usize;
+                if idx >= keys.len() { return None; }
+                let k = keys[idx];
+                let v = m.get(k)?.clone();
+                Some(Val::List(vec![Val::Str(k.to_string().into()), v].into()))
             }
             (Val::Object { fields, .. }, Val::Str(s)) => fields.get(s.as_ref()).cloned(),
             (Val::Task { value, .. }, Val::Str(s)) if s.as_ref() == "value" => match value {

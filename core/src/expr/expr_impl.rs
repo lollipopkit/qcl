@@ -397,11 +397,12 @@ pub enum Expr {
     Call(String, Vec<Box<Expr>>),
     /// Function call on expression: expr(arg1, arg2, ...)
     CallExpr(Box<Expr>, Vec<Box<Expr>>),
-    /// Range expression: start..end
+    /// Range expression: start..end with optional step: start..end..step
     Range {
         start: Option<Box<Expr>>,
         end: Option<Box<Expr>>,
         inclusive: bool, // .. vs ..=
+        step: Option<Box<Expr>>, // optional explicit step (positive or negative, non-zero)
     },
     /// spawn(expr) - spawn a new task
     Spawn(Box<Expr>),
@@ -669,6 +670,7 @@ impl Expr {
                 start,
                 end,
                 inclusive,
+                step,
             } => {
                 let start_val = match start {
                     Some(expr) => expr.eval_with_env(ctx, env)?,
@@ -678,10 +680,14 @@ impl Expr {
                     Some(expr) => expr.eval_with_env(ctx, env)?,
                     None => return Err(anyhow!("Open-ended ranges not supported in for loops")),
                 };
+                let step_val = match step {
+                    Some(expr) => Some(expr.eval_with_env(ctx, env)?),
+                    None => None,
+                };
 
                 // Generate range list
-                match (start_val, end_val) {
-                    (Val::Int(s), Val::Int(e)) => {
+                match (start_val, end_val, step_val) {
+                    (Val::Int(s), Val::Int(e), None) => {
                         let range: Vec<Val> = if *inclusive {
                             (s..=e).map(Val::Int).collect()
                         } else {
@@ -689,6 +695,39 @@ impl Expr {
                         };
                         Ok(Val::List(range.into()))
                     }
+                    (Val::Int(mut i), Val::Int(e), Some(Val::Int(st))) => {
+                        if st == 0 {
+                            return Err(anyhow!("Range step cannot be zero"));
+                        }
+                        let mut out: Vec<Val> = Vec::new();
+                        if st > 0 {
+                            if *inclusive {
+                                while i <= e {
+                                    out.push(Val::Int(i));
+                                    i += st;
+                                }
+                            } else {
+                                while i < e {
+                                    out.push(Val::Int(i));
+                                    i += st;
+                                }
+                            }
+                        } else {
+                            if *inclusive {
+                                while i >= e {
+                                    out.push(Val::Int(i));
+                                    i += st; // st is negative
+                                }
+                            } else {
+                                while i > e {
+                                    out.push(Val::Int(i));
+                                    i += st;
+                                }
+                            }
+                        }
+                        Ok(Val::List(out.into()))
+                    }
+                    (_, _, Some(_)) => Err(anyhow!("Range step must be an integer")),
                     _ => Err(anyhow!("Range bounds must be integers")),
                 }
             }
@@ -1006,6 +1045,8 @@ impl Expr {
                     body: Arc::new(stmt),
                     env: Arc::new(env),
                     upvalues: Arc::new(Vec::new()),
+                    #[cfg(feature = "vm")]
+                    code: Arc::new(once_cell::sync::OnceCell::new()),
                 })
             }
             Expr::Val(val) => Ok(val.clone()), // Clone necessary as eval returns owned Val
@@ -1079,12 +1120,15 @@ impl Expr {
                     arg.collect_ctx_names(names);
                 }
             }
-            Expr::Range { start, end, .. } => {
+            Expr::Range { start, end, step, .. } => {
                 if let Some(s) = start {
                     s.collect_ctx_names(names);
                 }
                 if let Some(e) = end {
                     e.collect_ctx_names(names);
+                }
+                if let Some(st) = step {
+                    st.collect_ctx_names(names);
                 }
             }
             Expr::Spawn(expr) => {
@@ -1429,14 +1473,17 @@ impl Expr {
                 start,
                 end,
                 inclusive,
+                step,
             } => {
                 // Range expressions with constant bounds can be folded
                 let folded_start = start.map(|s| Box::new(s.fold_constants()));
                 let folded_end = end.map(|e| Box::new(e.fold_constants()));
+                let folded_step = step.map(|st| Box::new(st.fold_constants()));
                 Expr::Range {
                     start: folded_start,
                     end: folded_end,
                     inclusive,
+                    step: folded_step,
                 }
             }
             Expr::Spawn(expr) => Expr::Spawn(Box::new(expr.fold_constants())),
@@ -1635,6 +1682,7 @@ impl Display for Expr {
                 start,
                 end,
                 inclusive,
+                step,
             } => {
                 let start_str = match start {
                     Some(s) => s.to_string(),
@@ -1645,7 +1693,11 @@ impl Display for Expr {
                     None => "".to_string(),
                 };
                 let op = if *inclusive { "..=" } else { ".." };
-                write!(f, "{}{}{}", start_str, op, end_str)
+                if let Some(st) = step {
+                    write!(f, "{}{}{}..{}", start_str, op, end_str, st)
+                } else {
+                    write!(f, "{}{}{}", start_str, op, end_str)
+                }
             }
             Expr::Spawn(expr) => write!(f, "spawn({})", expr),
             Expr::ChanLiteral {

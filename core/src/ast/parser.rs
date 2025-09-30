@@ -192,6 +192,8 @@ impl<'a> Parser<'a> {
 
     /// - `expr..expr` (range)
     /// - `expr..=expr` (inclusive range)
+    /// - `expr..expr..step` (explicit step)
+    /// - `expr..=expr..step` (inclusive with explicit step)
     fn parse_range(&mut self) -> Result<Expr> {
         let mut expr = self.parse_add_sub()?;
 
@@ -209,10 +211,22 @@ impl<'a> Parser<'a> {
                 None
             };
 
+            // Optional explicit step indicated by another '..'
+            let step = if !self.eof() && self.tokens[self.pos] == Token::Range {
+                self.pos += 1; // consume '..'
+                if self.eof() || self.is_range_terminator() {
+                    return Err(anyhow!(self.err("Expected step expression after '..'")));
+                }
+                Some(Box::new(self.parse_add_sub()?))
+            } else {
+                None
+            };
+
             expr = Expr::Range {
                 start: Some(Box::new(expr)),
                 end,
                 inclusive,
+                step,
             };
         }
 

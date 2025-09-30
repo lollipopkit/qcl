@@ -283,6 +283,8 @@ mod tests {
             body: Arc::new(Stmt::Empty),
             env: Arc::new(Environment::new()),
             upvalues: Arc::new(Vec::new()),
+            #[cfg(feature = "vm")]
+            code: Arc::new(once_cell::sync::OnceCell::new()),
         };
 
         assert_eq!(func_val.to_string(), "fn(x, y)");
@@ -306,4 +308,6 @@ mod tests {
 
         Ok(())
     }
+
+    
 }
