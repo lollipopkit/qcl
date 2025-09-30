@@ -47,7 +47,7 @@ impl ListModule {
         Self { functions }
     }
 
-    fn len(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn len(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("len() takes exactly 1 argument"));
         }
@@ -58,11 +58,9 @@ impl ListModule {
     }
 
     // Return a new list with value appended (immutable)
-    fn push(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn push(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
-            return Err(anyhow::anyhow!(
-                "push() takes exactly 2 arguments: list, value"
-            ));
+            return Err(anyhow::anyhow!("push() takes exactly 2 arguments: list, value"));
         }
         match (&args[0], &args[1]) {
             (Val::List(l), v) => {
@@ -76,11 +74,9 @@ impl ListModule {
     }
 
     // Concatenate two lists
-    fn concat(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn concat(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
-            return Err(anyhow::anyhow!(
-                "concat() takes exactly 2 arguments: list, other_list"
-            ));
+            return Err(anyhow::anyhow!("concat() takes exactly 2 arguments: list, other_list"));
         }
         match (&args[0], &args[1]) {
             (Val::List(a), Val::List(b)) => {
@@ -95,7 +91,7 @@ impl ListModule {
     }
 
     // Join a list of strings with a delimiter
-    fn join(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn join(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!(
                 "join() takes exactly 2 arguments: list<string>, delimiter"
@@ -120,11 +116,9 @@ impl ListModule {
     }
 
     // Safe index access: get(index) -> value|nil
-    fn get(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn get(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
-            return Err(anyhow::anyhow!(
-                "get() takes exactly 2 arguments: list, index"
-            ));
+            return Err(anyhow::anyhow!("get() takes exactly 2 arguments: list, index"));
         }
         let list = match &args[0] {
             Val::List(l) => &**l,
@@ -141,7 +135,7 @@ impl ListModule {
         Ok(list.get(uidx).cloned().unwrap_or(Val::Nil))
     }
 
-    fn first(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn first(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("first() takes exactly 1 argument"));
         }
@@ -151,7 +145,7 @@ impl ListModule {
         }
     }
 
-    fn last(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn last(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("last() takes exactly 1 argument"));
         }
@@ -163,7 +157,7 @@ impl ListModule {
 
     // Map over list with a function: list.map(|x| ...)
     // Accepts either as module call: map(list, func) or meta-method: list.map(func)
-    fn map(args: &[Val], env: &qcl_core::stmt::Environment, ctx: &Val) -> Result<Val> {
+    fn map(args: &[Val], env: &qcl_core::stmt::Environment) -> Result<Val> {
         // Normalize to (list, func)
         let (list, func) = match args {
             // supports both module style and meta-method (receiver first)
@@ -184,7 +178,7 @@ impl ListModule {
 
         let mut out = Vec::with_capacity(list.len());
         for item in list.iter() {
-            let res = call.call(std::slice::from_ref(item), env, ctx)?;
+            let res = call.call(std::slice::from_ref(item), env)?;
             out.push(res);
         }
         Ok(Val::List(Arc::from(out)))
@@ -192,7 +186,7 @@ impl ListModule {
 
     // Filter list with predicate function: list.filter(|x| cond)
     // Truthiness: false and nil are false; everything else treated as true
-    fn filter(args: &[Val], env: &qcl_core::stmt::Environment, ctx: &Val) -> Result<Val> {
+    fn filter(args: &[Val], env: &qcl_core::stmt::Environment) -> Result<Val> {
         // Normalize to (list, func)
         let (list, func) = match args {
             [Val::List(l), f] => (l.clone(), f.clone()),
@@ -214,7 +208,7 @@ impl ListModule {
 
         let mut out = Vec::with_capacity(list.len());
         for item in list.iter() {
-            let res = call.call(std::slice::from_ref(item), env, ctx)?;
+            let res = call.call(std::slice::from_ref(item), env)?;
             let keep = match res {
                 Val::Bool(b) => b,
                 Val::Nil => false,
@@ -228,12 +222,10 @@ impl ListModule {
     }
 
     // Reduce list with accumulator: list.reduce(init, |acc, x| ...)
-    fn reduce(args: &[Val], env: &qcl_core::stmt::Environment, ctx: &Val) -> Result<Val> {
+    fn reduce(args: &[Val], env: &qcl_core::stmt::Environment) -> Result<Val> {
         // Normalize to (list, init, func)
         if args.len() != 3 {
-            return Err(anyhow::anyhow!(
-                "reduce() expects 3 arguments: list, init, function"
-            ));
+            return Err(anyhow::anyhow!("reduce() expects 3 arguments: list, init, function"));
         }
         let list = match &args[0] {
             Val::List(l) => l.clone(),
@@ -251,7 +243,7 @@ impl ListModule {
         };
 
         for item in list.iter() {
-            acc = func.call(&[acc, item.clone()], env, ctx)?;
+            acc = func.call(&[acc, item.clone()], env)?;
         }
         Ok(acc)
     }
@@ -288,13 +280,12 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(Default::default()));
 
         let mut registry = qcl_core::module::ModuleRegistry::new();
         register_stdlib_modules(&mut registry);
         let resolver = Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
-        program.execute_with_env(&ctx, &mut env)
+        program.execute_with_env(&mut env)
     }
 
     #[test]
@@ -335,10 +326,7 @@ mod tests {
         );
 
         // reduce (sum)
-        assert_eq!(
-            run("return [1,2,3,4].reduce(0, |acc, x| acc + x);")?,
-            Val::Int(10)
-        );
+        assert_eq!(run("return [1,2,3,4].reduce(0, |acc, x| acc + x);")?, Val::Int(10));
         Ok(())
     }
 }

@@ -55,7 +55,7 @@ use qcl_core::{expr::Expr, stmt::Environment, val::Val};
 let expr_src = "data.req.user.name in 'foobar' && data.files.0.published == true";
 let expr = Expr::try_from(expr_src)?;
 
-// Provide variables via the lexical environment (no implicit context)
+// Provide variables via the lexical environment
 let mut env = Environment::new();
 let data_val: Val = serde_json::json!({
     "req": { "user": { "name": "foo" } },
@@ -64,7 +64,7 @@ let data_val: Val = serde_json::json!({
 env.define("data".to_string(), data_val);
 
 // Eval
-let result = expr.eval_with_env(&Val::Nil, Some(&env))?; // Val::Bool(true)
+let result = expr.eval_with_env(Some(&env))?; // Val::Bool(true)
 assert_eq!(result, Val::Bool(true));
 ```
 

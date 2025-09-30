@@ -45,7 +45,7 @@ impl MathModule {
     }
 
     /// Absolute value
-    fn abs(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn abs(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("abs() takes exactly 1 argument"));
         }
@@ -58,7 +58,7 @@ impl MathModule {
     }
 
     /// Square root
-    fn sqrt(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn sqrt(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("sqrt() takes exactly 1 argument"));
         }
@@ -66,15 +66,13 @@ impl MathModule {
         match &args[0] {
             Val::Int(x) if *x >= 0 => Ok(Val::Float((*x as f64).sqrt())),
             Val::Float(x) if *x >= 0.0 => Ok(Val::Float(x.sqrt())),
-            Val::Int(_) | Val::Float(_) => {
-                Err(anyhow::anyhow!("sqrt() argument must be non-negative"))
-            }
+            Val::Int(_) | Val::Float(_) => Err(anyhow::anyhow!("sqrt() argument must be non-negative")),
             _ => Err(anyhow::anyhow!("sqrt() argument must be a number")),
         }
     }
 
     /// Sine function
-    fn sin(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn sin(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("sin() takes exactly 1 argument"));
         }
@@ -89,7 +87,7 @@ impl MathModule {
     }
 
     /// Cosine function
-    fn cos(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn cos(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("cos() takes exactly 1 argument"));
         }
@@ -104,7 +102,7 @@ impl MathModule {
     }
 
     /// Tangent function
-    fn tan(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn tan(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("tan() takes exactly 1 argument"));
         }
@@ -119,7 +117,7 @@ impl MathModule {
     }
 
     /// Arcsine function
-    fn asin(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn asin(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("asin() takes exactly 1 argument"));
         }
@@ -138,7 +136,7 @@ impl MathModule {
     }
 
     /// Arccosine function
-    fn acos(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn acos(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("acos() takes exactly 1 argument"));
         }
@@ -157,7 +155,7 @@ impl MathModule {
     }
 
     /// Arctangent function
-    fn atan(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn atan(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("atan() takes exactly 1 argument"));
         }
@@ -172,7 +170,7 @@ impl MathModule {
     }
 
     /// Arctangent2 function (atan2(y, x))
-    fn atan2(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn atan2(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!("atan2() takes exactly 2 arguments: y, x"));
         }
@@ -193,7 +191,7 @@ impl MathModule {
     }
 
     /// Natural logarithm
-    fn log(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn log(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("log() takes exactly 1 argument"));
         }
@@ -211,7 +209,7 @@ impl MathModule {
     }
 
     /// Base-10 logarithm
-    fn log10(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn log10(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("log10() takes exactly 1 argument"));
         }
@@ -229,7 +227,7 @@ impl MathModule {
     }
 
     /// Base-2 logarithm
-    fn log2(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn log2(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("log2() takes exactly 1 argument"));
         }
@@ -247,7 +245,7 @@ impl MathModule {
     }
 
     /// Exponential function
-    fn exp(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn exp(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("exp() takes exactly 1 argument"));
         }
@@ -262,11 +260,9 @@ impl MathModule {
     }
 
     /// Power function (x^y)
-    fn pow(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn pow(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
-            return Err(anyhow::anyhow!(
-                "pow() takes exactly 2 arguments: base, exponent"
-            ));
+            return Err(anyhow::anyhow!("pow() takes exactly 2 arguments: base, exponent"));
         }
 
         let base = match &args[0] {
@@ -285,7 +281,7 @@ impl MathModule {
     }
 
     /// Floor function
-    fn floor(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn floor(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("floor() takes exactly 1 argument"));
         }
@@ -298,7 +294,7 @@ impl MathModule {
     }
 
     /// Ceiling function
-    fn ceil(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn ceil(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("ceil() takes exactly 1 argument"));
         }
@@ -311,7 +307,7 @@ impl MathModule {
     }
 
     /// Round function
-    fn round(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn round(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("round() takes exactly 1 argument"));
         }
@@ -324,7 +320,7 @@ impl MathModule {
     }
 
     /// Minimum function
-    fn min(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn min(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!("min() takes exactly 2 arguments"));
         }
@@ -357,7 +353,7 @@ impl MathModule {
     }
 
     /// Maximum function
-    fn max(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn max(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!("max() takes exactly 2 arguments"));
         }
@@ -414,7 +410,6 @@ mod tests {
     use crate::register_stdlib_modules;
     use anyhow::Result;
     use qcl_core::{stmt::stmt_parser::StmtParser, token::Tokenizer, val::Val};
-    use std::sync::Arc;
 
     #[test]
     fn test_math_abs_positive() -> Result<()> {
@@ -422,7 +417,6 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(Default::default()));
 
         // Create registry and register stdlib modules
         let mut registry = qcl_core::module::ModuleRegistry::new();
@@ -432,7 +426,7 @@ mod tests {
         let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
 
-        let result = program.execute_with_env(&ctx, &mut env)?;
+        let result = program.execute_with_env(&mut env)?;
         assert_eq!(result, Val::Int(42));
 
         Ok(())
@@ -444,7 +438,6 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(Default::default()));
 
         // Create registry and register stdlib modules
         let mut registry = qcl_core::module::ModuleRegistry::new();
@@ -454,7 +447,7 @@ mod tests {
         let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
 
-        let result = program.execute_with_env(&ctx, &mut env)?;
+        let result = program.execute_with_env(&mut env)?;
         assert_eq!(result, Val::Int(42));
 
         Ok(())
@@ -466,7 +459,6 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(Default::default()));
 
         // Create registry and register stdlib modules
         let mut registry = qcl_core::module::ModuleRegistry::new();
@@ -476,7 +468,7 @@ mod tests {
         let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
 
-        let result = program.execute_with_env(&ctx, &mut env)?;
+        let result = program.execute_with_env(&mut env)?;
         assert_eq!(result, Val::Float(4.0));
 
         Ok(())
@@ -488,7 +480,6 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(Default::default()));
 
         // Create registry and register stdlib modules
         let mut registry = qcl_core::module::ModuleRegistry::new();
@@ -498,7 +489,7 @@ mod tests {
         let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
 
-        let result = program.execute_with_env(&ctx, &mut env)?;
+        let result = program.execute_with_env(&mut env)?;
         if let Val::Float(value) = result {
             assert!((value - std::f64::consts::PI).abs() < 1e-10);
         } else {

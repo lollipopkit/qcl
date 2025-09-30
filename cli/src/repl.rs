@@ -107,7 +107,7 @@ fn normalize_binary_signs(src: &str) -> String {
     out
 }
 
-pub fn run(_is_statement_mode: bool, ctx: Val) -> anyhow::Result<()> {
+pub fn run(_is_statement_mode: bool) -> anyhow::Result<()> {
     // Initialize runtime for concurrency if enabled
     #[cfg(feature = "concurrency")]
     {
@@ -219,7 +219,7 @@ pub fn run(_is_statement_mode: bool, ctx: Val) -> anyhow::Result<()> {
 
             let mut parser = StmtParser::new_with_spans(&tokens, &spans);
             match parser.parse_program_with_enhanced_errors(&src) {
-                Ok(program) => program.execute_with_env(&ctx, &mut env),
+                Ok(program) => program.execute_with_env(&mut env),
                 Err(_parse_err) => {
                     // Attempt to treat input as expression: println((<src>));
                     // Normalize to avoid tokenizer merging '+'/'-' with following digits in binary contexts.
@@ -229,7 +229,7 @@ pub fn run(_is_statement_mode: bool, ctx: Val) -> anyhow::Result<()> {
                         Ok((wtoks, wspans)) => {
                             let mut wparser = StmtParser::new_with_spans(&wtoks, &wspans);
                             match wparser.parse_program_with_enhanced_errors(&wrapped) {
-                                Ok(wprog) => wprog.execute_with_env(&ctx, &mut env),
+                                Ok(wprog) => wprog.execute_with_env(&mut env),
                                 Err(perr) => {
                                     eprintln!("Error: {}", perr);
                                     continue;

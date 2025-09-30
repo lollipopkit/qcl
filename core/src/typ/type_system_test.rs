@@ -79,11 +79,7 @@ mod tests {
     #[test]
     fn test_type_parsing_function() {
         // () -> Int
-        if let Some(Type::Function {
-            params,
-            return_type,
-        }) = Type::parse("() -> Int")
-        {
+        if let Some(Type::Function { params, return_type }) = Type::parse("() -> Int") {
             assert_eq!(params.len(), 0);
             assert_eq!(*return_type, Type::Int);
         } else {
@@ -91,11 +87,7 @@ mod tests {
         }
 
         // (Int, String) -> Bool
-        if let Some(Type::Function {
-            params,
-            return_type,
-        }) = Type::parse("(Int, String) -> Bool")
-        {
+        if let Some(Type::Function { params, return_type }) = Type::parse("(Int, String) -> Bool") {
             assert_eq!(params.len(), 2);
             assert_eq!(params[0], Type::Int);
             assert_eq!(params[1], Type::String);
@@ -144,10 +136,7 @@ mod tests {
             "Map<String, Int>"
         );
         assert_eq!(Type::Optional(Box::new(Type::Bool)).display(), "?Bool");
-        assert_eq!(
-            Type::Union(vec![Type::Int, Type::String]).display(),
-            "Int | String"
-        );
+        assert_eq!(Type::Union(vec![Type::Int, Type::String]).display(), "Int | String");
         assert_eq!(
             Type::Function {
                 params: vec![Type::Int, Type::String],
@@ -205,16 +194,8 @@ mod tests {
         // Test complex type annotation
         let tokens = Tokenizer::tokenize("let x: ?List<Int | String> = nil;").unwrap();
         // Should contain Question, List identifier, Lt, Int, Pipe, String, Gt, etc.
-        assert!(
-            tokens
-                .iter()
-                .any(|t| matches!(t, crate::token::Token::Question))
-        );
-        assert!(
-            tokens
-                .iter()
-                .any(|t| matches!(t, crate::token::Token::Pipe))
-        );
+        assert!(tokens.iter().any(|t| matches!(t, crate::token::Token::Question)));
+        assert!(tokens.iter().any(|t| matches!(t, crate::token::Token::Pipe)));
         assert!(tokens.iter().any(|t| matches!(t, crate::token::Token::Lt)));
         assert!(tokens.iter().any(|t| matches!(t, crate::token::Token::Gt)));
     }
@@ -290,10 +271,7 @@ mod tests {
 
         // Test function type substitution
         let func_type = Type::Function {
-            params: vec![
-                Type::Variable("T".to_string()),
-                Type::Variable("U".to_string()),
-            ],
+            params: vec![Type::Variable("T".to_string()), Type::Variable("U".to_string())],
             return_type: Box::new(Type::Variable("T".to_string())),
         };
         let expected_func = Type::Function {

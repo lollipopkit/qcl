@@ -52,10 +52,7 @@ impl Module for TaskModule {
         functions.insert("try_await".to_string(), Val::RustFunction(task_try_await));
         functions.insert("join_all".to_string(), Val::RustFunction(task_join_all));
         functions.insert("sleep".to_string(), Val::RustFunction(task_sleep));
-        functions.insert(
-            "spawn_blocking".to_string(),
-            Val::RustFunction(task_spawn_blocking),
-        );
+        functions.insert("spawn_blocking".to_string(), Val::RustFunction(task_spawn_blocking));
 
         functions
     }
@@ -68,7 +65,7 @@ impl TaskModule {
 }
 
 /// Await a task to complete and return its result
-fn task_await(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+fn task_await(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("task::await() expects exactly 1 argument"));
     }
@@ -77,8 +74,7 @@ fn task_await(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> R
         Val::Task { id, value: _ } => {
             #[cfg(feature = "concurrency")]
             {
-                match qcl_core::rt::with_runtime(|runtime| runtime.block_on(runtime.join_task(*id)))
-                {
+                match qcl_core::rt::with_runtime(|runtime| runtime.block_on(runtime.join_task(*id))) {
                     Ok(result) => Ok(result),
                     Err(e) => Err(anyhow!("Failed to await task: {}", e)),
                 }
@@ -97,7 +93,7 @@ fn task_await(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> R
 }
 
 /// Try to await a task, returning None if not ready
-fn task_try_await(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+fn task_try_await(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("task::try_await() expects exactly 1 argument"));
     }
@@ -116,7 +112,7 @@ fn task_try_await(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) 
 }
 
 /// Join multiple tasks and return their results as a list
-fn task_join_all(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+fn task_join_all(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.is_empty() {
         return Ok(Val::List(vec![].into()));
     }
@@ -128,9 +124,7 @@ fn task_join_all(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -
             Val::Task { id, value: _ } => {
                 #[cfg(feature = "concurrency")]
                 {
-                    match qcl_core::rt::with_runtime(|runtime| {
-                        runtime.block_on(runtime.join_task(*id))
-                    }) {
+                    match qcl_core::rt::with_runtime(|runtime| runtime.block_on(runtime.join_task(*id))) {
                         Ok(result) => results.push(result),
                         Err(e) => return Err(anyhow!("Failed to await task: {}", e)),
                     }
@@ -151,7 +145,7 @@ fn task_join_all(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -
 }
 
 /// Sleep for the specified duration in milliseconds
-fn task_sleep(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+fn task_sleep(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("task::sleep() expects exactly 1 argument"));
     }
@@ -183,11 +177,7 @@ fn task_sleep(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> R
 }
 
 /// Spawn a blocking task (CPU-intensive work)
-fn task_spawn_blocking(
-    args: &[Val],
-    _env: &qcl_core::stmt::Environment,
-    _ctx: &Val,
-) -> Result<Val> {
+fn task_spawn_blocking(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("task::spawn_blocking() expects exactly 1 argument"));
     }
@@ -196,25 +186,21 @@ fn task_spawn_blocking(
     let func = match &args[0] {
         Val::RustFunction(f) => *f,
         Val::Closure { .. } => {
-            return Err(anyhow!(
-                "task::spawn_blocking() does not support closures yet"
-            ));
+            return Err(anyhow!("task::spawn_blocking() does not support closures yet"));
         }
         _ => {
-            return Err(anyhow!(
-                "task::spawn_blocking() expects a function argument"
-            ));
+            return Err(anyhow!("task::spawn_blocking() expects a function argument"));
         }
     };
 
     #[cfg(feature = "concurrency")]
     {
-        // Note: This is a simplified implementation that doesn't capture env/ctx
+        // Note: This is a simplified implementation that doesn't capture env
         // In a full implementation, we'd need to handle the lifetime issues
         match qcl_core::rt::with_runtime(|runtime| {
             let future = async move {
-                // For now, execute with empty context
-                func(&[], &qcl_core::stmt::Environment::new(), &Val::Nil)
+                // For now, execute with a new empty environment
+                func(&[], &qcl_core::stmt::Environment::new())
             };
             runtime.spawn(future)
         }) {

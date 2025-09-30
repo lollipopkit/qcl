@@ -41,19 +41,29 @@ pub enum Op {
     // Locals
     LoadLocal(u16 /*dst*/, u16 /*idx*/),
     StoreLocal(u16 /*idx*/, u16 /*src*/),
-    // Globals and context
+    // Globals
     LoadGlobal(u16 /*dst*/, u16 /*name_kidx*/),
     DefineGlobal(u16 /*name_kidx*/, u16 /*src*/),
     LoadCtx(u16 /*dst*/),
     // Access and constructors
     Access(u16 /*dst*/, u16 /*base*/, u16 /*field*/),
     // Length and index helpers
-    Len { dst: u16, src: u16 },
-    Index { dst: u16, base: u16, idx: u16 },
+    Len {
+        dst: u16,
+        src: u16,
+    },
+    Index {
+        dst: u16,
+        base: u16,
+        idx: u16,
+    },
     // Normalize a value into an iterable for for-in loops.
     // - List, Str: passthrough
     // - Map: materialize a stable, sorted list of [key, value] pairs once
-    ToIter { dst: u16, src: u16 },
+    ToIter {
+        dst: u16,
+        src: u16,
+    },
     BuildList {
         dst: u16,
         base: u16,
@@ -155,27 +165,33 @@ impl fmt::Debug for Op {
                 base,
                 argc,
                 retc,
-            } => write!(
-                f,
-                "Call r{}, base={}, argc={}, retc={}",
-                rf, base, argc, retc
-            ),
+            } => write!(f, "Call r{}, base={}, argc={}, retc={}", rf, base, argc, retc),
             Op::Ret { base, retc } => write!(f, "Ret base={}, retc={}", base, retc),
-            Op::ForRangePrep { idx, limit, step, inclusive, explicit } => write!(
+            Op::ForRangePrep {
+                idx,
+                limit,
+                step,
+                inclusive,
+                explicit,
+            } => write!(
                 f,
                 "ForRangePrep idx=r{}, limit=r{}, step=r{}, inclusive={}, explicit={}",
                 idx, limit, step, inclusive, explicit
             ),
-            Op::ForRangeGuard { idx, limit, step, inclusive, ofs } => write!(
+            Op::ForRangeGuard {
+                idx,
+                limit,
+                step,
+                inclusive,
+                ofs,
+            } => write!(
                 f,
                 "ForRangeGuard idx=r{}, limit=r{}, step=r{}, inclusive={}, ofs={}",
                 idx, limit, step, inclusive, ofs
             ),
-            Op::ForRangeStep { idx, step, back_ofs } => write!(
-                f,
-                "ForRangeStep idx=r{}, step=r{}, back_ofs={}",
-                idx, step, back_ofs
-            ),
+            Op::ForRangeStep { idx, step, back_ofs } => {
+                write!(f, "ForRangeStep idx=r{}, step=r{}, back_ofs={}", idx, step, back_ofs)
+            }
         }
     }
 }

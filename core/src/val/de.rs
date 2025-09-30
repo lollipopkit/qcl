@@ -129,9 +129,7 @@ pub fn detect_format(input: &str) -> Format {
 
     // Check for obvious JSON markers
     #[cfg(feature = "json")]
-    if (trimmed.starts_with('{') && trimmed.ends_with('}'))
-        || (trimmed.starts_with('[') && trimmed.ends_with(']'))
-    {
+    if (trimmed.starts_with('{') && trimmed.ends_with('}')) || (trimmed.starts_with('[') && trimmed.ends_with(']')) {
         return Format::Json;
     }
 

@@ -9,11 +9,7 @@ pub struct Position {
 
 impl Position {
     pub fn new(line: u32, column: u32, offset: usize) -> Self {
-        Self {
-            line,
-            column,
-            offset,
-        }
+        Self { line, column, offset }
     }
 
     pub fn start() -> Self {
@@ -53,11 +49,7 @@ impl Span {
 impl fmt::Display for Span {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.start.line == self.end.line {
-            write!(
-                f,
-                "{}:{}-{}",
-                self.start.line, self.start.column, self.end.column
-            )
+            write!(f, "{}:{}-{}", self.start.line, self.start.column, self.end.column)
         } else {
             write!(f, "{}-{}", self.start, self.end)
         }
@@ -73,10 +65,7 @@ pub struct ParseError {
 
 impl ParseError {
     pub fn new(message: String) -> Self {
-        Self {
-            message,
-            span: None,
-        }
+        Self { message, span: None }
     }
 
     pub fn with_span(message: String, span: Span) -> Self {

@@ -165,11 +165,7 @@ impl ImportContext {
         Self {
             registry,
             loaded_modules: HashMap::new(),
-            search_paths: vec![
-                "./modules".to_string(),
-                "./lib".to_string(),
-                ".".to_string(),
-            ],
+            search_paths: vec!["./modules".to_string(), "./lib".to_string(), ".".to_string()],
         }
     }
 
@@ -182,8 +178,7 @@ impl ImportContext {
 
         // Check registry cache
         if let Some(cached) = self.registry.get_cached_module(module_name) {
-            self.loaded_modules
-                .insert(module_name.to_string(), cached.clone());
+            self.loaded_modules.insert(module_name.to_string(), cached.clone());
             return Ok(cached);
         }
 
@@ -191,8 +186,7 @@ impl ImportContext {
         let module = self.load_module(module_name)?;
 
         // Cache the module
-        self.loaded_modules
-            .insert(module_name.to_string(), module.clone());
+        self.loaded_modules.insert(module_name.to_string(), module.clone());
         self.registry.cache_module(module_name, module.clone());
 
         Ok(module)

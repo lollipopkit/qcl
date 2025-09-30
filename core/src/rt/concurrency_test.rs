@@ -14,8 +14,7 @@ mod tests {
         // Initialize runtime for testing
         crate::rt::init_runtime()?;
 
-        let ctx = Val::Nil;
-        let result = expr.eval(&ctx)?;
+        let result = expr.eval()?;
 
         // Should return a Task
         assert!(matches!(result, Val::Task { .. }));
@@ -30,17 +29,10 @@ mod tests {
 
         crate::rt::init_runtime()?;
 
-        let ctx = Val::Nil;
-        let result = expr.eval(&ctx)?;
+        let result = expr.eval()?;
 
         // Should return a Channel
-        assert!(matches!(
-            result,
-            Val::Channel {
-                capacity: Some(10),
-                ..
-            }
-        ));
+        assert!(matches!(result, Val::Channel { capacity: Some(10), .. }));
 
         Ok(())
     }
@@ -72,11 +64,7 @@ mod tests {
         }"#;
 
         let expr = Expr::parse_cached_arc(select_code)?;
-        if let Expr::Select {
-            cases,
-            default_case,
-        } = &*expr
-        {
+        if let Expr::Select { cases, default_case } = &*expr {
             assert_eq!(cases.len(), 2);
             assert!(default_case.is_some());
         } else {
@@ -90,10 +78,8 @@ mod tests {
     fn test_concurrency_without_feature() {
         // When concurrency feature is disabled, these should parse but evaluate differently
         let spawn_expr = Expr::parse_cached_arc("spawn(42)").unwrap();
-        let ctx = Val::Nil;
-
         // Without concurrency feature, should return the inner expression result
-        let result = spawn_expr.eval(&ctx);
+        let result = spawn_expr.eval();
         match result {
             Ok(val) => println!("Success: {:?}", val),
             Err(e) => println!("Error: {}", e),

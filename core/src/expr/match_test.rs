@@ -25,8 +25,7 @@ mod tests {
         };
 
         let env = Environment::new();
-        let ctx: Val = std::collections::HashMap::<String, Val>::new().into();
-        let result = match_expr.eval_with_env(&ctx, Some(&env)).unwrap();
+        let result = match_expr.eval_with_env(Some(&env)).unwrap();
         assert_eq!(result, Val::Str(Arc::from("matched")));
 
         // Test string literal pattern
@@ -44,7 +43,7 @@ mod tests {
             ],
         };
 
-        let result = match_expr.eval_with_env(&ctx, Some(&env)).unwrap();
+        let result = match_expr.eval_with_env(Some(&env)).unwrap();
         assert_eq!(result, Val::Str(Arc::from("hello")));
     }
 
@@ -59,8 +58,7 @@ mod tests {
         };
 
         let env = Environment::new();
-        let ctx: Val = std::collections::HashMap::<String, Val>::new().into();
-        let result = match_expr.eval_with_env(&ctx, Some(&env)).unwrap();
+        let result = match_expr.eval_with_env(Some(&env)).unwrap();
         assert_eq!(result, Val::Int(100));
     }
 
@@ -81,8 +79,7 @@ mod tests {
         };
 
         let env = Environment::new();
-        let ctx: Val = std::collections::HashMap::<String, Val>::new().into();
-        let result = match_expr.eval_with_env(&ctx, Some(&env)).unwrap();
+        let result = match_expr.eval_with_env(Some(&env)).unwrap();
         assert_eq!(result, Val::Str(Arc::from("wildcard")));
     }
 
@@ -109,8 +106,7 @@ mod tests {
         };
 
         let env = Environment::new();
-        let ctx: Val = std::collections::HashMap::<String, Val>::new().into();
-        let result = match_expr.eval_with_env(&ctx, Some(&env)).unwrap();
+        let result = match_expr.eval_with_env(Some(&env)).unwrap();
         assert_eq!(result, Val::Int(1));
     }
 
@@ -136,8 +132,7 @@ mod tests {
         };
 
         let env = Environment::new();
-        let ctx: Val = std::collections::HashMap::<String, Val>::new().into();
-        let result = match_expr.eval_with_env(&ctx, Some(&env)).unwrap();
+        let result = match_expr.eval_with_env(Some(&env)).unwrap();
         assert_eq!(result, Val::Str(Arc::from("Alice")));
     }
 
@@ -162,8 +157,7 @@ mod tests {
         };
 
         let env = Environment::new();
-        let ctx: Val = std::collections::HashMap::<String, Val>::new().into();
-        let result = match_expr.eval_with_env(&ctx, Some(&env)).unwrap();
+        let result = match_expr.eval_with_env(Some(&env)).unwrap();
         assert_eq!(result, Val::Str(Arc::from("one_two_three")));
     }
 
@@ -191,8 +185,7 @@ mod tests {
         };
 
         let env = Environment::new();
-        let ctx: Val = std::collections::HashMap::<String, Val>::new().into();
-        let result = match_expr.eval_with_env(&ctx, Some(&env)).unwrap();
+        let result = match_expr.eval_with_env(Some(&env)).unwrap();
         assert_eq!(result, Val::Str(Arc::from("greater_than_10")));
     }
 
@@ -225,8 +218,7 @@ mod tests {
         };
 
         let env = Environment::new();
-        let ctx = Val::Map(Arc::new(Default::default()));
-        let result = match_expr.eval_with_env(&ctx, Some(&env)).unwrap();
+        let result = match_expr.eval_with_env(Some(&env)).unwrap();
         assert_eq!(result, Val::Str(Arc::from("adult")));
     }
 
@@ -247,15 +239,9 @@ mod tests {
         };
 
         let env = Environment::new();
-        let ctx = Val::Map(Arc::new(Default::default()));
-        let result = match_expr.eval_with_env(&ctx, Some(&env));
+        let result = match_expr.eval_with_env(Some(&env));
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("No pattern matched")
-        );
+        assert!(result.unwrap_err().to_string().contains("No pattern matched"));
     }
 
     #[test]
@@ -276,10 +262,7 @@ mod tests {
         };
 
         let mut data = std::collections::HashMap::new();
-        data.insert(
-            "users".to_string(),
-            Val::List(Arc::from(vec![user1, user2])),
-        );
+        data.insert("users".to_string(), Val::List(Arc::from(vec![user1, user2])));
         data.insert("count".to_string(), Val::Int(2));
 
         let match_expr = Expr::Match {
@@ -290,10 +273,7 @@ mod tests {
                         "users".to_string(),
                         Pattern::List {
                             patterns: vec![Pattern::Map {
-                                patterns: vec![(
-                                    "name".to_string(),
-                                    Pattern::Variable("first_name".to_string()),
-                                )],
+                                patterns: vec![("name".to_string(), Pattern::Variable("first_name".to_string()))],
                                 rest: None,
                             }],
                             rest: Some("other_users".to_string()),
@@ -306,8 +286,7 @@ mod tests {
         };
 
         let env = Environment::new();
-        let ctx = Val::Map(Arc::new(Default::default()));
-        let result = match_expr.eval_with_env(&ctx, Some(&env)).unwrap();
+        let result = match_expr.eval_with_env(Some(&env)).unwrap();
         assert_eq!(result, Val::Str(Arc::from("Alice")));
     }
 
@@ -348,8 +327,7 @@ mod tests {
         };
 
         let env = Environment::new();
-        let ctx = Val::Map(Arc::new(Default::default()));
-        let result = match_expr.eval_with_env(&ctx, Some(&env)).unwrap();
+        let result = match_expr.eval_with_env(Some(&env)).unwrap();
         assert_eq!(result, Val::Str(Arc::from("excellent")));
 
         // Test boundary cases
@@ -397,7 +375,7 @@ mod tests {
                 ],
             };
 
-            let result = match_expr.eval_with_env(&ctx, Some(&env)).unwrap();
+            let result = match_expr.eval_with_env(Some(&env)).unwrap();
             assert_eq!(
                 result,
                 Val::Str(Arc::from(expected)),

@@ -10,7 +10,7 @@ mod tests {
     };
     use std::sync::Arc;
 
-    fn custom_run(args: &[Val], _env: &crate::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn custom_run(args: &[Val], _env: &crate::stmt::Environment) -> Result<Val> {
         // Expect receiver only
         assert!(args.len() >= 1);
         // Return a constant to assert dispatch
@@ -28,7 +28,7 @@ mod tests {
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
 
-        // Empty context
+        // No pre-bound variables
         let ctx = HashMap::<String, Val>::new().into();
 
         // Prepare environment with variable c bound to a custom object
@@ -36,7 +36,7 @@ mod tests {
         let obj = Val::object("Custom", HashMap::new());
         env.define("c".to_string(), obj);
 
-        let result = program.execute_with_env(&ctx, &mut env)?;
+        let result = program.execute_with_env(&mut env)?;
         assert_eq!(result, Val::Int(123));
         Ok(())
     }

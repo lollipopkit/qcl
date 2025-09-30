@@ -62,10 +62,7 @@ pub enum Stmt {
         else_stmt: Option<Box<Stmt>>,
     },
     /// while (condition) body
-    While {
-        condition: Box<Expr>,
-        body: Box<Stmt>,
-    },
+    While { condition: Box<Expr>, body: Box<Stmt> },
     /// while let pattern = expression { body }
     WhileLet {
         pattern: crate::expr::Pattern,
@@ -284,11 +281,9 @@ impl Environment {
         }
         // 若处在函数调用帧中，则为参数/局部 let 分配槽位并写入
         if let Some(frame) = &self.current_frame {
-            if let (Ok(mut next), Ok(mut locals), Ok(mut scopes)) = (
-                frame.next.lock(),
-                frame.locals.lock(),
-                frame.slot_scopes.lock(),
-            ) {
+            if let (Ok(mut next), Ok(mut locals), Ok(mut scopes)) =
+                (frame.next.lock(), frame.locals.lock(), frame.slot_scopes.lock())
+            {
                 if let Some(top) = scopes.last_mut() {
                     let idx = *next as usize;
                     if idx < locals.len() {
@@ -396,10 +391,7 @@ impl Environment {
     /// Set a value into a slot if available (scaffold API).
     pub fn set_slot(&mut self, depth: u16, index: u16, val: Val) -> Result<()> {
         if let Some(frame) = self.frame_at_depth(depth) {
-            let mut locals = frame
-                .locals
-                .lock()
-                .map_err(|_| anyhow!("frame locals poisoned"))?;
+            let mut locals = frame.locals.lock().map_err(|_| anyhow!("frame locals poisoned"))?;
             if let Some(slot) = locals.get_mut(index as usize) {
                 *slot = val;
                 return Ok(());
@@ -411,8 +403,8 @@ impl Environment {
 
 /// 语句执行引擎
 impl Stmt {
-    /// 执行语句，返回控制流状态
-    pub fn execute(&self, env: &mut Environment, ctx: &Val) -> Result<ControlFlow> {
+    /// 执行语句，返回控制流状态（上下文已移除）
+    pub fn execute(&self, env: &mut Environment) -> Result<ControlFlow> {
         match self {
             Stmt::Import(import_stmt) => {
                 env.execute_import(import_stmt)?;
@@ -423,7 +415,7 @@ impl Stmt {
                 then_stmt,
                 else_stmt,
             } => {
-                let cond_val = condition.eval_with_env(ctx, Some(env))?;
+                let cond_val = condition.eval_with_env(Some(env))?;
                 let is_true = match cond_val {
                     Val::Bool(b) => b,
                     Val::Nil => false,
@@ -431,9 +423,9 @@ impl Stmt {
                 };
 
                 if is_true {
-                    then_stmt.execute(env, ctx)
+                    then_stmt.execute(env)
                 } else if let Some(else_stmt) = else_stmt {
-                    else_stmt.execute(env, ctx)
+                    else_stmt.execute(env)
                 } else {
                     Ok(ControlFlow::None)
                 }
@@ -445,11 +437,11 @@ impl Stmt {
                 else_stmt,
             } => {
                 // 求值表达式
-                let val = value.eval_with_env(ctx, Some(env))?;
+                let val = value.eval_with_env(Some(env))?;
 
                 // 尝试模式匹配
                 env.push_scope(); // 为模式变量绑定创建新作用域
-                let match_result = pattern.matches(&val, ctx, Some(env))?;
+                let match_result = pattern.matches(&val, Some(env))?;
 
                 if let Some(bindings) = match_result {
                     // 绑定变量到环境
@@ -458,7 +450,7 @@ impl Stmt {
                     }
 
                     // 执行then分支
-                    let result = then_stmt.execute(env, ctx);
+                    let result = then_stmt.execute(env);
                     env.pop_scope();
                     result
                 } else {
@@ -466,7 +458,7 @@ impl Stmt {
 
                     // 执行else分支（如果有）
                     if let Some(else_stmt) = else_stmt {
-                        else_stmt.execute(env, ctx)
+                        else_stmt.execute(env)
                     } else {
                         Ok(ControlFlow::None)
                     }
@@ -474,7 +466,7 @@ impl Stmt {
             }
             Stmt::While { condition, body } => {
                 loop {
-                    let cond_val = condition.eval_with_env(ctx, Some(env))?;
+                    let cond_val = condition.eval_with_env(Some(env))?;
                     let is_true = match cond_val {
                         Val::Bool(b) => b,
                         Val::Nil => false,
@@ -485,7 +477,7 @@ impl Stmt {
                         break;
                     }
 
-                    match body.execute(env, ctx)? {
+                    match body.execute(env)? {
                         ControlFlow::Break => break,
                         ControlFlow::Continue => continue,
                         ControlFlow::Return(val) => return Ok(ControlFlow::Return(val)),
@@ -494,14 +486,10 @@ impl Stmt {
                 }
                 Ok(ControlFlow::None)
             }
-            Stmt::WhileLet {
-                pattern,
-                value,
-                body,
-            } => {
+            Stmt::WhileLet { pattern, value, body } => {
                 loop {
                     // 求值表达式
-                    let val = value.eval_with_env(ctx, Some(env))?;
+                    let val = value.eval_with_env(Some(env))?;
 
                     // 在 while let/if let 语境下，变量模式不匹配 nil
                     if let crate::expr::Pattern::Variable(_) = pattern
@@ -528,21 +516,18 @@ impl Stmt {
                     // 即将 x 赋值为其余切片 (从索引 1 开始)。这样可支持诸如
                     // `while let val if guard = x[0] { ... x = [x[1]]; }` 的按需过滤场景。
                     let scan_head_var: Option<String> = match value.as_ref() {
-                        crate::expr::Expr::Access(obj, field) => {
-                            match (obj.as_ref(), field.as_ref()) {
-                                (
-                                    crate::expr::Expr::Var(name),
-                                    crate::expr::Expr::Val(Val::Int(i)),
-                                ) if *i == 0 => Some(name.clone()),
-                                _ => None,
+                        crate::expr::Expr::Access(obj, field) => match (obj.as_ref(), field.as_ref()) {
+                            (crate::expr::Expr::Var(name), crate::expr::Expr::Val(Val::Int(i))) if *i == 0 => {
+                                Some(name.clone())
                             }
-                        }
+                            _ => None,
+                        },
                         _ => None,
                     };
 
                     // 尝试模式匹配
                     env.push_scope(); // 为模式变量绑定创建新作用域
-                    let match_result = pattern_for_match.matches(&val, ctx, Some(env))?;
+                    let match_result = pattern_for_match.matches(&val, Some(env))?;
 
                     if let Some(bindings) = match_result {
                         // 模式匹配成功，绑定变量到环境
@@ -560,7 +545,7 @@ impl Stmt {
                         }
 
                         // 执行循环体
-                        let exec_result = body.execute(env, ctx)?;
+                        let exec_result = body.execute(env)?;
 
                         match exec_result {
                             ControlFlow::Break => {
@@ -625,11 +610,11 @@ impl Stmt {
                 } = iterable.as_ref()
                 {
                     let start_val = match start {
-                        Some(s) => s.eval_with_env(ctx, Some(env))?,
+                        Some(s) => s.eval_with_env(Some(env))?,
                         None => Val::Int(0),
                     };
                     let end_val = match end {
-                        Some(e) => e.eval_with_env(ctx, Some(env))?,
+                        Some(e) => e.eval_with_env(Some(env))?,
                         None => {
                             return Err(anyhow!("Open-ended ranges not supported in for loops"));
                         }
@@ -638,19 +623,20 @@ impl Stmt {
                     if let (Val::Int(mut i), Val::Int(e)) = (start_val, end_val) {
                         // Determine step: explicit if provided, else +/-1 based on bounds
                         let step: i64 = match step {
-                            Some(st_expr) => match st_expr.eval_with_env(ctx, Some(env))? {
+                            Some(st_expr) => match st_expr.eval_with_env(Some(env))? {
                                 Val::Int(0) => {
                                     return Err(anyhow!("Range step cannot be zero"));
                                 }
                                 Val::Int(s) => s,
-                                other => {
-                                    return Err(anyhow!(
-                                        "Range step must be integer, got {:?}",
-                                        other
-                                    ))
-                                }
+                                other => return Err(anyhow!("Range step must be integer, got {:?}", other)),
                             },
-                            None => if i <= e { 1 } else { -1 },
+                            None => {
+                                if i <= e {
+                                    1
+                                } else {
+                                    -1
+                                }
+                            }
                         };
                         let done = |cur: i64| -> bool {
                             if step > 0 {
@@ -663,7 +649,7 @@ impl Stmt {
                         while !done(i) {
                             // Fast path: no-op for `_` pattern (no scope needed)
                             if matches!(pattern, ForPattern::Ignore) {
-                                let result = body.execute(env, ctx);
+                                let result = body.execute(env);
                                 match result? {
                                     ControlFlow::Break => break,
                                     ControlFlow::Continue => {
@@ -685,7 +671,7 @@ impl Stmt {
                                 env.pop_scope();
                                 return Err(e);
                             }
-                            let result = body.execute(env, ctx);
+                            let result = body.execute(env);
                             env.pop_scope();
                             match result? {
                                 ControlFlow::Break => break,
@@ -704,11 +690,11 @@ impl Stmt {
                 }
 
                 // Generic path: evaluate iterable and iterate elements
-                let iter_val = iterable.eval_with_env(ctx, Some(env))?;
+                let iter_val = iterable.eval_with_env(Some(env))?;
                 let iterator = create_iterator(&iter_val)?;
                 for item in iterator {
                     if matches!(pattern, ForPattern::Ignore) {
-                        let result = body.execute(env, ctx);
+                        let result = body.execute(env);
                         match result? {
                             ControlFlow::Break => break,
                             ControlFlow::Continue => continue,
@@ -723,7 +709,7 @@ impl Stmt {
                         env.pop_scope();
                         return Err(e);
                     }
-                    let result = body.execute(env, ctx);
+                    let result = body.execute(env);
                     env.pop_scope();
                     match result? {
                         ControlFlow::Break => break,
@@ -741,7 +727,7 @@ impl Stmt {
                 value,
                 span,
             } => {
-                let val = value.eval_with_env(ctx, Some(env))?;
+                let val = value.eval_with_env(Some(env))?;
 
                 // Validate type annotation if provided
                 if let Some(expected_type) = type_annotation
@@ -753,28 +739,19 @@ impl Stmt {
                         val.type_name()
                     );
                     return if let Some(span) = span {
-                        Err(anyhow::anyhow!(ParseError::with_span(
-                            error_msg,
-                            span.clone()
-                        )))
+                        Err(anyhow::anyhow!(ParseError::with_span(error_msg, span.clone())))
                     } else {
                         Err(anyhow::anyhow!(error_msg))
                     };
                 }
 
                 // Handle pattern matching and variable binding
-                let bindings = match pattern.matches(&val, ctx, Some(env))? {
+                let bindings = match pattern.matches(&val, Some(env))? {
                     Some(bindings) => bindings,
                     None => {
-                        let error_msg = format!(
-                            "Pattern does not match value: {} does not match {}",
-                            pattern, val
-                        );
+                        let error_msg = format!("Pattern does not match value: {} does not match {}", pattern, val);
                         return if let Some(span) = span {
-                            Err(anyhow::anyhow!(ParseError::with_span(
-                                error_msg,
-                                span.clone()
-                            )))
+                            Err(anyhow::anyhow!(ParseError::with_span(error_msg, span.clone())))
                         } else {
                             Err(anyhow::anyhow!(error_msg))
                         };
@@ -787,12 +764,8 @@ impl Stmt {
                 }
                 Ok(ControlFlow::None)
             }
-            Stmt::Assign {
-                name,
-                value,
-                span: _,
-            } => {
-                let val = value.eval_with_env(ctx, Some(env))?;
+            Stmt::Assign { name, value, span: _ } => {
+                let val = value.eval_with_env(Some(env))?;
                 env.assign(name, val)?;
                 Ok(ControlFlow::None)
             }
@@ -803,12 +776,12 @@ impl Stmt {
                 span: _,
             } => {
                 // Get current value of variable
-                let current_val = env.get_value(name).ok_or_else(|| {
-                    anyhow!("Undefined variable for compound assignment: {}", name)
-                })?;
+                let current_val = env
+                    .get_value(name)
+                    .ok_or_else(|| anyhow!("Undefined variable for compound assignment: {}", name))?;
 
                 // Evaluate the right-hand side
-                let rhs_val = value.eval_with_env(ctx, Some(env))?;
+                let rhs_val = value.eval_with_env(Some(env))?;
 
                 // Perform the operation
                 let result_val = op.eval_vals(&current_val, &rhs_val)?;
@@ -818,7 +791,7 @@ impl Stmt {
                 Ok(ControlFlow::None)
             }
             Stmt::Define { name, value } => {
-                let val = value.eval_with_env(ctx, Some(env))?;
+                let val = value.eval_with_env(Some(env))?;
                 env.define(name.clone(), val);
                 Ok(ControlFlow::None)
             }
@@ -826,7 +799,7 @@ impl Stmt {
             Stmt::Continue => Ok(ControlFlow::Continue),
             Stmt::Return { value } => {
                 let return_val = if let Some(expr) = value {
-                    expr.eval_with_env(ctx, Some(env))?
+                    expr.eval_with_env(Some(env))?
                 } else {
                     Val::Nil
                 };
@@ -852,7 +825,7 @@ impl Stmt {
             }
             Stmt::Expr(expr) => {
                 // 执行表达式
-                let value = expr.eval_with_env(ctx, Some(env))?;
+                let value = expr.eval_with_env(Some(env))?;
 
                 // Heuristic: if this is a method call like `var.method(...)` and
                 // the method is known to return an updated receiver (e.g. List.push),
@@ -874,7 +847,7 @@ impl Stmt {
                 let mut result = ControlFlow::None;
 
                 for stmt in statements {
-                    match stmt.execute(env, ctx)? {
+                    match stmt.execute(env)? {
                         ControlFlow::None => {}
                         other => {
                             result = other;
@@ -912,10 +885,7 @@ impl Stmt {
                         expr_type.display()
                     );
                     return if let Some(span) = span {
-                        Err(anyhow::anyhow!(ParseError::with_span(
-                            error_msg,
-                            span.clone()
-                        )))
+                        Err(anyhow::anyhow!(ParseError::with_span(error_msg, span.clone())))
                     } else {
                         Err(anyhow::anyhow!(error_msg))
                     };
@@ -945,19 +915,13 @@ impl Stmt {
                             expr_type.display()
                         );
                         return if let Some(span) = span {
-                            Err(anyhow::anyhow!(ParseError::with_span(
-                                error_msg,
-                                span.clone()
-                            )))
+                            Err(anyhow::anyhow!(ParseError::with_span(error_msg, span.clone())))
                         } else {
                             Err(anyhow::anyhow!(error_msg))
                         };
                     }
                 } else {
-                    return Err(anyhow::anyhow!(
-                        "Cannot assign to undefined variable '{}'",
-                        name
-                    ));
+                    return Err(anyhow::anyhow!("Cannot assign to undefined variable '{}'", name));
                 }
 
                 Ok(())
@@ -975,9 +939,7 @@ impl Stmt {
                 if let Some(var_type) = type_checker.get_local_type(name) {
                     // 检查操作类型兼容性 (var_type op expr_type -> var_type)
                     // 简化：假设所有算术操作都是类型兼容的
-                    if !expr_type.is_assignable_to(var_type)
-                        && !var_type.is_assignable_to(&expr_type)
-                    {
+                    if !expr_type.is_assignable_to(var_type) && !var_type.is_assignable_to(&expr_type) {
                         let error_msg = format!(
                             "Type mismatch in compound assignment: variable '{}' has type {}, but right-hand side has type {}",
                             name,
@@ -985,10 +947,7 @@ impl Stmt {
                             expr_type.display()
                         );
                         return if let Some(span) = span {
-                            Err(anyhow::anyhow!(ParseError::with_span(
-                                error_msg,
-                                span.clone()
-                            )))
+                            Err(anyhow::anyhow!(ParseError::with_span(error_msg, span.clone())))
                         } else {
                             Err(anyhow::anyhow!(error_msg))
                         };
@@ -1027,11 +986,7 @@ impl Stmt {
                 // 推断函数返回类型（若未显式注解）。策略：
                 // - 收集所有显式 return 语句的表达式类型，合并为去重后的并集。
                 // - 如果函数体内没有显式 return，则返回类型推断为 Nil（运行时默认返回）。
-                fn collect_return_types(
-                    stmt: &Stmt,
-                    tc: &mut TypeChecker,
-                    out: &mut Vec<Type>,
-                ) -> anyhow::Result<()> {
+                fn collect_return_types(stmt: &Stmt, tc: &mut TypeChecker, out: &mut Vec<Type>) -> anyhow::Result<()> {
                     match stmt {
                         Stmt::Return { value } => {
                             if let Some(expr) = value {
@@ -1288,11 +1243,7 @@ impl Stmt {
     }
 
     /// 为 for 循环模式添加类型信息
-    fn add_pattern_types(
-        pattern: &ForPattern,
-        iter_type: &Type,
-        type_checker: &mut TypeChecker,
-    ) -> Result<()> {
+    fn add_pattern_types(pattern: &ForPattern, iter_type: &Type, type_checker: &mut TypeChecker) -> Result<()> {
         match pattern {
             ForPattern::Variable(name) => {
                 // 根据可迭代类型确定变量类型
@@ -1386,31 +1337,25 @@ impl Program {
     }
 
     /// 执行程序
-    pub fn execute(&self, ctx: &Val) -> Result<Val> {
+    pub fn execute(&self) -> Result<Val> {
         let mut env = Environment::new();
-        self.execute_with_env(ctx, &mut env)
+        self.execute_with_env(&mut env)
     }
 
     /// 执行程序，使用指定的环境
-    pub fn execute_with_env(&self, ctx: &Val, env: &mut Environment) -> Result<Val> {
+    pub fn execute_with_env(&self, env: &mut Environment) -> Result<Val> {
         let mut pc = 0; // 程序计数器
 
         while pc < self.statements.len() {
-            match self.statements[pc].execute(env, ctx)? {
+            match self.statements[pc].execute(env)? {
                 ControlFlow::None => {
                     pc += 1;
                 }
                 ControlFlow::Break => {
-                    return Err(anyhow!(
-                        "break statement outside of loop at statement {}",
-                        pc
-                    ));
+                    return Err(anyhow!("break statement outside of loop at statement {}", pc));
                 }
                 ControlFlow::Continue => {
-                    return Err(anyhow!(
-                        "continue statement outside of loop at statement {}",
-                        pc
-                    ));
+                    return Err(anyhow!("continue statement outside of loop at statement {}", pc));
                 }
                 ControlFlow::Return(val) => {
                     return Ok(val);
@@ -1546,11 +1491,7 @@ impl Display for Stmt {
                 else_stmt,
             } => {
                 if let Some(else_stmt) = else_stmt {
-                    write!(
-                        f,
-                        "if let {} = {} {} else {}",
-                        pattern, value, then_stmt, else_stmt
-                    )
+                    write!(f, "if let {} = {} {} else {}", pattern, value, then_stmt, else_stmt)
                 } else {
                     write!(f, "if let {} = {} {}", pattern, value, then_stmt)
                 }
@@ -1558,11 +1499,7 @@ impl Display for Stmt {
             Stmt::While { condition, body } => {
                 write!(f, "while ({}) {}", condition, body)
             }
-            Stmt::WhileLet {
-                pattern,
-                value,
-                body,
-            } => {
+            Stmt::WhileLet { pattern, value, body } => {
                 write!(f, "while let {} = {} {}", pattern, value, body)
             }
             Stmt::For {
@@ -1570,13 +1507,7 @@ impl Display for Stmt {
                 iterable,
                 body,
             } => {
-                write!(
-                    f,
-                    "for {} in {} {}",
-                    format_pattern(pattern),
-                    iterable,
-                    body
-                )
+                write!(f, "for {} in {} {}", format_pattern(pattern), iterable, body)
             }
             Stmt::Let {
                 pattern,
@@ -1590,11 +1521,7 @@ impl Display for Stmt {
                     write!(f, "let {} = {};", pattern, value)
                 }
             }
-            Stmt::Assign {
-                name,
-                value,
-                span: _,
-            } => {
+            Stmt::Assign { name, value, span: _ } => {
                 write!(f, "{} = {};", name, value)
             }
             Stmt::CompoundAssign {
@@ -1661,13 +1588,7 @@ impl Display for Stmt {
                         body_summary
                     )
                 } else {
-                    write!(
-                        f,
-                        "fn {}({}) {{ {} }}",
-                        name,
-                        parts.join(", "),
-                        body_summary
-                    )
+                    write!(f, "fn {}({}) {{ {} }}", name, parts.join(", "), body_summary)
                 }
             }
             Stmt::Expr(expr) => {
@@ -1765,9 +1686,7 @@ fn extract_pattern_variables(pattern: &crate::expr::Pattern) -> Option<Vec<Strin
                 collect_vars(pattern, vars);
             }
             // Other pattern types don't bind variables
-            crate::expr::Pattern::Literal(_)
-            | crate::expr::Pattern::Wildcard
-            | crate::expr::Pattern::Range { .. } => {}
+            crate::expr::Pattern::Literal(_) | crate::expr::Pattern::Wildcard | crate::expr::Pattern::Range { .. } => {}
         }
     }
 
@@ -1777,11 +1696,7 @@ fn extract_pattern_variables(pattern: &crate::expr::Pattern) -> Option<Vec<Strin
     variables.sort();
     variables.dedup();
 
-    if variables.is_empty() {
-        None
-    } else {
-        Some(variables)
-    }
+    if variables.is_empty() { None } else { Some(variables) }
 }
 
 /// Helper function to format patterns for display
@@ -1790,11 +1705,7 @@ fn format_pattern(pattern: &ForPattern) -> String {
         ForPattern::Variable(name) => name.clone(),
         ForPattern::Ignore => "_".to_string(),
         ForPattern::Tuple(patterns) => {
-            let patterns_str = patterns
-                .iter()
-                .map(format_pattern)
-                .collect::<Vec<_>>()
-                .join(", ");
+            let patterns_str = patterns.iter().map(format_pattern).collect::<Vec<_>>().join(", ");
             format!("({})", patterns_str)
         }
         ForPattern::Array { patterns, rest } => {

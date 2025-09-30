@@ -164,19 +164,13 @@ mod tests {
 
     #[test]
     fn test_parse_match_with_range_pattern() {
-        let expr =
-            parse_expr("match age { 0..18 => \"child\", 18..=64 => \"adult\", _ => \"senior\" }");
+        let expr = parse_expr("match age { 0..18 => \"child\", 18..=64 => \"adult\", _ => \"senior\" }");
 
         if let Expr::Match { value: _, arms } = expr {
             assert_eq!(arms.len(), 3);
 
             // Check range pattern: 0..18
-            if let Pattern::Range {
-                start,
-                end,
-                inclusive,
-            } = &arms[0].pattern
-            {
+            if let Pattern::Range { start, end, inclusive } = &arms[0].pattern {
                 assert!(!inclusive);
                 assert!(matches!(start.as_ref(), Expr::Val(Val::Int(0))));
                 assert!(matches!(end.as_ref(), Expr::Val(Val::Int(18))));
@@ -185,12 +179,7 @@ mod tests {
             }
 
             // Check inclusive range pattern: 18..=64
-            if let Pattern::Range {
-                start,
-                end,
-                inclusive,
-            } = &arms[1].pattern
-            {
+            if let Pattern::Range { start, end, inclusive } = &arms[1].pattern {
                 assert!(*inclusive);
                 assert!(matches!(start.as_ref(), Expr::Val(Val::Int(18))));
                 assert!(matches!(end.as_ref(), Expr::Val(Val::Int(64))));
@@ -204,9 +193,7 @@ mod tests {
 
     #[test]
     fn test_parse_nested_match() {
-        let expr = parse_expr(
-            "match x { y => match y { 1 => \"one\", _ => \"other\" }, 99 => \"ninety_nine\" }",
-        );
+        let expr = parse_expr("match x { y => match y { 1 => \"one\", _ => \"other\" }, 99 => \"ninety_nine\" }");
 
         if let Expr::Match { value: _, arms } = expr {
             assert_eq!(arms.len(), 2);
@@ -248,9 +235,7 @@ mod tests {
                 {
                     assert_eq!(list_patterns.len(), 1);
                     assert_eq!(list_rest.as_ref().unwrap(), "rest");
-                    assert!(
-                        matches!(list_patterns[0], Pattern::Variable(ref name) if name == "first")
-                    );
+                    assert!(matches!(list_patterns[0], Pattern::Variable(ref name) if name == "first"));
                 } else {
                     panic!("Expected list pattern for users");
                 }

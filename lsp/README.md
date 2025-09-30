@@ -5,10 +5,10 @@ A Language Server Protocol (LSP) implementation for the QCL (Query Check Languag
 ## Features
 
 - **Syntax Diagnostics**: Real-time error detection for QCL expressions and statement programs
-- **Hover Information**: Shows type information, context references, and symbol counts
-- **Code Completion**: Auto-complete for QCL keywords, operators, context variables, and standard library functions
+- **Hover Information**: Shows type information, identifier roots, and symbol counts
+- **Code Completion**: Auto-complete for QCL keywords, operators, common variables, and standard library functions
 - **Document Symbols**: Navigate through variables, functions, imports, and labels in QCL programs
-- **Context Analysis**: Detects and analyzes context variable usage (req, record, etc.)
+- **Identifier Analysis**: Detects and analyzes top-level identifier roots used (req, record, etc.)
 
 ## Architecture
 
@@ -18,13 +18,13 @@ The LSP server consists of:
 - `analyzer.rs`: QCL language analysis engine that provides:
   - Expression and statement parsing
   - Symbol extraction (variables, functions, imports)
-  - Context reference collection
+  - Identifier root collection
   - Diagnostic generation
 
 ## Supported Language Features
 
 ### QCL Expressions
-- Context access (`req.user.role`)
+- Identifier/property access (`req.user.role`)
 - Arithmetic operations (`+`, `-`, `*`, `/`, `%`)
 - Logical operations (`&&`, `||`, `!`)
 - Comparison operations (`==`, `!=`, `<`, `>`, `<=`, `>=`, `in`)
@@ -50,7 +50,7 @@ The LSP server consists of:
 - Membership: `in`
 - Channel: `<-`
 
-#### Context Variables
+#### Common Variables
 - `req.user.id`, `req.user.role`, `req.user.name`
 - `record.id`, `record.owner`, `record.granted`
 - `env`, `time`
@@ -76,7 +76,7 @@ The server communicates via stdin/stdout using the LSP JSON-RPC protocol.
 
 ### One‑shot File Analysis (CLI)
 
-Analyze a single file from the command line and print JSON containing diagnostics, symbols, context references, and semantic tokens:
+Analyze a single file from the command line and print JSON containing diagnostics, symbols, identifier roots, and semantic tokens:
 
 ```bash
 cargo run -p qcl-lsp -- --analyze path/to/file.qcl

@@ -24,10 +24,7 @@ impl StringModule {
         functions.insert("lower".to_string(), Val::RustFunction(Self::lower));
         functions.insert("upper".to_string(), Val::RustFunction(Self::upper));
         functions.insert("trim".to_string(), Val::RustFunction(Self::trim));
-        functions.insert(
-            "starts_with".to_string(),
-            Val::RustFunction(Self::starts_with),
-        );
+        functions.insert("starts_with".to_string(), Val::RustFunction(Self::starts_with));
         functions.insert("ends_with".to_string(), Val::RustFunction(Self::ends_with));
         functions.insert("contains".to_string(), Val::RustFunction(Self::contains));
         functions.insert("replace".to_string(), Val::RustFunction(Self::replace));
@@ -52,7 +49,7 @@ impl StringModule {
     }
 
     /// Get string length
-    fn len(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn len(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("len() takes exactly 1 argument"));
         }
@@ -64,7 +61,7 @@ impl StringModule {
     }
 
     /// Convert to lowercase
-    fn lower(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn lower(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("lower() takes exactly 1 argument"));
         }
@@ -76,7 +73,7 @@ impl StringModule {
     }
 
     /// Convert to uppercase
-    fn upper(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn upper(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("upper() takes exactly 1 argument"));
         }
@@ -88,7 +85,7 @@ impl StringModule {
     }
 
     /// Trim whitespace from both ends
-    fn trim(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn trim(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("trim() takes exactly 1 argument"));
         }
@@ -100,7 +97,7 @@ impl StringModule {
     }
 
     /// Check if string starts with prefix
-    fn starts_with(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn starts_with(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!(
                 "starts_with() takes exactly 2 arguments: string, prefix"
@@ -110,18 +107,14 @@ impl StringModule {
         let string = match &args[0] {
             Val::Str(s) => &**s,
             _ => {
-                return Err(anyhow::anyhow!(
-                    "starts_with() first argument must be a string"
-                ));
+                return Err(anyhow::anyhow!("starts_with() first argument must be a string"));
             }
         };
 
         let prefix = match &args[1] {
             Val::Str(p) => &**p,
             _ => {
-                return Err(anyhow::anyhow!(
-                    "starts_with() second argument must be a string"
-                ));
+                return Err(anyhow::anyhow!("starts_with() second argument must be a string"));
             }
         };
 
@@ -129,28 +122,22 @@ impl StringModule {
     }
 
     /// Check if string ends with suffix
-    fn ends_with(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn ends_with(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
-            return Err(anyhow::anyhow!(
-                "ends_with() takes exactly 2 arguments: string, suffix"
-            ));
+            return Err(anyhow::anyhow!("ends_with() takes exactly 2 arguments: string, suffix"));
         }
 
         let string = match &args[0] {
             Val::Str(s) => &**s,
             _ => {
-                return Err(anyhow::anyhow!(
-                    "ends_with() first argument must be a string"
-                ));
+                return Err(anyhow::anyhow!("ends_with() first argument must be a string"));
             }
         };
 
         let suffix = match &args[1] {
             Val::Str(s) => &**s,
             _ => {
-                return Err(anyhow::anyhow!(
-                    "ends_with() second argument must be a string"
-                ));
+                return Err(anyhow::anyhow!("ends_with() second argument must be a string"));
             }
         };
 
@@ -158,7 +145,7 @@ impl StringModule {
     }
 
     /// Check if string contains substring
-    fn contains(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn contains(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!(
                 "contains() takes exactly 2 arguments: string, substring"
@@ -168,18 +155,14 @@ impl StringModule {
         let string = match &args[0] {
             Val::Str(s) => &**s,
             _ => {
-                return Err(anyhow::anyhow!(
-                    "contains() first argument must be a string"
-                ));
+                return Err(anyhow::anyhow!("contains() first argument must be a string"));
             }
         };
 
         let substring = match &args[1] {
             Val::Str(s) => &**s,
             _ => {
-                return Err(anyhow::anyhow!(
-                    "contains() second argument must be a string"
-                ));
+                return Err(anyhow::anyhow!("contains() second argument must be a string"));
             }
         };
 
@@ -187,11 +170,9 @@ impl StringModule {
     }
 
     /// Replace occurrences of substring
-    fn replace(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn replace(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 3 {
-            return Err(anyhow::anyhow!(
-                "replace() takes exactly 3 arguments: string, old, new"
-            ));
+            return Err(anyhow::anyhow!("replace() takes exactly 3 arguments: string, old, new"));
         }
 
         let string = match &args[0] {
@@ -202,9 +183,7 @@ impl StringModule {
         let old = match &args[1] {
             Val::Str(s) => &**s,
             _ => {
-                return Err(anyhow::anyhow!(
-                    "replace() second argument must be a string"
-                ));
+                return Err(anyhow::anyhow!("replace() second argument must be a string"));
             }
         };
 
@@ -217,7 +196,7 @@ impl StringModule {
     }
 
     /// Extract substring
-    fn substring(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn substring(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 3 {
             return Err(anyhow::anyhow!(
                 "substring() takes exactly 3 arguments: string, start, length"
@@ -227,27 +206,21 @@ impl StringModule {
         let string = match &args[0] {
             Val::Str(s) => &**s,
             _ => {
-                return Err(anyhow::anyhow!(
-                    "substring() first argument must be a string"
-                ));
+                return Err(anyhow::anyhow!("substring() first argument must be a string"));
             }
         };
 
         let start = match &args[1] {
             Val::Int(i) => *i as usize,
             _ => {
-                return Err(anyhow::anyhow!(
-                    "substring() second argument must be an integer"
-                ));
+                return Err(anyhow::anyhow!("substring() second argument must be an integer"));
             }
         };
 
         let length = match &args[2] {
             Val::Int(i) => *i as usize,
             _ => {
-                return Err(anyhow::anyhow!(
-                    "substring() third argument must be an integer"
-                ));
+                return Err(anyhow::anyhow!("substring() third argument must be an integer"));
             }
         };
 
@@ -260,11 +233,9 @@ impl StringModule {
     }
 
     /// Split string by delimiter
-    fn split(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn split(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
-            return Err(anyhow::anyhow!(
-                "split() takes exactly 2 arguments: string, delimiter"
-            ));
+            return Err(anyhow::anyhow!("split() takes exactly 2 arguments: string, delimiter"));
         }
 
         let string = match &args[0] {
@@ -278,26 +249,18 @@ impl StringModule {
         };
 
         let parts: Vec<Val> = if delimiter.is_empty() {
-            string
-                .chars()
-                .map(|c| Val::Str(c.to_string().into()))
-                .collect()
+            string.chars().map(|c| Val::Str(c.to_string().into())).collect()
         } else {
-            string
-                .split(delimiter)
-                .map(|s| Val::Str(s.into()))
-                .collect()
+            string.split(delimiter).map(|s| Val::Str(s.into())).collect()
         };
 
         Ok(Val::List(Arc::from(parts)))
     }
 
     /// Join list of strings with delimiter
-    fn join(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn join(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
-            return Err(anyhow::anyhow!(
-                "join() takes exactly 2 arguments: list, delimiter"
-            ));
+            return Err(anyhow::anyhow!("join() takes exactly 2 arguments: list, delimiter"));
         }
 
         let list = match &args[0] {
@@ -346,7 +309,6 @@ mod tests {
     use crate::register_stdlib_modules;
     use anyhow::Result;
     use qcl_core::{stmt::stmt_parser::StmtParser, token::Tokenizer, val::Val};
-    use std::sync::Arc;
 
     #[test]
     fn test_string_len() -> Result<()> {
@@ -354,7 +316,6 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(Default::default()));
 
         // Create registry and register stdlib modules
         let mut registry = qcl_core::module::ModuleRegistry::new();
@@ -364,7 +325,7 @@ mod tests {
         let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
 
-        let result = program.execute_with_env(&ctx, &mut env)?;
+        let result = program.execute_with_env(&mut env)?;
         assert_eq!(result, Val::Int(5));
 
         Ok(())
@@ -376,7 +337,6 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(Default::default()));
 
         // Create registry and register stdlib modules
         let mut registry = qcl_core::module::ModuleRegistry::new();
@@ -386,7 +346,7 @@ mod tests {
         let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
 
-        let result = program.execute_with_env(&ctx, &mut env)?;
+        let result = program.execute_with_env(&mut env)?;
         assert_eq!(result, Val::Str("hello".into()));
 
         Ok(())
@@ -398,7 +358,6 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(Default::default()));
 
         // Create registry and register stdlib modules (ensures methods are registered)
         let mut registry = qcl_core::module::ModuleRegistry::new();
@@ -407,7 +366,7 @@ mod tests {
         let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
 
-        let result = program.execute_with_env(&ctx, &mut env)?;
+        let result = program.execute_with_env(&mut env)?;
         assert_eq!(result, Val::Int(5));
         Ok(())
     }

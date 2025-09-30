@@ -1,7 +1,7 @@
 use anyhow::Result;
 use qcl_core::module::Module;
-use qcl_core::val::de;
 use qcl_core::val::Val;
+use qcl_core::val::de;
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -37,7 +37,7 @@ impl Module for TomlModule {
     }
 }
 
-fn parse(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+fn parse(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow::anyhow!("toml.parse(data) requires 1 argument"));
     }
@@ -47,4 +47,3 @@ fn parse(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result
     };
     de::parse_with_format(&s, Some(de::Format::Toml))
 }
-

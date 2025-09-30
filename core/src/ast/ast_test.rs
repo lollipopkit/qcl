@@ -131,11 +131,7 @@ mod test {
 
         let ts = Tokenizer::tokenize(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::Val(Val::List(Arc::from(vec![
-            Val::Int(1),
-            Val::Int(2),
-            Val::Int(3),
-        ])));
+        let expected = Expr::Val(Val::List(Arc::from(vec![Val::Int(1), Val::Int(2), Val::Int(3)])));
         assert_eq!(parsed, expected);
     }
 
@@ -182,11 +178,7 @@ mod test {
 
         let ts = Tokenizer::tokenize(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::Val(Val::List(Arc::from(vec![
-            Val::Int(1),
-            Val::Int(2),
-            Val::Int(3),
-        ])));
+        let expected = Expr::Val(Val::List(Arc::from(vec![Val::Int(1), Val::Int(2), Val::Int(3)])));
         assert_eq!(parsed, expected);
     }
 
@@ -249,8 +241,7 @@ mod test {
         let mut inner_map = std::collections::HashMap::new();
         inner_map.insert("name".to_string(), Val::Str("Alice".into()));
         inner_map.insert("age".to_string(), Val::Int(30));
-        let mut outer_map: std::collections::HashMap<String, Val> =
-            std::collections::HashMap::new();
+        let mut outer_map: std::collections::HashMap<String, Val> = std::collections::HashMap::new();
         outer_map.insert("user".to_string(), inner_map.into());
         let expected = Expr::Val(outer_map.into());
         assert_eq!(parsed, expected);
@@ -295,7 +286,7 @@ mod test {
     }
 
     #[test]
-    fn context_access_in_literals() {
+    fn member_access_in_literals() {
         let r = r#"[user.name, user.age]"#;
 
         let ts = Tokenizer::tokenize(r).unwrap();

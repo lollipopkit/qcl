@@ -40,10 +40,7 @@ pub enum SelectPattern {
         channel: Box<Expr>,
     },
     /// send(channel, expr) pattern
-    Send {
-        channel: Box<Expr>,
-        value: Box<Expr>,
-    },
+    Send { channel: Box<Expr>, value: Box<Expr> },
 }
 
 /// Select case: case pattern => expr
@@ -91,10 +88,7 @@ pub enum Pattern {
     /// Multiple patterns with | (pattern1 | pattern2)
     Or(Vec<Pattern>),
     /// Pattern with guard condition (pattern if guard_expr)
-    Guard {
-        pattern: Box<Pattern>,
-        guard: Box<Expr>,
-    },
+    Guard { pattern: Box<Pattern>, guard: Box<Expr> },
     /// Range pattern: 1..10, 'a'..='z'
     Range {
         start: Box<Expr>,
@@ -160,11 +154,7 @@ impl std::fmt::Display for Pattern {
             Pattern::Guard { pattern, guard } => {
                 write!(f, "{} if {}", pattern, guard)
             }
-            Pattern::Range {
-                start,
-                end,
-                inclusive,
-            } => {
+            Pattern::Range { start, end, inclusive } => {
                 let op = if *inclusive { "..=" } else { ".." };
                 write!(f, "{}{}{}", start, op, end)
             }
@@ -175,14 +165,9 @@ impl std::fmt::Display for Pattern {
 impl Pattern {
     /// Check if this pattern matches a value, returning bindings if it matches
     /// Returns Ok(Some(bindings)) on match, Ok(None) on no match, Err on error
-    pub fn matches(
-        &self,
-        value: &Val,
-        ctx: &Val,
-        env: Option<&crate::stmt::Environment>,
-    ) -> Result<Option<Vec<(String, Val)>>> {
+    pub fn matches(&self, value: &Val, env: Option<&crate::stmt::Environment>) -> Result<Option<Vec<(String, Val)>>> {
         let mut bindings = Vec::new();
-        if self.matches_impl(value, &mut bindings, ctx, env)? {
+        if self.matches_impl(value, &mut bindings, env)? {
             Ok(Some(bindings))
         } else {
             Ok(None)
@@ -193,7 +178,6 @@ impl Pattern {
         &self,
         value: &Val,
         bindings: &mut Vec<(String, Val)>,
-        ctx: &Val,
         env: Option<&crate::stmt::Environment>,
     ) -> Result<bool> {
         match self {
@@ -208,9 +192,7 @@ impl Pattern {
                     Val::List(list) => (*list).to_vec(),
                     Val::Str(s) => {
                         // Convert string to list of character strings for destructuring
-                        s.chars()
-                            .map(|c| Val::Str(c.to_string().into()))
-                            .collect::<Vec<_>>()
+                        s.chars().map(|c| Val::Str(c.to_string().into())).collect::<Vec<_>>()
                     }
                     _ => return Ok(false),
                 };
@@ -225,15 +207,14 @@ impl Pattern {
                     if i >= list_items.len() {
                         return Ok(false);
                     }
-                    if !pattern.matches_impl(&list_items[i], bindings, ctx, env)? {
+                    if !pattern.matches_impl(&list_items[i], bindings, env)? {
                         return Ok(false);
                     }
                 }
 
                 // Bind rest elements if specified
                 if let Some(rest_name) = rest {
-                    let rest_items: Vec<Val> =
-                        list_items.iter().skip(patterns.len()).cloned().collect();
+                    let rest_items: Vec<Val> = list_items.iter().skip(patterns.len()).cloned().collect();
                     bindings.push((rest_name.clone(), Val::List(Arc::from(rest_items))));
                 } else if patterns.len() != list_items.len() {
                     // No rest pattern but lengths don't match
@@ -249,7 +230,7 @@ impl Pattern {
                     // Match each pattern against corresponding map field
                     for (key, pattern) in patterns {
                         if let Some(field_val) = map_ref.get(key.as_str()) {
-                            if !pattern.matches_impl(field_val, bindings, ctx, env)? {
+                            if !pattern.matches_impl(field_val, bindings, env)? {
                                 return Ok(false);
                             }
                         } else {
@@ -277,7 +258,7 @@ impl Pattern {
             Pattern::Or(patterns) => {
                 for pattern in patterns {
                     let mut temp_bindings = Vec::new();
-                    if pattern.matches_impl(value, &mut temp_bindings, ctx, env)? {
+                    if pattern.matches_impl(value, &mut temp_bindings, env)? {
                         bindings.extend(temp_bindings);
                         return Ok(true);
                     }
@@ -286,7 +267,7 @@ impl Pattern {
             }
             Pattern::Guard { pattern, guard } => {
                 let mut temp_bindings = Vec::new();
-                if pattern.matches_impl(value, &mut temp_bindings, ctx, env)? {
+                if pattern.matches_impl(value, &mut temp_bindings, env)? {
                     // Create temporary environment with pattern bindings for guard evaluation
                     let guard_env = if let Some(env) = env {
                         let mut new_env = env.clone();
@@ -296,14 +277,12 @@ impl Pattern {
                         }
                         Some(new_env)
                     } else if !temp_bindings.is_empty() {
-                        return Err(anyhow!(
-                            "Guard conditions with bindings require evaluation environment"
-                        ));
+                        return Err(anyhow!("Guard conditions with bindings require evaluation environment"));
                     } else {
                         None
                     };
 
-                    let guard_result = guard.eval_with_env(ctx, guard_env.as_ref().or(env))?;
+                    let guard_result = guard.eval_with_env(guard_env.as_ref().or(env))?;
                     if let Val::Bool(true) = guard_result {
                         bindings.extend(temp_bindings);
                         Ok(true)
@@ -314,13 +293,9 @@ impl Pattern {
                     Ok(false)
                 }
             }
-            Pattern::Range {
-                start,
-                end,
-                inclusive,
-            } => {
-                let start_val = start.eval_with_env(ctx, env)?;
-                let end_val = end.eval_with_env(ctx, env)?;
+            Pattern::Range { start, end, inclusive } => {
+                let start_val = start.eval_with_env(env)?;
+                let end_val = end.eval_with_env(env)?;
 
                 match (value, &start_val, &end_val) {
                     (Val::Int(v), Val::Int(s), Val::Int(e)) => {
@@ -401,7 +376,7 @@ pub enum Expr {
     Range {
         start: Option<Box<Expr>>,
         end: Option<Box<Expr>>,
-        inclusive: bool, // .. vs ..=
+        inclusive: bool,         // .. vs ..=
         step: Option<Box<Expr>>, // optional explicit step (positive or negative, non-zero)
     },
     /// spawn(expr) - spawn a new task
@@ -439,12 +414,12 @@ pub enum Expr {
 }
 
 impl Expr {
-    pub fn eval(&self, ctx: &Val) -> Result<Val> {
-        self.eval_with_env(ctx, None)
+    pub fn eval(&self) -> Result<Val> {
+        self.eval_with_env(None)
     }
 
-    /// 支持变量环境的表达式求值
-    pub fn eval_with_env(&self, ctx: &Val, env: Option<&crate::stmt::Environment>) -> Result<Val> {
+    /// 支持变量环境的表达式求值（已移除上下文参数）
+    pub fn eval_with_env(&self, env: Option<&crate::stmt::Environment>) -> Result<Val> {
         // Optional fast-path: if VM feature is enabled and the environment flag
         // `QCL_VM_LITE` is set, route trivially compilable expressions through the VM.
         // This is a minimal integration to validate the VM scaffold end-to-end.
@@ -461,29 +436,29 @@ impl Expr {
         }
         match self {
             Expr::Bin(l, op, r) => {
-                let left_val = l.eval_with_env(ctx, env)?;
-                let right_val = r.eval_with_env(ctx, env)?;
+                let left_val = l.eval_with_env(env)?;
+                let right_val = r.eval_with_env(env)?;
                 op.eval_vals(&left_val, &right_val)
             }
             Expr::Conditional(cond, then_expr, else_expr) => {
-                let cv = cond.eval_with_env(ctx, env)?;
+                let cv = cond.eval_with_env(env)?;
                 match cv {
-                    Val::Bool(true) => then_expr.eval_with_env(ctx, env),
-                    Val::Bool(false) => else_expr.eval_with_env(ctx, env),
+                    Val::Bool(true) => then_expr.eval_with_env(env),
+                    Val::Bool(false) => else_expr.eval_with_env(env),
                     _ => Err(anyhow!("Ternary condition must be Bool, got: {:?}", cv)),
                 }
             }
             Expr::Unary(op, expr) => {
-                let val = expr.eval_with_env(ctx, env)?;
+                let val = expr.eval_with_env(env)?;
                 op.eval_val(&val)
             }
             Expr::And(e1, e2) => {
-                let l = e1.eval_with_env(ctx, env)?;
+                let l = e1.eval_with_env(env)?;
                 // Short-circuit evaluation to improve performance
                 if let Val::Bool(false) = l {
                     return Ok(Val::Bool(false));
                 }
-                let r = e2.eval_with_env(ctx, env)?;
+                let r = e2.eval_with_env(env)?;
                 match (&l, &r) {
                     (Val::Bool(true), Val::Bool(true)) => Ok(Val::Bool(true)),
                     (Val::Bool(_), Val::Bool(_)) => Ok(Val::Bool(false)),
@@ -491,12 +466,12 @@ impl Expr {
                 }
             }
             Expr::Or(e1, e2) => {
-                let l = e1.eval_with_env(ctx, env)?;
+                let l = e1.eval_with_env(env)?;
                 // Short-circuit evaluation to improve performance
                 if let Val::Bool(true) = l {
                     return Ok(Val::Bool(true));
                 }
-                let r = e2.eval_with_env(ctx, env)?;
+                let r = e2.eval_with_env(env)?;
                 match (&l, &r) {
                     (Val::Bool(_), Val::Bool(true)) => Ok(Val::Bool(true)),
                     (Val::Bool(_), Val::Bool(_)) => Ok(Val::Bool(false)),
@@ -504,30 +479,26 @@ impl Expr {
                 }
             }
             Expr::NullishCoalescing(e1, e2) => {
-                let l = e1.eval_with_env(ctx, env)?;
+                let l = e1.eval_with_env(env)?;
                 // If left side is nil, return right side; otherwise return left side
-                if l == Val::Nil {
-                    e2.eval_with_env(ctx, env)
-                } else {
-                    Ok(l)
-                }
+                if l == Val::Nil { e2.eval_with_env(env) } else { Ok(l) }
             }
             // legacy '@' context access removed
             Expr::Access(expr, field) => {
-                let val = expr.eval_with_env(ctx, env)?;
-                let field_val = field.eval_with_env(ctx, env)?;
+                let val = expr.eval_with_env(env)?;
+                let field_val = field.eval_with_env(env)?;
                 match val.access(&field_val) {
                     Some(v) => Ok(v),
                     None => Ok(Val::Nil),
                 }
             }
             Expr::OptionalAccess(expr, field) => {
-                let val = expr.eval_with_env(ctx, env)?;
+                let val = expr.eval_with_env(env)?;
                 // Short-circuit if the left side is nil
                 if val == Val::Nil {
                     return Ok(Val::Nil);
                 }
-                let field_val = field.eval_with_env(ctx, env)?;
+                let field_val = field.eval_with_env(env)?;
                 match val.access(&field_val) {
                     Some(v) => Ok(v),
                     None => Ok(Val::Nil),
@@ -536,15 +507,15 @@ impl Expr {
             Expr::List(exprs) => {
                 let mut values = Vec::with_capacity(exprs.len());
                 for expr in exprs {
-                    values.push(expr.eval_with_env(ctx, env)?);
+                    values.push(expr.eval_with_env(env)?);
                 }
                 Ok(Val::List(Arc::from(values)))
             }
             Expr::Map(pairs) => {
                 let mut map = std::collections::HashMap::with_capacity(pairs.len());
                 for (key_expr, value_expr) in pairs {
-                    let key_val = key_expr.eval_with_env(ctx, env)?;
-                    let value_val = value_expr.eval_with_env(ctx, env)?;
+                    let key_val = key_expr.eval_with_env(env)?;
+                    let value_val = value_expr.eval_with_env(env)?;
 
                     // Convert key to string for map indexing
                     let key_str = match key_val {
@@ -553,10 +524,7 @@ impl Expr {
                         Val::Float(f) => f.to_string(),
                         Val::Bool(b) => b.to_string(),
                         _ => {
-                            return Err(anyhow!(
-                                "Map key must be a primitive type, got: {:?}",
-                                key_val
-                            ));
+                            return Err(anyhow!("Map key must be a primitive type, got: {:?}", key_val));
                         }
                     };
 
@@ -564,7 +532,7 @@ impl Expr {
                 }
                 Ok(Val::from(map))
             }
-            Expr::Paren(expr) => expr.eval_with_env(ctx, env),
+            Expr::Paren(expr) => expr.eval_with_env(env),
             Expr::Var(name) => {
                 // Only resolve variables from the lexical environment. No implicit context lookup.
                 if let Some(env) = env {
@@ -581,9 +549,9 @@ impl Expr {
                         // Evaluate arguments (预分配容量)
                         let mut arg_values = Vec::with_capacity(args.len());
                         for arg in args {
-                            arg_values.push(arg.eval_with_env(ctx, Some(env))?);
+                            arg_values.push(arg.eval_with_env(Some(env))?);
                         }
-                        func_val.call(&arg_values, env, ctx)
+                        func_val.call(&arg_values, env)
                     } else {
                         Err(anyhow!("Undefined function: {}", func_name))
                     }
@@ -595,8 +563,8 @@ impl Expr {
                 // Special-case: method call sugar on access (obj.method(...))
                 if let Expr::Access(obj_expr, field_expr) = expr.as_ref() {
                     // Evaluate receiver and field name first
-                    let obj_val = obj_expr.eval_with_env(ctx, env)?;
-                    let field_val = field_expr.eval_with_env(ctx, env)?;
+                    let obj_val = obj_expr.eval_with_env(env)?;
+                    let field_val = field_expr.eval_with_env(env)?;
 
                     if let Val::Str(method_name) = field_val {
                         let method_name_str = method_name.as_ref();
@@ -608,10 +576,10 @@ impl Expr {
                                     // Evaluate arguments (预分配容量)
                                     let mut arg_values = Vec::with_capacity(args.len());
                                     for arg in args {
-                                        arg_values.push(arg.eval_with_env(ctx, env)?);
+                                        arg_values.push(arg.eval_with_env(env)?);
                                     }
                                     if let Some(env) = env {
-                                        return prop_val.call(&arg_values, env, ctx);
+                                        return prop_val.call(&arg_values, env);
                                     } else {
                                         return Err(anyhow!("Function call requires environment"));
                                     }
@@ -624,18 +592,16 @@ impl Expr {
                         }
 
                         // Fall back to meta method registry
-                        if let Some(func) =
-                            crate::val::methods::find_method_for_val(&obj_val, method_name_str)
-                        {
+                        if let Some(func) = crate::val::methods::find_method_for_val(&obj_val, method_name_str) {
                             // Evaluate arguments and prepend receiver
                             let mut full_args = Vec::with_capacity(args.len() + 1);
                             full_args.push(obj_val.clone());
                             for arg in args {
-                                full_args.push(arg.eval_with_env(ctx, env)?);
+                                full_args.push(arg.eval_with_env(env)?);
                             }
                             if let Some(env) = env {
                                 // Call the meta method and return the result
-                                let result = func(&full_args, env, ctx)?;
+                                let result = func(&full_args, env)?;
                                 return Ok(result);
                             } else {
                                 return Err(anyhow!("Function call requires environment"));
@@ -643,25 +609,21 @@ impl Expr {
                         }
 
                         // No property or method found; produce a clearer error
-                        return Err(anyhow!(
-                            "{} has no method '{}'",
-                            obj_val.type_name(),
-                            method_name_str
-                        ));
+                        return Err(anyhow!("{} has no method '{}'", obj_val.type_name(), method_name_str));
                     }
                 }
 
                 // Default: call the evaluated expression as a function
-                let func_val = expr.eval_with_env(ctx, env)?;
+                let func_val = expr.eval_with_env(env)?;
 
                 // Evaluate arguments (预分配容量)
                 let mut arg_values = Vec::with_capacity(args.len());
                 for arg in args {
-                    arg_values.push(arg.eval_with_env(ctx, env)?);
+                    arg_values.push(arg.eval_with_env(env)?);
                 }
 
                 if let Some(env) = env {
-                    func_val.call(&arg_values, env, ctx)
+                    func_val.call(&arg_values, env)
                 } else {
                     Err(anyhow!("Function call requires environment"))
                 }
@@ -673,15 +635,15 @@ impl Expr {
                 step,
             } => {
                 let start_val = match start {
-                    Some(expr) => expr.eval_with_env(ctx, env)?,
+                    Some(expr) => expr.eval_with_env(env)?,
                     None => Val::Int(0),
                 };
                 let end_val = match end {
-                    Some(expr) => expr.eval_with_env(ctx, env)?,
+                    Some(expr) => expr.eval_with_env(env)?,
                     None => return Err(anyhow!("Open-ended ranges not supported in for loops")),
                 };
                 let step_val = match step {
-                    Some(expr) => Some(expr.eval_with_env(ctx, env)?),
+                    Some(expr) => Some(expr.eval_with_env(env)?),
                     None => None,
                 };
 
@@ -734,14 +696,12 @@ impl Expr {
             Expr::Spawn(expr) => {
                 #[cfg(feature = "concurrency")]
                 {
-                    // Clone the expression and context for the spawned task
+                    // Clone the expression and environment for the spawned task
                     let expr_clone = expr.clone();
-                    let ctx_clone = ctx.clone();
                     let env_clone = env.cloned();
 
                     // Create a future that evaluates the expression
-                    let future =
-                        async move { expr_clone.eval_with_env(&ctx_clone, env_clone.as_ref()) };
+                    let future = async move { expr_clone.eval_with_env(env_clone.as_ref()) };
 
                     // Spawn the task using the runtime
                     match crate::rt::with_runtime(|runtime| runtime.spawn(future)) {
@@ -757,7 +717,7 @@ impl Expr {
                 #[cfg(not(feature = "concurrency"))]
                 {
                     // Fallback: just evaluate the expression synchronously
-                    let expr_val = expr.eval_with_env(ctx, env)?;
+                    let expr_val = expr.eval_with_env(env)?;
                     static mut TASK_ID_COUNTER: u64 = 0;
                     unsafe {
                         TASK_ID_COUNTER += 1;
@@ -768,14 +728,11 @@ impl Expr {
                     }
                 }
             }
-            Expr::ChanLiteral {
-                capacity,
-                type_expr,
-            } => {
+            Expr::ChanLiteral { capacity, type_expr } => {
                 // Evaluate capacity if provided
                 let capacity_num = match capacity {
                     Some(cap_expr) => {
-                        let cap_val = cap_expr.eval_with_env(ctx, env)?;
+                        let cap_val = cap_expr.eval_with_env(env)?;
                         match cap_val {
                             Val::Int(n) => n,
                             _ => return Err(anyhow!("Channel capacity must be an integer")),
@@ -787,10 +744,11 @@ impl Expr {
                 // Parse the type expression
                 let inner_type = match type_expr {
                     Some(type_expr) => {
-                        let type_val = type_expr.eval_with_env(ctx, env)?;
+                        let type_val = type_expr.eval_with_env(env)?;
                         match type_val {
-                            Val::Str(type_str) => Type::parse(&type_str)
-                                .ok_or_else(|| anyhow!("Invalid type: {}", type_str))?,
+                            Val::Str(type_str) => {
+                                Type::parse(&type_str).ok_or_else(|| anyhow!("Invalid type: {}", type_str))?
+                            }
                             _ => return Err(anyhow!("Channel type must be a string")),
                         }
                     }
@@ -830,15 +788,13 @@ impl Expr {
             }
             Expr::Send { channel, value } => {
                 // Evaluate channel and value
-                let channel_val = channel.eval_with_env(ctx, env)?;
-                let value_val = value.eval_with_env(ctx, env)?;
+                let channel_val = channel.eval_with_env(env)?;
+                let value_val = value.eval_with_env(env)?;
 
                 #[cfg(feature = "concurrency")]
                 {
                     if let Val::Channel { id, .. } = channel_val {
-                        match crate::rt::with_runtime(|runtime| {
-                            runtime.block_on(runtime.send_async(id, value_val))
-                        }) {
+                        match crate::rt::with_runtime(|runtime| runtime.block_on(runtime.send_async(id, value_val))) {
                             Ok(sent) => Ok(Val::Bool(sent)),
                             Err(e) => Err(anyhow!("Send operation failed: {}", e)),
                         }
@@ -854,14 +810,12 @@ impl Expr {
             }
             Expr::Recv(channel) => {
                 // Evaluate channel
-                let channel_val = channel.eval_with_env(ctx, env)?;
+                let channel_val = channel.eval_with_env(env)?;
 
                 #[cfg(feature = "concurrency")]
                 {
                     if let Val::Channel { id, .. } = channel_val {
-                        match crate::rt::with_runtime(|runtime| {
-                            runtime.block_on(runtime.recv_async(id))
-                        }) {
+                        match crate::rt::with_runtime(|runtime| runtime.block_on(runtime.recv_async(id))) {
                             Ok((ok, value)) => Ok(Val::List(vec![Val::Bool(ok), value].into())),
                             Err(e) => Err(anyhow!("Receive operation failed: {}", e)),
                         }
@@ -875,10 +829,7 @@ impl Expr {
                     Ok(Val::List(vec![Val::Bool(false), Val::Nil].into()))
                 }
             }
-            Expr::Select {
-                cases,
-                default_case,
-            } => {
+            Expr::Select { cases, default_case } => {
                 #[cfg(feature = "concurrency")]
                 {
                     use crate::rt::SelectOperation;
@@ -889,7 +840,7 @@ impl Expr {
                     for (idx, case) in cases.iter().enumerate() {
                         match &case.pattern {
                             SelectPattern::Recv { binding, channel } => {
-                                let channel_val = channel.eval_with_env(ctx, env)?;
+                                let channel_val = channel.eval_with_env(env)?;
                                 let channel_id = if let Val::Channel { id, .. } = channel_val {
                                     id
                                 } else {
@@ -899,8 +850,8 @@ impl Expr {
                                 bindings.push(binding.clone());
                             }
                             SelectPattern::Send { channel, value } => {
-                                let channel_val = channel.eval_with_env(ctx, env)?;
-                                let value_val = value.eval_with_env(ctx, env)?;
+                                let channel_val = channel.eval_with_env(env)?;
+                                let value_val = value.eval_with_env(env)?;
                                 let channel_id = if let Val::Channel { id, .. } = channel_val {
                                     id
                                 } else {
@@ -917,13 +868,12 @@ impl Expr {
                         return Ok(Val::Nil);
                     }
 
-                    let select_result = crate::rt::with_runtime(|runtime| {
-                        runtime.block_on(select_op.execute(runtime, has_default))
-                    })?;
+                    let select_result =
+                        crate::rt::with_runtime(|runtime| runtime.block_on(select_op.execute(runtime, has_default)))?;
 
                     if select_result.is_default {
                         if let Some(default_expr) = default_case {
-                            return default_expr.eval_with_env(ctx, env);
+                            return default_expr.eval_with_env(env);
                         }
                         return Ok(Val::Nil);
                     }
@@ -943,8 +893,7 @@ impl Expr {
                     }
 
                     let binding_env: Option<crate::stmt::Environment>;
-                    let env_for_case: Option<&crate::stmt::Environment> = if let Some(env_ref) = env
-                    {
+                    let env_for_case: Option<&crate::stmt::Environment> = if let Some(env_ref) = env {
                         if let Some(name) = binding_name {
                             let mut new_env = env_ref.clone();
                             new_env.push_scope();
@@ -952,9 +901,7 @@ impl Expr {
                                 .recv_payload
                                 .clone()
                                 .map(|(ok, value)| Val::List(vec![Val::Bool(ok), value].into()))
-                                .unwrap_or_else(|| {
-                                    Val::List(vec![Val::Bool(false), Val::Nil].into())
-                                });
+                                .unwrap_or_else(|| Val::List(vec![Val::Bool(false), Val::Nil].into()));
                             new_env.define(name, tuple_val);
                             binding_env = Some(new_env);
                             binding_env.as_ref()
@@ -965,13 +912,13 @@ impl Expr {
                         None
                     };
 
-                    selected_case.body.eval_with_env(ctx, env_for_case)
+                    selected_case.body.eval_with_env(env_for_case)
                 }
                 #[cfg(not(feature = "concurrency"))]
                 {
                     // Fallback: evaluate default case if present, otherwise return nil
                     if let Some(default_expr) = default_case {
-                        default_expr.eval_with_env(ctx, env)
+                        default_expr.eval_with_env(env)
                     } else {
                         Ok(Val::Nil)
                     }
@@ -985,7 +932,7 @@ impl Expr {
                             result.push_str(s);
                         }
                         TemplateStringPart::Expr(expr) => {
-                            let val = expr.eval_with_env(ctx, env)?;
+                            let val = expr.eval_with_env(env)?;
                             let str_val = match val {
                                 Val::Str(s) => s.as_ref().to_string(),
                                 Val::Int(i) => i.to_string(),
@@ -1009,10 +956,10 @@ impl Expr {
                 Ok(Val::Str(Arc::from(result)))
             }
             Expr::Match { value, arms } => {
-                let match_val = value.eval_with_env(ctx, env)?;
+                let match_val = value.eval_with_env(env)?;
 
                 for arm in arms {
-                    if let Some(bindings) = Pattern::matches(&arm.pattern, &match_val, ctx, env)? {
+                    if let Some(bindings) = Pattern::matches(&arm.pattern, &match_val, env)? {
                         // Create new environment with pattern bindings
                         let new_env = if let Some(env) = env {
                             let mut new_env = env.clone();
@@ -1028,7 +975,7 @@ impl Expr {
                             None
                         };
 
-                        return arm.body.eval_with_env(ctx, new_env.as_ref().or(env));
+                        return arm.body.eval_with_env(new_env.as_ref().or(env));
                     }
                 }
 
@@ -1053,14 +1000,14 @@ impl Expr {
         }
     }
 
-    /// Get the requested context names from the expression.
+    /// Get the identifier roots referenced by the expression.
     pub fn requested_ctx(&self) -> HashSet<String> {
         let mut names = HashSet::new();
         self.collect_ctx_names(&mut names);
         names
     }
 
-    /// Helper method to collect context names recursively
+    /// Helper method to collect identifier roots recursively
     ///
     /// eg.: `user.props.(req.service).value && list` => `["user", "req", "list"]`
     fn collect_ctx_names(&self, names: &mut HashSet<String>) {
@@ -1134,10 +1081,7 @@ impl Expr {
             Expr::Spawn(expr) => {
                 expr.collect_ctx_names(names);
             }
-            Expr::ChanLiteral {
-                capacity,
-                type_expr,
-            } => {
+            Expr::ChanLiteral { capacity, type_expr } => {
                 if let Some(cap_expr) = capacity {
                     cap_expr.collect_ctx_names(names);
                 }
@@ -1152,10 +1096,7 @@ impl Expr {
             Expr::Recv(channel) => {
                 channel.collect_ctx_names(names);
             }
-            Expr::Select {
-                cases,
-                default_case,
-            } => {
+            Expr::Select { cases, default_case } => {
                 for case in cases {
                     match &case.pattern {
                         SelectPattern::Recv { channel, .. } => {
@@ -1192,13 +1133,13 @@ impl Expr {
                 value.collect_ctx_names(names);
                 for arm in arms {
                     arm.body.collect_ctx_names(names);
-                    // Collect from guard patterns if they contain context references
+                    // Collect from guard patterns if they contain identifier references
                     if let Pattern::Guard { guard, .. } = &arm.pattern {
                         guard.collect_ctx_names(names);
                     }
                 }
             }
-            // Only collect string values when they are actual context names, not field names
+            // Only collect string values when they are actual identifier roots, not field names
             Expr::Val(_) => {} // Receive operator: collect from inner expression
         }
     }
@@ -1210,15 +1151,10 @@ impl Expr {
         use std::sync::RwLock;
 
         // Global static cache: Key is expression string, Value is parsed Expr wrapped in Arc
-        static PARSE_CACHE: Lazy<RwLock<HashMap<String, Arc<Expr>>>> =
-            Lazy::new(|| RwLock::new(HashMap::new()));
+        static PARSE_CACHE: Lazy<RwLock<HashMap<String, Arc<Expr>>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 
         // Fast read path
-        if let Some(found) = PARSE_CACHE
-            .read()
-            .ok()
-            .and_then(|c| c.get(expression).cloned())
-        {
+        if let Some(found) = PARSE_CACHE.read().ok().and_then(|c| c.get(expression).cloned()) {
             return Ok(found);
         }
 
@@ -1375,10 +1311,7 @@ impl Expr {
                     // Preserve OptionalAccess when field is a string literal to allow potential
                     // optional method-call sugar like `obj?.method()` to be handled later.
                     if matches!(field_val, Val::Str(_)) {
-                        return Expr::OptionalAccess(
-                            Box::new(base.clone()),
-                            Box::new(field.clone()),
-                        );
+                        return Expr::OptionalAccess(Box::new(base.clone()), Box::new(field.clone()));
                     }
 
                     // Direct access to constant structure with optional chaining
@@ -1395,19 +1328,12 @@ impl Expr {
             }
             Expr::List(exprs) => {
                 // List constant folding: if all elements are constants then fold to one Val::List
-                let folded_elems: Vec<Expr> =
-                    exprs.into_iter().map(|e| e.fold_constants()).collect();
+                let folded_elems: Vec<Expr> = exprs.into_iter().map(|e| e.fold_constants()).collect();
                 if folded_elems.iter().all(|e| matches!(e, Expr::Val(_))) {
                     // Extract all constant values as new list elements
                     let const_vals: Vec<Val> = folded_elems
                         .into_iter()
-                        .map(|e| {
-                            if let Expr::Val(v) = e {
-                                v
-                            } else {
-                                unreachable!()
-                            }
-                        })
+                        .map(|e| if let Expr::Val(v) = e { v } else { unreachable!() })
                         .collect();
                     return Expr::Val(Val::List(Arc::from(const_vals)));
                 }
@@ -1454,19 +1380,13 @@ impl Expr {
             }
             Expr::Call(name, args) => {
                 // Function calls can't be folded at compile time, but fold arguments
-                let folded_args = args
-                    .into_iter()
-                    .map(|a| Box::new(a.fold_constants()))
-                    .collect();
+                let folded_args = args.into_iter().map(|a| Box::new(a.fold_constants())).collect();
                 Expr::Call(name, folded_args)
             }
             Expr::CallExpr(expr, args) => {
                 // Function calls can't be folded at compile time, but fold expression and arguments
                 let folded_expr = Box::new(expr.fold_constants());
-                let folded_args = args
-                    .into_iter()
-                    .map(|a| Box::new(a.fold_constants()))
-                    .collect();
+                let folded_args = args.into_iter().map(|a| Box::new(a.fold_constants())).collect();
                 Expr::CallExpr(folded_expr, folded_args)
             }
             Expr::Range {
@@ -1487,10 +1407,7 @@ impl Expr {
                 }
             }
             Expr::Spawn(expr) => Expr::Spawn(Box::new(expr.fold_constants())),
-            Expr::ChanLiteral {
-                capacity,
-                type_expr,
-            } => {
+            Expr::ChanLiteral { capacity, type_expr } => {
                 let folded_capacity = capacity.map(|c| Box::new(c.fold_constants()));
                 let folded_type_expr = type_expr.map(|t| Box::new(t.fold_constants()));
                 Expr::ChanLiteral {
@@ -1503,10 +1420,7 @@ impl Expr {
                 value: Box::new(value.fold_constants()),
             },
             Expr::Recv(channel) => Expr::Recv(Box::new(channel.fold_constants())),
-            Expr::Select {
-                cases,
-                default_case,
-            } => {
+            Expr::Select { cases, default_case } => {
                 let folded_cases = cases
                     .into_iter()
                     .map(|case| SelectCase {
@@ -1664,8 +1578,7 @@ impl Display for Expr {
                 write!(f, "[{}]", exprs.join(", "))
             }
             Expr::Map(pairs) => {
-                let pairs: Vec<String> =
-                    pairs.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
+                let pairs: Vec<String> = pairs.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
                 write!(f, "{{{}}}", pairs.join(", "))
             }
             Expr::Paren(expr) => write!(f, "{expr}"),
@@ -1700,10 +1613,7 @@ impl Display for Expr {
                 }
             }
             Expr::Spawn(expr) => write!(f, "spawn({})", expr),
-            Expr::ChanLiteral {
-                capacity,
-                type_expr,
-            } => {
+            Expr::ChanLiteral { capacity, type_expr } => {
                 write!(f, "chan(")?;
                 if let Some(cap) = capacity {
                     write!(f, "{}", cap)?;
@@ -1718,10 +1628,7 @@ impl Display for Expr {
             }
             Expr::Send { channel, value } => write!(f, "send({}, {})", channel, value),
             Expr::Recv(channel) => write!(f, "recv({})", channel),
-            Expr::Select {
-                cases,
-                default_case,
-            } => {
+            Expr::Select { cases, default_case } => {
                 write!(f, "select {{")?;
                 for (i, case) in cases.iter().enumerate() {
                     if i > 0 {
@@ -1736,9 +1643,7 @@ impl Display for Expr {
                                 write!(f, "recv({})", channel)?;
                             }
                         }
-                        SelectPattern::Send { channel, value } => {
-                            write!(f, "{} <= send({})", channel, value)?
-                        }
+                        SelectPattern::Send { channel, value } => write!(f, "{} <= send({})", channel, value)?,
                     }
                     write!(f, " => {}", case.body)?;
                 }

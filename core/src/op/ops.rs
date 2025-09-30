@@ -52,10 +52,7 @@ pub enum BinOp {
 
 impl BinOp {
     pub(crate) fn is_arith(&self) -> bool {
-        matches!(
-            self,
-            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod
-        )
+        matches!(self, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod)
     }
 
     pub(crate) fn is_cmp(&self) -> bool {
@@ -129,31 +126,31 @@ impl BinOp {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn eval(&self, l: &Expr, r: &Expr, ctx: &Val) -> Result<Val> {
+    pub(crate) fn eval(&self, l: &Expr, r: &Expr) -> Result<Val> {
         // For comparison operators, we can optimize by only evaluating the left side first
         if self.is_cmp() && matches!(self, BinOp::Eq | BinOp::Ne) {
-            let l_val = l.eval(ctx)?;
+            let l_val = l.eval()?;
 
             // Short-circuit for nil comparisons
             match (&l_val, self) {
                 (Val::Nil, BinOp::Eq) => {
-                    let r_val = r.eval(ctx)?;
+                    let r_val = r.eval()?;
                     return Ok(Val::Bool(matches!(r_val, Val::Nil)));
                 }
                 (Val::Nil, BinOp::Ne) => {
-                    let r_val = r.eval(ctx)?;
+                    let r_val = r.eval()?;
                     return Ok(Val::Bool(!matches!(r_val, Val::Nil)));
                 }
                 _ => {}
             }
 
-            let r_val = r.eval(ctx)?;
+            let r_val = r.eval()?;
             return Ok(Val::Bool(self.cmp(&l_val, &r_val)?));
         }
 
         // For arithmetic operations
-        let l_val = l.eval(ctx)?;
-        let r_val = r.eval(ctx)?;
+        let l_val = l.eval()?;
+        let r_val = r.eval()?;
 
         if self.is_arith() {
             self.arith(&l_val, &r_val)

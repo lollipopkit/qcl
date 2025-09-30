@@ -5,7 +5,7 @@ use anyhow::Result;
 #[test]
 fn test_rust_function_call() -> Result<()> {
     // Create a simple Rust function that adds two numbers
-    let add_func: crate::val::RustFunction = |args, _env, _ctx| {
+    let add_func: crate::val::RustFunction = |args, _env| {
         if args.len() != 2 {
             return Err(anyhow::anyhow!("add() takes exactly 2 arguments"));
         }
@@ -22,20 +22,19 @@ fn test_rust_function_call() -> Result<()> {
     // Create a Rust function value
     let rust_func = Val::RustFunction(add_func);
 
-    // Create environment and context
+    // Create environment and seed variables
     let env = Environment::new();
-    let ctx = Val::Nil;
 
     // Test calling the function
-    let result = rust_func.call(&[Val::Int(5), Val::Int(3)], &env, &ctx)?;
+    let result = rust_func.call(&[Val::Int(5), Val::Int(3)], &env)?;
     assert_eq!(result, Val::Int(8));
 
     // Test with wrong number of arguments
-    let result = rust_func.call(&[Val::Int(5)], &env, &ctx);
+    let result = rust_func.call(&[Val::Int(5)], &env);
     assert!(result.is_err());
 
     // Test with wrong argument types
-    let result = rust_func.call(&[Val::Str("hello".into()), Val::Int(3)], &env, &ctx);
+    let result = rust_func.call(&[Val::Str("hello".into()), Val::Int(3)], &env);
     assert!(result.is_err());
 
     Ok(())
@@ -44,10 +43,9 @@ fn test_rust_function_call() -> Result<()> {
 #[test]
 fn test_call_non_function() -> Result<()> {
     let env = Environment::new();
-    let ctx = Val::Nil;
 
     // Try to call a non-function value
-    let result = Val::Int(42).call(&[], &env, &ctx);
+    let result = Val::Int(42).call(&[], &env);
     assert!(result.is_err());
 
     Ok(())

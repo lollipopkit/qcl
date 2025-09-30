@@ -16,8 +16,6 @@ fn test_unknown_module_import_diagnostic() {
         .iter()
         .any(|d| d.severity == Some(DiagnosticSeverity::ERROR)));
     let msgs: Vec<&str> = res.diagnostics.iter().map(|d| d.message.as_str()).collect();
-    assert!(msgs
-        .iter()
-        .any(|m| m.contains("Unknown module: not_a_module")));
+    assert!(msgs.iter().any(|m| m.contains("Unknown module: not_a_module")));
     assert!(msgs.iter().any(|m| m.contains("Unknown module: bogus")));
 }

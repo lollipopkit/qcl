@@ -7,7 +7,7 @@
     { "include": "#numbers" },
     { "include": "#keywords" },
     { "include": "#operators" },
-    { "include": "#context-access" },
+    { "include": "#ident-access" },
     { "include": "#functions" }
   ],
   "repository": {
@@ -157,10 +157,10 @@
         }
       ]
     },
-    "context-access": {
+    "ident-access": {
       "patterns": [
         {
-          "name": "variable.other.context.qcl",
+          "name": "variable.other.member.qcl",
           "match": "\b[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+|\.[0-9]+|\.'[^']+'|\.\"[^\"]+\")*"
         }
       ]

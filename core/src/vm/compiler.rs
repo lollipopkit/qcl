@@ -390,12 +390,7 @@ impl FunctionBuilder {
                         self.emit(Op::Move(dst, ri));
                     }
                 }
-                self.emit(Op::Call {
-                    f,
-                    base,
-                    argc,
-                    retc: 1,
-                });
+                self.emit(Op::Call { f, base, argc, retc: 1 });
                 base
             }
             Expr::CallExpr(callee, args) => {
@@ -414,12 +409,7 @@ impl FunctionBuilder {
                         self.emit(Op::Move(dst, ri));
                     }
                 }
-                self.emit(Op::Call {
-                    f,
-                    base,
-                    argc,
-                    retc: 1,
-                });
+                self.emit(Op::Call { f, base, argc, retc: 1 });
                 base
             }
             // Minimal fallback for uncompiled nodes
@@ -439,10 +429,20 @@ impl FunctionBuilder {
                     self.stmt(st);
                 }
             }
-            Stmt::For { pattern, iterable, body } => {
+            Stmt::For {
+                pattern,
+                iterable,
+                body,
+            } => {
                 // Fast-path compilation for numeric range for-loops:
                 // for x in a..b { body }  or for _ in a..=b { body }
-                if let Expr::Range { start, end, inclusive, step } = iterable.as_ref() {
+                if let Expr::Range {
+                    start,
+                    end,
+                    inclusive,
+                    step,
+                } = iterable.as_ref()
+                {
                     // Evaluate start and end into registers
                     let r_idx = match start {
                         Some(e) => self.expr(e),
@@ -547,7 +547,11 @@ impl FunctionBuilder {
 
                 // item = it[i]
                 let r_item = self.alloc();
-                self.emit(Op::Index { dst: r_item, base: r_it, idx: r_i });
+                self.emit(Op::Index {
+                    dst: r_item,
+                    base: r_it,
+                    idx: r_i,
+                });
 
                 // Bind pattern into locals from item
                 self.bind_for_pattern(pattern, r_item);
@@ -587,11 +591,7 @@ impl FunctionBuilder {
                 let rv = self.expr(value);
                 self.emit(Op::StoreLocal(idx, rv));
             }
-            Stmt::Assign {
-                name,
-                value,
-                span: _,
-            } => {
+            Stmt::Assign { name, value, span: _ } => {
                 if let Some(idx) = self.lookup(name) {
                     let rv = self.expr(value);
                     self.emit(Op::StoreLocal(idx, rv));
@@ -666,10 +666,7 @@ impl FunctionBuilder {
                     body: (**body).clone(),
                 });
                 let dst = self.alloc();
-                self.emit(Op::MakeClosure {
-                    dst,
-                    proto: proto_idx,
-                });
+                self.emit(Op::MakeClosure { dst, proto: proto_idx });
                 let idx = self.get_or_define(name);
                 self.emit(Op::StoreLocal(idx, dst));
                 let kname = self.k(Val::Str(name.clone().into()));
@@ -717,7 +714,11 @@ impl FunctionBuilder {
                     let k = self.k(Val::Int(start));
                     self.emit(Op::LoadK(r_start, k));
                     let r_tail = self.alloc();
-                    self.emit(Op::ListSlice { dst: r_tail, src, start: r_start });
+                    self.emit(Op::ListSlice {
+                        dst: r_tail,
+                        src,
+                        start: r_start,
+                    });
                     let idx = self.get_or_define(name);
                     self.emit(Op::StoreLocal(idx, r_tail));
                 }

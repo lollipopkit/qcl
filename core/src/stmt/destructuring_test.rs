@@ -1,7 +1,10 @@
 #[cfg(test)]
 mod tests {
     use crate::{
-        expr::Expr, stmt::Stmt, stmt::stmt_parser::StmtParser, token::Tokenizer, val::Val,
+        expr::{Expr, Pattern},
+        stmt::{Stmt, stmt_parser::StmtParser},
+        token::Tokenizer,
+        val::Val,
     };
     use std::sync::Arc;
 
@@ -21,8 +24,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(Default::default()));
-        let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
+        let result = program.execute_with_env(&mut env.clone()).unwrap();
 
         assert_eq!(result, Val::Int(42));
     }
@@ -37,8 +39,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(Default::default()));
-        let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
+        let result = program.execute_with_env(&mut env.clone()).unwrap();
 
         assert_eq!(result, Val::Int(6));
     }
@@ -53,8 +54,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(Default::default()));
-        let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
+        let result = program.execute_with_env(&mut env.clone()).unwrap();
 
         assert_eq!(result, Val::Int(3)); // 1 + 2
     }
@@ -69,8 +69,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(Default::default()));
-        let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
+        let result = program.execute_with_env(&mut env.clone()).unwrap();
 
         assert_eq!(result, Val::Str(Arc::from("Alice")));
     }
@@ -85,8 +84,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(Default::default()));
-        let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
+        let result = program.execute_with_env(&mut env.clone()).unwrap();
 
         assert_eq!(result, Val::Str(Arc::from("Bob")));
     }
@@ -101,8 +99,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(Default::default()));
-        let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
+        let result = program.execute_with_env(&mut env.clone()).unwrap();
 
         assert_eq!(result, Val::Int(43));
     }
@@ -117,8 +114,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(Default::default()));
-        let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
+        let result = program.execute_with_env(&mut env.clone()).unwrap();
 
         assert_eq!(result, Val::Int(20));
     }
@@ -133,16 +129,10 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(Default::default()));
-        let result = program.execute_with_env(&ctx, &mut env.clone());
+        let result = program.execute_with_env(&mut env.clone());
 
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Pattern does not match")
-        );
+        assert!(result.unwrap_err().to_string().contains("Pattern does not match"));
     }
 
     #[test]
@@ -155,8 +145,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(Default::default()));
-        let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
+        let result = program.execute_with_env(&mut env.clone()).unwrap();
 
         assert_eq!(result, Val::Int(3));
     }
@@ -171,8 +160,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(Default::default()));
-        let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
+        let result = program.execute_with_env(&mut env.clone()).unwrap();
 
         // Should concatenate first two characters
         match result {
@@ -191,8 +179,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(Default::default()));
-        let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
+        let result = program.execute_with_env(&mut env.clone()).unwrap();
 
         assert_eq!(result, Val::Int(42));
     }
@@ -207,8 +194,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(Default::default()));
-        let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
+        let result = program.execute_with_env(&mut env.clone()).unwrap();
 
         assert_eq!(result, Val::Str(Arc::from("success")));
     }
@@ -223,8 +209,7 @@ mod tests {
 
         let program = parse_program(program);
         let env = crate::stmt::Environment::new();
-        let ctx = Val::Map(Arc::new(Default::default()));
-        let result = program.execute_with_env(&ctx, &mut env.clone()).unwrap();
+        let result = program.execute_with_env(&mut env.clone()).unwrap();
 
         assert_eq!(result, Val::Str(Arc::from("success")));
     }
@@ -233,10 +218,10 @@ mod tests {
     fn test_destructuring_display_formatting() {
         // Test that destructuring statements display correctly
         let stmt = Stmt::Let {
-            pattern: crate::expr::Pattern::List {
+            pattern: Pattern::List {
                 patterns: vec![
-                    crate::expr::Pattern::Variable("first".to_string()),
-                    crate::expr::Pattern::Variable("second".to_string()),
+                    Pattern::Variable("first".to_string()),
+                    Pattern::Variable("second".to_string()),
                 ],
                 rest: Some("rest".to_string()),
             },
@@ -265,15 +250,12 @@ mod tests {
     fn test_destructuring_complex_pattern_display() {
         // Test complex pattern display
         let stmt = Stmt::Let {
-            pattern: crate::expr::Pattern::Map {
+            pattern: Pattern::Map {
                 patterns: vec![
-                    (
-                        "name".to_string(),
-                        crate::expr::Pattern::Variable("name".to_string()),
-                    ),
+                    ("name".to_string(), Pattern::Variable("name".to_string())),
                     (
                         "age".to_string(),
-                        crate::expr::Pattern::Range {
+                        Pattern::Range {
                             start: Box::new(Expr::Val(Val::Int(0))),
                             end: Box::new(Expr::Val(Val::Int(120))),
                             inclusive: true,

@@ -181,15 +181,9 @@ mod tests {
         let val = Val::from(map);
 
         // Test access
-        assert_eq!(
-            val.access(&Val::Str("name".into())),
-            Some(Val::Str("Alice".into()))
-        );
+        assert_eq!(val.access(&Val::Str("name".into())), Some(Val::Str("Alice".into())));
         assert_eq!(val.access(&Val::Str("age".into())), Some(Val::Int(30)));
-        assert_eq!(
-            val.access(&Val::Str("active".into())),
-            Some(Val::Bool(true))
-        );
+        assert_eq!(val.access(&Val::Str("active".into())), Some(Val::Bool(true)));
         assert_eq!(val.access(&Val::Str("nonexistent".into())), None);
     }
 
@@ -301,10 +295,7 @@ mod tests {
         let val = Val::from(map);
         let display = format!("{}", val);
         assert!(
-            display.contains("name")
-                && display.contains("Alice")
-                && display.contains("age")
-                && display.contains("30")
+            display.contains("name") && display.contains("Alice") && display.contains("age") && display.contains("30")
         );
     }
 
@@ -343,8 +334,7 @@ mod tests {
         ]);
         let val: Val = yaml_seq.into();
 
-        let expected =
-            Val::List(vec![Val::Int(1), Val::Str("hello".into()), Val::Bool(true)].into());
+        let expected = Val::List(vec![Val::Int(1), Val::Str("hello".into()), Val::Bool(true)].into());
 
         assert_eq!(val, expected);
     }
@@ -394,10 +384,7 @@ mod tests {
         // JSON detection
         assert_eq!(detect_format(r#"{"key": "value"}"#), Format::Json);
         assert_eq!(detect_format(r#"[1, 2, 3]"#), Format::Json);
-        assert_eq!(
-            detect_format(r#"{"nested": {"key": "value"}}"#),
-            Format::Json
-        );
+        assert_eq!(detect_format(r#"{"nested": {"key": "value"}}"#), Format::Json);
 
         // Edge cases
         assert_eq!(detect_format(""), Format::Json); // Empty defaults to JSON
@@ -417,17 +404,11 @@ mod tests {
         assert_eq!(detect_format("- item1\n- item2"), Format::Yaml);
         assert_eq!(detect_format("---\nkey: value"), Format::Yaml);
         assert_eq!(detect_format("key: value\n..."), Format::Yaml);
-        assert_eq!(
-            detect_format("multiline: |\n  line1\n  line2"),
-            Format::Yaml
-        );
+        assert_eq!(detect_format("multiline: |\n  line1\n  line2"), Format::Yaml);
         assert_eq!(detect_format("folded: >\n  line1\n  line2"), Format::Yaml);
 
         // Complex YAML
-        assert_eq!(
-            detect_format("person:\n  name: John\n  age: 30"),
-            Format::Yaml
-        );
+        assert_eq!(detect_format("person:\n  name: John\n  age: 30"), Format::Yaml);
         assert_eq!(detect_format("# Comment\nkey: value"), Format::Yaml);
     }
 
@@ -439,27 +420,18 @@ mod tests {
         // JSON detection
         assert_eq!(detect_format(r#"{"key": "value"}"#), Format::Json);
         assert_eq!(detect_format(r#"[1, 2, 3]"#), Format::Json);
-        assert_eq!(
-            detect_format(r#"{"nested": {"key": "value"}}"#),
-            Format::Json
-        );
+        assert_eq!(detect_format(r#"{"nested": {"key": "value"}}"#), Format::Json);
 
         // YAML detection
         assert_eq!(detect_format("key: value"), Format::Yaml);
         assert_eq!(detect_format("- item1\n- item2"), Format::Yaml);
         assert_eq!(detect_format("---\nkey: value"), Format::Yaml);
         assert_eq!(detect_format("key: value\n..."), Format::Yaml);
-        assert_eq!(
-            detect_format("multiline: |\n  line1\n  line2"),
-            Format::Yaml
-        );
+        assert_eq!(detect_format("multiline: |\n  line1\n  line2"), Format::Yaml);
         assert_eq!(detect_format("folded: >\n  line1\n  line2"), Format::Yaml);
 
         // Complex YAML
-        assert_eq!(
-            detect_format("person:\n  name: John\n  age: 30"),
-            Format::Yaml
-        );
+        assert_eq!(detect_format("person:\n  name: John\n  age: 30"), Format::Yaml);
         assert_eq!(detect_format("# Comment\nkey: value"), Format::Yaml);
 
         // Edge cases
@@ -478,10 +450,7 @@ mod tests {
         // Auto-detect JSON
         let json_input = r#"{"name": "Alice", "age": 30}"#;
         let result = parse_with_format(json_input, None).unwrap();
-        assert_eq!(
-            result.access(&Val::Str("name".into())),
-            Some(Val::Str("Alice".into()))
-        );
+        assert_eq!(result.access(&Val::Str("name".into())), Some(Val::Str("Alice".into())));
         assert_eq!(result.access(&Val::Str("age".into())), Some(Val::Int(30)));
 
         // Force JSON format
@@ -501,19 +470,13 @@ mod tests {
         // Auto-detect YAML
         let yaml_input = "name: Bob\nage: 25";
         let result = parse_with_format(yaml_input, None).unwrap();
-        assert_eq!(
-            result.access(&Val::Str("name".into())),
-            Some(Val::Str("Bob".into()))
-        );
+        assert_eq!(result.access(&Val::Str("name".into())), Some(Val::Str("Bob".into())));
         assert_eq!(result.access(&Val::Str("age".into())), Some(Val::Int(25)));
 
         // Force YAML format
         let yaml_input2 = "name: Dave\nage: 40";
         let result = parse_with_format(yaml_input2, Some(Format::Yaml)).unwrap();
-        assert_eq!(
-            result.access(&Val::Str("name".into())),
-            Some(Val::Str("Dave".into()))
-        );
+        assert_eq!(result.access(&Val::Str("name".into())), Some(Val::Str("Dave".into())));
     }
 
     #[test]
@@ -524,19 +487,13 @@ mod tests {
         // Auto-detect JSON
         let json_input = r#"{"name": "Alice", "age": 30}"#;
         let result = parse_with_format(json_input, None).unwrap();
-        assert_eq!(
-            result.access(&Val::Str("name".into())),
-            Some(Val::Str("Alice".into()))
-        );
+        assert_eq!(result.access(&Val::Str("name".into())), Some(Val::Str("Alice".into())));
         assert_eq!(result.access(&Val::Str("age".into())), Some(Val::Int(30)));
 
         // Auto-detect YAML
         let yaml_input = "name: Bob\nage: 25";
         let result = parse_with_format(yaml_input, None).unwrap();
-        assert_eq!(
-            result.access(&Val::Str("name".into())),
-            Some(Val::Str("Bob".into()))
-        );
+        assert_eq!(result.access(&Val::Str("name".into())), Some(Val::Str("Bob".into())));
         assert_eq!(result.access(&Val::Str("age".into())), Some(Val::Int(25)));
 
         // Force JSON format
@@ -550,9 +507,6 @@ mod tests {
         // Force YAML format
         let json_as_yaml = "name: Dave\nage: 40";
         let result = parse_with_format(json_as_yaml, Some(Format::Yaml)).unwrap();
-        assert_eq!(
-            result.access(&Val::Str("name".into())),
-            Some(Val::Str("Dave".into()))
-        );
+        assert_eq!(result.access(&Val::Str("name".into())), Some(Val::Str("Dave".into())));
     }
 }

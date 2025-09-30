@@ -279,12 +279,12 @@ impl StmtParser {
 在 `core/src/stmt.rs` 的 `Stmt::execute` 中添加：
 ```rust
 impl Stmt {
-    pub fn execute(&self, env: &mut Environment, ctx: &Val) -> Result<ControlFlow> {
+    pub fn execute(&self, env: &mut Environment) -> Result<ControlFlow> {
         match self {
             // ... 现有语句执行
             Stmt::For { pattern, iterable, body } => {
                 // 求值可迭代表达式
-                let iter_val = iterable.eval_with_env(ctx, Some(env))?;
+                let iter_val = iterable.eval_with_env(Some(env))?;
                 
                 // 获取迭代器
                 let iterator = create_iterator(&iter_val)?;
@@ -301,7 +301,7 @@ impl Stmt {
                     }
                     
                     // 执行循环体
-                    let result = body.execute(env, ctx);
+                    let result = body.execute(env);
                     env.pop_scope(); // 清理循环变量作用域
                     
                     match result? {
@@ -438,16 +438,16 @@ pub enum Expr {
 ### 5.2 范围求值
 ```rust
 impl Expr {
-    fn eval_with_env(&self, ctx: &Val, env: Option<&mut Environment>) -> Result<Val> {
+    fn eval_with_env(&self, env: Option<&mut Environment>) -> Result<Val> {
         match self {
             // ... 现有表达式求值
             Expr::Range { start, end, inclusive } => {
                 let start_val = match start {
-                    Some(expr) => expr.eval_with_env(ctx, env)?,
+                    Some(expr) => expr.eval_with_env(env)?,
                     None => Val::Int(0),
                 };
                 let end_val = match end {
-                    Some(expr) => expr.eval_with_env(ctx, env)?,
+                    Some(expr) => expr.eval_with_env(env)?,
                     None => return Err(anyhow!("Open-ended ranges not supported in for loops")),
                 };
                 

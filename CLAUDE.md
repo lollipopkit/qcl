@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-QCL (Query Check Language) is a domain-specific language for access control evaluation, written in Rust. It allows parsing and evaluating expressions like `req.user.role == 'admin' || req.user.id in record.granted` against JSON/YAML/TOML contexts. The project includes a core library, CLI tool, standard library modules, and a Language Server Protocol (LSP) implementation.
+QCL (Query Check Language) is a domain-specific language for access control evaluation, written in Rust. It allows parsing and evaluating expressions like `req.user.role == 'admin' || req.user.id in record.granted` over structured data you bind in the lexical environment (read via stdlib parsers for JSON/YAML/TOML). The project includes a core library, CLI tool, standard library modules, and a Language Server Protocol (LSP) implementation.
 
 ## Common Development Commands
 
@@ -17,7 +17,7 @@ QCL (Query Check Language) is a domain-specific language for access control eval
 ### Building
 
 - `cargo build --release` - Release build
-- `cargo run -p qcl-cli -- --expr <expression>` - Run CLI with expression (reads context from stdin)
+- `cargo run -p qcl-cli -- --expr <expression>` - Run CLI with expression
 - `cargo run -p qcl-cli -- --stmt <program>` - Run CLI with statement program
 - `cargo build -p qcl-lsp` - Build LSP server
 - `cargo run -p qcl-lsp` - Run LSP server
@@ -50,7 +50,7 @@ The project is organized as a Cargo workspace with the following members:
 3. **AST/Expression** (`core/src/expr.rs`) - Expression tree with evaluation logic and caching
 4. **Values** (`core/src/val.rs`) - Runtime value types (String, Int, Float, Bool, Nil, List, Map)
 5. **Operations** (`core/src/op.rs`) - Binary/unary operators with type coercion
-6. **Deserialization** (`core/src/de.rs`) - Context parsing from JSON/YAML/TOML
+6. **Deserialization** (`core/src/de.rs`) - Input parsing helpers (JSON/YAML/TOML)
 7. **Statements** (`core/src/stmt.rs`) - Statement AST nodes for control flow and functions
 8. **Statement Parser** (`core/src/stmt_parser.rs`) - Parser for statement programs
 9. **Import System** (`core/src/import.rs`) - Module import and resolution system
@@ -61,7 +61,7 @@ The project is organized as a Cargo workspace with the following members:
 ```
 Expression Mode:
 Input String -> Tokenizer -> Parser -> AST -> Evaluator -> Result
-Context (JSON/YAML/TOML) -> Deserializer -> Val -> Evaluator
+Program reads input via stdlib (io.read + parsers) and binds values in env
 
 Statement Mode:
 Input String -> Tokenizer -> Statement Parser -> Program AST -> Executor -> Result
@@ -106,17 +106,17 @@ block_stmt ::= '{' statement* '}'
 
 The `Expr::parse_cached()` method uses `once_cell::sync::Lazy` for caching parsed expressions globally.
 
-#### Context Access
+#### Identifier Access
 
-- Use plain identifiers to access context objects (e.g., `req.user.name`)
-- Context must be provided as `Val` (typically parsed from JSON/YAML/TOML)
-- Use `expr.requested_ctx()` to discover required context keys
+- Use plain identifiers to access values you bound in the lexical environment (e.g., `req.user.name`)
+- There is no implicit runtime context; read data with `io.read()` and parse using `json/yaml/toml` modules
+- Use `expr.requested_ctx()` to discover identifier roots referenced by an expression
 
 #### Feature Flags
 
-- `json` (default) - JSON context support
-- `yaml` - YAML context support  
-- `toml` - TOML context support
+- `json` (default) - JSON parsing helpers
+- `yaml` - YAML parsing helpers  
+- `toml` - TOML parsing helpers
 - `sem_arith` (default) - Semantic arithmetic (3/2 = 1.5)
 - `adv_arith` - Advanced arithmetic (Map + Map operations)
 
@@ -193,15 +193,15 @@ Some features are in development or experimental status:
 The project includes a complete LSP implementation (`lsp/`) that provides:
 
 - **Syntax Diagnostics**: Real-time error detection for QCL expressions and statement programs
-- **Hover Information**: Shows type information, context references, and symbol counts
-- **Code Completion**: Auto-complete for QCL keywords, operators, context variables, and standard library functions
+- **Hover Information**: Shows type information, identifier roots, and symbol counts
+- **Code Completion**: Auto-complete for QCL keywords, operators, common variables, and standard library functions
 - **Document Symbols**: Navigate through variables, functions, imports, and labels in QCL programs
-- **Context Analysis**: Detects and analyzes context variable usage (req, record, etc.)
+- **Identifier Analysis**: Detects and analyzes top-level identifier roots used (req, record, etc.)
 
 ### LSP Architecture
 
 - `main.rs`: Core LSP server implementation using tower-lsp
-- `analyzer.rs`: QCL language analysis engine that provides expression/statement parsing, symbol extraction, context reference collection, and diagnostic generation
+- `analyzer.rs`: QCL language analysis engine that provides expression/statement parsing, symbol extraction, identifier root collection, and diagnostic generation
 
 ### LSP Usage
 
@@ -222,28 +222,25 @@ cargo run -p qcl-lsp
 
 ## CLI Usage Pattern
 
-The binary reads context from stdin and supports both expression and statement modes:
+The binary supports both expression and statement modes. Read input explicitly inside your program via stdlib:
 
 ### Expression Mode
 ```bash
-echo '{"req": {"user": {"role": "admin"}}}' | cargo run -p qcl-cli -- --expr 'req.user.role == "admin"'
+echo '{"req": {"user": {"role": "admin"}}}' | cargo run -p qcl-cli -- --expr 'import io; import json; let d = json.parse(io.read()); d.req.user.role == "admin"'
 ```
 
 ### Statement Mode
 ```bash
-echo '{"req": {"user": {"role": "admin"}}}' | cargo run -p qcl-cli -- --stmt 'import math; let result = math.sqrt(req.user.level); return result;'
+echo '{"req": {"user": {"role": "admin"}}}' | cargo run -p qcl-cli -- --stmt 'import io; import json; let d = json.parse(io.read()); return d.req.user.role == "admin";'
 ```
 
 ### File Execution
 ```bash
 # Execute QCL file
 cargo run -- program.qcl
-
-# With explicit context format
-cargo run -- --json program.qcl
 ```
 
-Format can be explicitly specified with `--json`, `--yaml`, or `--toml` flags. The CLI auto-detects format based on available features and includes security measures for file path validation.
+Read and parse input within your program if needed (e.g., `io.read()` + `json.parse(...)`). File path handling is restricted to sanitized, relative paths.
 
 ## Security Features
 
@@ -289,4 +286,4 @@ Notable recent changes to the language:
 - **Enhanced**: String variable support and parsing improvements
 
 ## Note
-- stdin 传入的是 context, qcl-cli 后面传入的是 expr 或者 statement(依据 --expr / --stmt 区分)
+- 不再有隐式上下文：若需要输入，请在程序中使用 `io.read()` 读取并用 `json/yaml/toml` 解析，然后通过 `let`/参数/导入将值绑定到环境中。CLI 通过 `--expr`/`--stmt` 区分表达式与语句模式。

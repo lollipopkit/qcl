@@ -9,8 +9,7 @@ mod tests {
         // - '(3 + )' missing rhs before ')'
         // - '4 && * 5' invalid rhs after '&&'
         let input = "1 + * 2, (3 + ), 4 && * 5";
-        let (tokens, spans) =
-            Tokenizer::tokenize_enhanced_with_spans(input).expect("tokenize with spans");
+        let (tokens, spans) = Tokenizer::tokenize_enhanced_with_spans(input).expect("tokenize with spans");
 
         let errors = Parser::recover_expression_errors(&tokens, &spans, input);
         assert!(
@@ -28,8 +27,7 @@ mod tests {
         // Ensure logical/comparison operators act as soft boundaries so that
         // multiple local issues can be surfaced
         let input = "(1 + ) && (2 * ) || 3 =="; // missing operands in both groups
-        let (tokens, spans) =
-            Tokenizer::tokenize_enhanced_with_spans(input).expect("tokenize with spans");
+        let (tokens, spans) = Tokenizer::tokenize_enhanced_with_spans(input).expect("tokenize with spans");
 
         let errors = Parser::recover_expression_errors(&tokens, &spans, input);
         assert!(
@@ -44,22 +42,13 @@ mod tests {
     fn test_expr_recovery_numeric_path_segments_spans_aligned() {
         // Ensure token spans remain aligned when parsing numeric segments in identifier paths
         let input = "user.emails.0.company, data.1 + 2";
-        let (tokens, spans) =
-            Tokenizer::tokenize_enhanced_with_spans(input).expect("tokenize with spans");
+        let (tokens, spans) = Tokenizer::tokenize_enhanced_with_spans(input).expect("tokenize with spans");
 
         // Regression: tokens and spans must be same length (previously mismatched on ints)
-        assert_eq!(
-            tokens.len(),
-            spans.len(),
-            "tokens and spans length mismatch"
-        );
+        assert_eq!(tokens.len(), spans.len(), "tokens and spans length mismatch");
 
         // Should not produce expression errors for a valid expression
         let errors = Parser::recover_expression_errors(&tokens, &spans, input);
-        assert!(
-            errors.is_empty(),
-            "unexpected expression errors: {:?}",
-            errors
-        );
+        assert!(errors.is_empty(), "unexpected expression errors: {:?}", errors);
     }
 }

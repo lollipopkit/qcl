@@ -25,24 +25,15 @@ impl DateTimeModule {
         functions.insert("parse".to_string(), Val::RustFunction(Self::parse));
         functions.insert("add".to_string(), Val::RustFunction(Self::add_seconds));
         functions.insert("sub".to_string(), Val::RustFunction(Self::sub_seconds));
-        functions.insert(
-            "day_of_week".to_string(),
-            Val::RustFunction(Self::day_of_week),
-        );
-        functions.insert(
-            "day_of_year".to_string(),
-            Val::RustFunction(Self::day_of_year),
-        );
-        functions.insert(
-            "is_weekend".to_string(),
-            Val::RustFunction(Self::is_weekend),
-        );
+        functions.insert("day_of_week".to_string(), Val::RustFunction(Self::day_of_week));
+        functions.insert("day_of_year".to_string(), Val::RustFunction(Self::day_of_year));
+        functions.insert("is_weekend".to_string(), Val::RustFunction(Self::is_weekend));
 
         Self { functions }
     }
 
     /// Get current timestamp as Unix epoch
-    fn now(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn now(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if !args.is_empty() {
             return Err(anyhow::anyhow!("now() takes no arguments"));
         }
@@ -54,7 +45,7 @@ impl DateTimeModule {
     }
 
     /// Format timestamp to string
-    fn format(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn format(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!(
                 "format() takes exactly 2 arguments: timestamp and format_string"
@@ -64,9 +55,7 @@ impl DateTimeModule {
         let timestamp = match &args[0] {
             Val::Int(ts) => *ts,
             _ => {
-                return Err(anyhow::anyhow!(
-                    "first argument must be an integer timestamp"
-                ));
+                return Err(anyhow::anyhow!("first argument must be an integer timestamp"));
             }
         };
 
@@ -76,15 +65,14 @@ impl DateTimeModule {
         };
 
         use chrono::{DateTime, Utc};
-        let dt = DateTime::<Utc>::from_timestamp(timestamp, 0)
-            .ok_or_else(|| anyhow::anyhow!("invalid timestamp"))?;
+        let dt = DateTime::<Utc>::from_timestamp(timestamp, 0).ok_or_else(|| anyhow::anyhow!("invalid timestamp"))?;
 
         let formatted = dt.format(format_str).to_string();
         Ok(Val::Str(formatted.into()))
     }
 
     /// Parse string to timestamp
-    fn parse(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn parse(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!(
                 "parse() takes exactly 2 arguments: datetime_string and format_string"
@@ -110,7 +98,7 @@ impl DateTimeModule {
     }
 
     /// Add seconds to timestamp
-    fn add_seconds(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn add_seconds(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!(
                 "add_seconds() takes exactly 2 arguments: timestamp and seconds"
@@ -120,9 +108,7 @@ impl DateTimeModule {
         let timestamp = match &args[0] {
             Val::Int(ts) => *ts,
             _ => {
-                return Err(anyhow::anyhow!(
-                    "first argument must be an integer timestamp"
-                ));
+                return Err(anyhow::anyhow!("first argument must be an integer timestamp"));
             }
         };
 
@@ -135,7 +121,7 @@ impl DateTimeModule {
     }
 
     /// Subtract seconds from timestamp
-    fn sub_seconds(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn sub_seconds(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!(
                 "sub_seconds() takes exactly 2 arguments: timestamp and seconds"
@@ -144,9 +130,7 @@ impl DateTimeModule {
         let timestamp = match &args[0] {
             Val::Int(ts) => *ts,
             _ => {
-                return Err(anyhow::anyhow!(
-                    "first argument must be an integer timestamp"
-                ));
+                return Err(anyhow::anyhow!("first argument must be an integer timestamp"));
             }
         };
         let seconds = match &args[1] {
@@ -157,11 +141,9 @@ impl DateTimeModule {
     }
 
     /// Get day of week (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
-    fn day_of_week(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn day_of_week(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
-            return Err(anyhow::anyhow!(
-                "day_of_week() takes exactly 1 argument: timestamp"
-            ));
+            return Err(anyhow::anyhow!("day_of_week() takes exactly 1 argument: timestamp"));
         }
 
         let timestamp = match &args[0] {
@@ -170,8 +152,7 @@ impl DateTimeModule {
         };
 
         use chrono::{DateTime, Utc, Weekday};
-        let dt = DateTime::<Utc>::from_timestamp(timestamp, 0)
-            .ok_or_else(|| anyhow::anyhow!("invalid timestamp"))?;
+        let dt = DateTime::<Utc>::from_timestamp(timestamp, 0).ok_or_else(|| anyhow::anyhow!("invalid timestamp"))?;
 
         let day_num = match dt.weekday() {
             Weekday::Sun => 0,
@@ -187,11 +168,9 @@ impl DateTimeModule {
     }
 
     /// Get day of year (1-366)
-    fn day_of_year(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn day_of_year(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
-            return Err(anyhow::anyhow!(
-                "day_of_year() takes exactly 1 argument: timestamp"
-            ));
+            return Err(anyhow::anyhow!("day_of_year() takes exactly 1 argument: timestamp"));
         }
 
         let timestamp = match &args[0] {
@@ -200,18 +179,15 @@ impl DateTimeModule {
         };
 
         use chrono::{DateTime, Utc};
-        let dt = DateTime::<Utc>::from_timestamp(timestamp, 0)
-            .ok_or_else(|| anyhow::anyhow!("invalid timestamp"))?;
+        let dt = DateTime::<Utc>::from_timestamp(timestamp, 0).ok_or_else(|| anyhow::anyhow!("invalid timestamp"))?;
 
         Ok(Val::Int(dt.ordinal() as i64))
     }
 
     /// Check if date is weekend (Saturday or Sunday)
-    fn is_weekend(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn is_weekend(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
-            return Err(anyhow::anyhow!(
-                "is_weekend() takes exactly 1 argument: timestamp"
-            ));
+            return Err(anyhow::anyhow!("is_weekend() takes exactly 1 argument: timestamp"));
         }
 
         let timestamp = match &args[0] {
@@ -220,8 +196,7 @@ impl DateTimeModule {
         };
 
         use chrono::{DateTime, Utc, Weekday};
-        let dt = DateTime::<Utc>::from_timestamp(timestamp, 0)
-            .ok_or_else(|| anyhow::anyhow!("invalid timestamp"))?;
+        let dt = DateTime::<Utc>::from_timestamp(timestamp, 0).ok_or_else(|| anyhow::anyhow!("invalid timestamp"))?;
 
         let is_weekend = matches!(dt.weekday(), Weekday::Sat | Weekday::Sun);
         Ok(Val::Bool(is_weekend))
@@ -252,7 +227,6 @@ mod tests {
     use crate::register_stdlib_modules;
     use anyhow::Result;
     use qcl_core::{stmt::stmt_parser::StmtParser, token::Tokenizer, val::Val};
-    use std::sync::Arc;
 
     #[test]
     fn test_datetime_now() -> Result<()> {
@@ -260,7 +234,6 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(Default::default()));
 
         // Create registry and register stdlib modules
         let mut registry = qcl_core::module::ModuleRegistry::new();
@@ -270,7 +243,7 @@ mod tests {
         let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
 
-        let result = program.execute_with_env(&ctx, &mut env)?;
+        let result = program.execute_with_env(&mut env)?;
         if let Val::Int(timestamp) = result {
             assert!(timestamp > 0, "Timestamp should be positive");
         } else {
@@ -286,7 +259,6 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(Default::default()));
 
         // Create registry and register stdlib modules
         let mut registry = qcl_core::module::ModuleRegistry::new();
@@ -296,7 +268,7 @@ mod tests {
         let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
 
-        let result = program.execute_with_env(&ctx, &mut env)?;
+        let result = program.execute_with_env(&mut env)?;
         assert_eq!(result, Val::Str("2023-01-01".into()));
 
         Ok(())

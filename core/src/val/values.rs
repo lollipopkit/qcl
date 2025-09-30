@@ -18,7 +18,8 @@ use crate::{
 };
 
 /// Type for Rust functions that can be called from QCL
-pub type RustFunction = fn(args: &[Val], env: &stmt::Environment, ctx: &Val) -> Result<Val>;
+/// Context has been fully removed; functions receive only args and env.
+pub type RustFunction = fn(args: &[Val], env: &stmt::Environment) -> Result<Val>;
 
 #[derive(Debug, Default)]
 pub enum Val {
@@ -206,11 +207,7 @@ impl Type {
             let params: Vec<Type> = if params_str.is_empty() {
                 vec![]
             } else {
-                params_str
-                    .split(',')
-                    .map(str::trim)
-                    .filter_map(Type::parse)
-                    .collect()
+                params_str.split(',').map(str::trim).filter_map(Type::parse).collect()
             };
 
             // Handle specific generic types
@@ -222,10 +219,7 @@ impl Type {
                 }
                 "Map" => {
                     if params.len() == 2 {
-                        return Some(Type::Map(
-                            Box::new(params[0].clone()),
-                            Box::new(params[1].clone()),
-                        ));
+                        return Some(Type::Map(Box::new(params[0].clone()), Box::new(params[1].clone())));
                     }
                 }
                 "Task" => {
@@ -261,11 +255,7 @@ impl Type {
                     if inner.is_empty() {
                         vec![]
                     } else {
-                        inner
-                            .split(',')
-                            .map(str::trim)
-                            .filter_map(Type::parse)
-                            .collect()
+                        inner.split(',').map(str::trim).filter_map(Type::parse).collect()
                     }
                 } else {
                     vec![]
@@ -400,10 +390,7 @@ impl Type {
             Type::Any => "Any".to_string(),
             Type::List(elem) => format!("List<{}>", elem.display()),
             Type::Map(k, v) => format!("Map<{}, {}>", k.display(), v.display()),
-            Type::Function {
-                params,
-                return_type,
-            } => {
+            Type::Function { params, return_type } => {
                 let param_strs: Vec<String> = params.iter().map(|p| p.display()).collect();
                 format!("({}) -> {}", param_strs.join(", "), return_type.display())
             }
@@ -439,14 +426,10 @@ impl Type {
             // Union types: T is assignable to Union if T is assignable to any member
             (t, Type::Union(union_types)) => union_types.iter().any(|ut| t.is_assignable_to(ut)),
             // Union member is assignable to union
-            (Type::Union(union_types), target) => {
-                union_types.iter().all(|ut| ut.is_assignable_to(target))
-            }
+            (Type::Union(union_types), target) => union_types.iter().all(|ut| ut.is_assignable_to(target)),
             // Generic containers with covariant element types
             (Type::List(a), Type::List(b)) => a.is_assignable_to(b),
-            (Type::Map(ak, av), Type::Map(bk, bv)) => {
-                ak.is_assignable_to(bk) && av.is_assignable_to(bv)
-            }
+            (Type::Map(ak, av), Type::Map(bk, bv)) => ak.is_assignable_to(bk) && av.is_assignable_to(bv),
             // Function types (contravariant parameters, covariant return)
             (
                 Type::Function {
@@ -483,15 +466,13 @@ impl Type {
     pub fn contains_variables(&self) -> bool {
         match self {
             Type::Variable(_) => true,
-            Type::List(inner)
-            | Type::Optional(inner)
-            | Type::Task(inner)
-            | Type::Channel(inner) => inner.contains_variables(),
+            Type::List(inner) | Type::Optional(inner) | Type::Task(inner) | Type::Channel(inner) => {
+                inner.contains_variables()
+            }
             Type::Map(k, v) => k.contains_variables() || v.contains_variables(),
-            Type::Function {
-                params,
-                return_type,
-            } => params.iter().any(|p| p.contains_variables()) || return_type.contains_variables(),
+            Type::Function { params, return_type } => {
+                params.iter().any(|p| p.contains_variables()) || return_type.contains_variables()
+            }
             Type::Union(types) => types.iter().any(|t| t.contains_variables()),
             Type::Generic { params, .. } => params.iter().any(|p| p.contains_variables()),
             _ => false,
@@ -501,28 +482,20 @@ impl Type {
     /// Substitute type variables with concrete types
     pub fn substitute(&self, substitutions: &HashMap<String, Type>) -> Type {
         match self {
-            Type::Variable(name) => substitutions
-                .get(name)
-                .cloned()
-                .unwrap_or_else(|| self.clone()),
+            Type::Variable(name) => substitutions.get(name).cloned().unwrap_or_else(|| self.clone()),
             Type::List(inner) => Type::List(Box::new(inner.substitute(substitutions))),
             Type::Map(k, v) => Type::Map(
                 Box::new(k.substitute(substitutions)),
                 Box::new(v.substitute(substitutions)),
             ),
-            Type::Function {
-                params,
-                return_type,
-            } => Type::Function {
+            Type::Function { params, return_type } => Type::Function {
                 params: params.iter().map(|p| p.substitute(substitutions)).collect(),
                 return_type: Box::new(return_type.substitute(substitutions)),
             },
             Type::Optional(inner) => Type::Optional(Box::new(inner.substitute(substitutions))),
             Type::Task(inner) => Type::Task(Box::new(inner.substitute(substitutions))),
             Type::Channel(inner) => Type::Channel(Box::new(inner.substitute(substitutions))),
-            Type::Union(types) => {
-                Type::Union(types.iter().map(|t| t.substitute(substitutions)).collect())
-            }
+            Type::Union(types) => Type::Union(types.iter().map(|t| t.substitute(substitutions)).collect()),
             Type::Generic { name, params } => Type::Generic {
                 name: name.clone(),
                 params: params.iter().map(|p| p.substitute(substitutions)).collect(),
@@ -562,7 +535,7 @@ impl Val {
 
     /// Call this value as a function with the given arguments
     #[inline]
-    pub fn call(&self, args: &[Val], env: &stmt::Environment, ctx: &Val) -> Result<Val> {
+    pub fn call(&self, args: &[Val], env: &stmt::Environment) -> Result<Val> {
         match self {
             Val::Closure {
                 params,
@@ -618,9 +591,11 @@ impl Val {
                         c.compile_function(params, &*body)
                     });
                     // Acquire a VM from the thread-local pool if available
-                    let mut vm = VM_POOL.with(|cell| cell.borrow_mut().take()).unwrap_or_else(crate::vm::Vm::new);
+                    let mut vm = VM_POOL
+                        .with(|cell| cell.borrow_mut().take())
+                        .unwrap_or_else(crate::vm::Vm::new);
                     // Execute
-                    let res = vm.exec_with(fun, Some(&mut call_env), ctx, Some(args));
+                    let res = vm.exec_with(fun, Some(&mut call_env), Some(args));
                     // Return VM to pool regardless of result
                     VM_POOL.with(|cell| {
                         let _ = cell.borrow_mut().replace(vm);
@@ -630,9 +605,9 @@ impl Val {
                 #[cfg(not(feature = "vm"))]
                 let ret: Result<Val> = {
                     match &**body {
-                        stmt::Stmt::Expr(expr) => expr.eval_with_env(ctx, Some(&call_env)),
+                        stmt::Stmt::Expr(expr) => expr.eval_with_env(Some(&call_env)),
                         other => {
-                            let flow = other.execute(&mut call_env, ctx);
+                            let flow = other.execute(&mut call_env);
                             match flow? {
                                 stmt::ControlFlow::Return(val) => Ok(val),
                                 _ => Ok(Val::Nil), // Functions return nil by default
@@ -646,7 +621,7 @@ impl Val {
             }
             Val::RustFunction(func) => {
                 // Call the Rust function directly
-                func(args, env, ctx)
+                func(args, env)
             }
             _ => Err(anyhow!("{} is not a function", self.type_name())),
         }
@@ -658,7 +633,9 @@ impl Val {
             (Val::Map(m), Val::Str(s)) => m.get(s.as_ref()).cloned(),
             // String indexing and metadata
             (Val::Str(s), Val::Int(i)) => {
-                if *i < 0 { return None; }
+                if *i < 0 {
+                    return None;
+                }
                 let idx = *i as usize;
                 let ch = s.chars().nth(idx)?;
                 Some(Val::Str(ch.to_string().into()))
@@ -673,11 +650,15 @@ impl Val {
             (Val::Str(s), Val::Str(field)) if field.as_ref() == "len" => Some(Val::Int(s.len() as i64)),
             // Map index -> [key, value]
             (Val::Map(m), Val::Int(i)) => {
-                if *i < 0 { return None; }
+                if *i < 0 {
+                    return None;
+                }
                 let mut keys: Vec<&str> = m.keys().map(|k| k.as_ref()).collect();
                 keys.sort(); // stable order by key for deterministic iteration
                 let idx = *i as usize;
-                if idx >= keys.len() { return None; }
+                if idx >= keys.len() {
+                    return None;
+                }
                 let k = keys[idx];
                 let v = m.get(k)?.clone();
                 Some(Val::List(vec![Val::Str(k.to_string().into()), v].into()))
@@ -689,9 +670,7 @@ impl Val {
             },
             (
                 Val::Channel {
-                    capacity,
-                    inner_type,
-                    ..
+                    capacity, inner_type, ..
                 },
                 Val::Str(s),
             ) => match s.as_ref() {
@@ -828,13 +807,7 @@ impl Sub for &Val {
                     if r.iter().all(|v| matches!(v, Val::Str(_))) {
                         let set: HashSet<&str> = r
                             .iter()
-                            .filter_map(|v| {
-                                if let Val::Str(s) = v {
-                                    Some(s.as_ref())
-                                } else {
-                                    None
-                                }
-                            })
+                            .filter_map(|v| if let Val::Str(s) = v { Some(s.as_ref()) } else { None })
                             .collect();
                         let mut out = Vec::with_capacity(l.len());
                         for v in l.iter() {
@@ -1267,9 +1240,7 @@ impl Serialize for Val {
                 map.end()
             }
             Val::Channel {
-                capacity,
-                inner_type,
-                ..
+                capacity, inner_type, ..
             } => {
                 let mut map = serializer.serialize_map(Some(3))?;
                 map.serialize_entry("type", "channel")?;

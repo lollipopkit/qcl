@@ -16,14 +16,13 @@ impl Vm {
     }
 
     pub fn exec(&mut self, f: &Function) -> Result<Val> {
-        self.exec_with(f, None, &Val::Nil, None)
+        self.exec_with(f, None, None)
     }
 
     pub fn exec_with(
         &mut self,
         f: &Function,
         mut env: Option<&mut crate::stmt::Environment>,
-        ctx: &Val,
         args: Option<&[Val]>,
     ) -> Result<Val> {
         // Ensure capacity and initialize registers to Nil without reallocating where possible.
@@ -135,13 +134,12 @@ impl Vm {
                     pc += 1;
                 }
                 Op::LoadCtx(dst) => {
-                    regs[*dst as usize] = ctx.clone();
+                    // Context is removed; load Nil for backward compatibility
+                    regs[*dst as usize] = Val::Nil;
                     pc += 1;
                 }
                 Op::Access(dst, base, field) => {
-                    let res = regs[*base as usize]
-                        .access(&regs[*field as usize])
-                        .unwrap_or(Val::Nil);
+                    let res = regs[*base as usize].access(&regs[*field as usize]).unwrap_or(Val::Nil);
                     regs[*dst as usize] = res;
                     pc += 1;
                 }
@@ -159,13 +157,22 @@ impl Vm {
                 Op::Index { dst, base, idx } => {
                     let res = match (&regs[*base as usize], &regs[*idx as usize]) {
                         (Val::List(l), Val::Int(i)) => {
-                            if *i < 0 { None } else { l.get(*i as usize).cloned() }
+                            if *i < 0 {
+                                None
+                            } else {
+                                l.get(*i as usize).cloned()
+                            }
                         }
                         (Val::Str(s), Val::Int(i)) => {
-                            if *i < 0 { None } else { s.chars().nth(*i as usize).map(|c| Val::Str(c.to_string().into())) }
+                            if *i < 0 {
+                                None
+                            } else {
+                                s.chars().nth(*i as usize).map(|c| Val::Str(c.to_string().into()))
+                            }
                         }
                         _ => None,
-                    }.unwrap_or(Val::Nil);
+                    }
+                    .unwrap_or(Val::Nil);
                     regs[*dst as usize] = res;
                     pc += 1;
                 }
@@ -202,8 +209,7 @@ impl Vm {
                 Op::BuildMap { dst, base, len } => {
                     let start = *base as usize;
                     let n = *len as usize;
-                    let mut map: std::collections::HashMap<String, Val> =
-                        std::collections::HashMap::with_capacity(n);
+                    let mut map: std::collections::HashMap<String, Val> = std::collections::HashMap::with_capacity(n);
                     for i in 0..n {
                         let k = &regs[start + 2 * i];
                         let v = regs[start + 2 * i + 1].clone();
@@ -213,10 +219,7 @@ impl Vm {
                             Val::Float(f) => f.to_string(),
                             Val::Bool(b) => b.to_string(),
                             _ => {
-                                return Err(anyhow!(
-                                    "Map key must be a primitive type, got: {:?}",
-                                    k
-                                ));
+                                return Err(anyhow!("Map key must be a primitive type, got: {:?}", k));
                             }
                         };
                         map.insert(key_str, v);
@@ -225,17 +228,9 @@ impl Vm {
                     pc += 1;
                 }
                 Op::ListSlice { dst, src, start } => {
-                    let (list, start_idx) = match (
-                        &regs[*src as usize],
-                        &regs[*start as usize],
-                    ) {
+                    let (list, start_idx) = match (&regs[*src as usize], &regs[*start as usize]) {
                         (Val::List(l), Val::Int(i)) => (l, *i),
-                        (a, b) => {
-                            return Err(anyhow!(
-                                "ListSlice expects (List, Int), got ({:?}, {:?})",
-                                a, b
-                            ))
-                        }
+                        (a, b) => return Err(anyhow!("ListSlice expects (List, Int), got ({:?}, {:?})", a, b)),
                     };
                     if start_idx <= 0 {
                         regs[*dst as usize] = Val::List(list.clone());
@@ -259,10 +254,13 @@ impl Vm {
                     // Determine step at runtime based on start and limit if not explicit; integers only.
                     let (i0, ilim) = match (&regs[*idx as usize], &regs[*limit as usize]) {
                         (Val::Int(a), Val::Int(b)) => (*a, *b),
-                        _ => return Err(anyhow!(
-                            "For-range requires integer bounds, got idx={:?}, limit={:?}",
-                            regs[*idx as usize], regs[*limit as usize]
-                        )),
+                        _ => {
+                            return Err(anyhow!(
+                                "For-range requires integer bounds, got idx={:?}, limit={:?}",
+                                regs[*idx as usize],
+                                regs[*limit as usize]
+                            ));
+                        }
                     };
                     if !*explicit {
                         let step_val = if i0 <= ilim { 1 } else { -1 };
@@ -272,12 +270,7 @@ impl Vm {
                         match &regs[*step as usize] {
                             Val::Int(0) => return Err(anyhow!("For-range step cannot be zero")),
                             Val::Int(_) => {}
-                            other => {
-                                return Err(anyhow!(
-                                    "For-range step must be Int when explicit, got {:?}",
-                                    other
-                                ))
-                            }
+                            other => return Err(anyhow!("For-range step must be Int when explicit, got {:?}", other)),
                         }
                         // leave provided step as-is
                     }
@@ -291,29 +284,21 @@ impl Vm {
                     ofs,
                 } => {
                     // Guard: if not within range, jump to end
-                    let (i, lim, st) = match (
-                        &regs[*idx as usize],
-                        &regs[*limit as usize],
-                        &regs[*step as usize],
-                    ) {
+                    let (i, lim, st) = match (&regs[*idx as usize], &regs[*limit as usize], &regs[*step as usize]) {
                         (Val::Int(i), Val::Int(l), Val::Int(s)) => (*i, *l, *s),
-                        _ => return Err(anyhow!(
-                            "For-range guard expects Int registers, got idx={:?}, limit={:?}, step={:?}",
-                            regs[*idx as usize], regs[*limit as usize], regs[*step as usize]
-                        )),
+                        _ => {
+                            return Err(anyhow!(
+                                "For-range guard expects Int registers, got idx={:?}, limit={:?}, step={:?}",
+                                regs[*idx as usize],
+                                regs[*limit as usize],
+                                regs[*step as usize]
+                            ));
+                        }
                     };
                     let cont = if st > 0 {
-                        if *inclusive {
-                            i <= lim
-                        } else {
-                            i < lim
-                        }
+                        if *inclusive { i <= lim } else { i < lim }
                     } else {
-                        if *inclusive {
-                            i >= lim
-                        } else {
-                            i > lim
-                        }
+                        if *inclusive { i >= lim } else { i > lim }
                     };
                     if !cont {
                         pc = ((pc as isize) + (*ofs as isize)) as usize;
@@ -324,10 +309,13 @@ impl Vm {
                 Op::ForRangeStep { idx, step, back_ofs } => {
                     let (i, st) = match (&regs[*idx as usize], &regs[*step as usize]) {
                         (Val::Int(i), Val::Int(s)) => (*i, *s),
-                        _ => return Err(anyhow!(
-                            "For-range step expects Int registers, got idx={:?}, step={:?}",
-                            regs[*idx as usize], regs[*step as usize]
-                        )),
+                        _ => {
+                            return Err(anyhow!(
+                                "For-range step expects Int registers, got idx={:?}, step={:?}",
+                                regs[*idx as usize],
+                                regs[*step as usize]
+                            ));
+                        }
                     };
                     regs[*idx as usize] = Val::Int(i + st);
                     pc = ((pc as isize) + (*back_ofs as isize)) as usize;
@@ -376,8 +364,8 @@ impl Vm {
                     let args_slice: &[Val] = &regs[start..start + n];
                     let result = if let Some(e) = env.as_ref() {
                         match &func {
-                            Val::RustFunction(f) => f(args_slice, e, ctx),
-                            _ => func.call(args_slice, e, ctx),
+                            Val::RustFunction(f) => f(args_slice, e),
+                            _ => func.call(args_slice, e),
                         }
                     } else {
                         Err(anyhow!("Function call requires environment"))

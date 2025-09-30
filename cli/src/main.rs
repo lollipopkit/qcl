@@ -17,17 +17,14 @@ use qcl_core::rt;
 mod repl;
 
 fn read_file_content(path: &str) -> anyhow::Result<String> {
-    std::fs::read_to_string(path)
-        .map_err(|e| anyhow::anyhow!("Failed to read file '{}': {}", path, e))
+    std::fs::read_to_string(path).map_err(|e| anyhow::anyhow!("Failed to read file '{}': {}", path, e))
 }
 
 fn sanitize_rel_path(raw: &str) -> anyhow::Result<PathBuf> {
     let p = Path::new(raw);
     // Only allow strictly relative paths without any parent directory components
     if !p.is_relative() {
-        return Err(anyhow::anyhow!(
-            "Absolute paths are not allowed. Use a relative path."
-        ));
+        return Err(anyhow::anyhow!("Absolute paths are not allowed. Use a relative path."));
     }
 
     for comp in p.components() {
@@ -45,16 +42,11 @@ fn main() -> anyhow::Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
     // Print usage only when no args and not in a terminal
     if args.len() < 2 && !std::io::stdin().is_terminal() {
-        eprintln!(
-            "Usage: {} [--repl] [--expr|--stmt] [--vm] <expr|program|file>",
-            args[0]
-        );
+        eprintln!("Usage: {} [--repl] [--expr|--stmt] [--vm] <expr|program|file>", args[0]);
         eprintln!("  Default is expression mode, use --stmt for statement mode");
         eprintln!("  If a single argument is a file path, it will be executed");
         eprintln!("  Use --repl for interactive mode (or run with no args in a TTY)");
-        eprintln!(
-            "  Note: only relative, sanitized file paths are allowed (no '..', no absolute paths)"
-        );
+        eprintln!("  Note: only relative, sanitized file paths are allowed (no '..', no absolute paths)");
         std::process::exit(1);
     }
 
@@ -86,12 +78,9 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    // Context has been removed; programs should read from stdin explicitly via io.read()
-    let ctx: Val = Val::Nil;
-
     // If --repl specified, or no remaining args and in terminal, enter REPL
     if repl_mode || (arg_idx >= args.len() && std::io::stdin().is_terminal()) {
-        return repl::run(is_statement_mode, ctx);
+        return repl::run(is_statement_mode);
     }
 
     if arg_idx >= args.len() {
@@ -174,17 +163,17 @@ fn main() -> anyhow::Result<()> {
                 };
                 let func = qcl_core::vm::Compiler::new().compile_stmt(&block);
                 let mut vm = qcl_core::vm::Vm::new();
-                vm.exec_with(&func, Some(&mut env), &ctx, None)
+                vm.exec_with(&func, Some(&mut env), None)
             }
             #[cfg(not(feature = "vm"))]
             {
                 eprintln!(
                     "Warning: --vm specified but this binary was built without 'vm' feature; falling back to interpreter."
                 );
-                program.execute_with_env(&ctx, &mut env)
+                program.execute_with_env(&mut env)
             }
         } else {
-            program.execute_with_env(&ctx, &mut env)
+            program.execute_with_env(&mut env)
         };
         exec_result
     } else {
@@ -196,7 +185,7 @@ fn main() -> anyhow::Result<()> {
                 let compiler = qcl_core::vm::Compiler::new();
                 let func = compiler.compile_expr(&expr);
                 let mut vm = qcl_core::vm::Vm::new();
-                vm.exec_with(&func, None, &ctx, None)
+                vm.exec_with(&func, None, None)
             }
             #[cfg(not(feature = "vm"))]
             {
@@ -204,11 +193,11 @@ fn main() -> anyhow::Result<()> {
                     "Warning: --vm specified (or QCL_VM set) but this binary was built without 'vm' feature; using interpreter."
                 );
                 let expr = Expr::parse_cached_arc(&input)?;
-                expr.eval(&ctx)
+                expr.eval()
             }
         } else {
             let expr = Expr::parse_cached_arc(&input)?;
-            expr.eval(&ctx)
+            expr.eval()
         }
     };
 

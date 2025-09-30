@@ -146,8 +146,7 @@ mod tests {
         if let Err(e) = t {
             println!("Error message: {}", e.to_string());
             assert!(
-                e.to_string().contains("String not closed")
-                    || e.to_string().contains("Incomplete escape sequence")
+                e.to_string().contains("String not closed") || e.to_string().contains("Incomplete escape sequence")
             );
         }
     }
@@ -196,13 +195,7 @@ line2""#,
     #[test]
     fn keywords() {
         let t6 = Tokenizer::tokenize(">true false nil in");
-        let e6 = vec![
-            Token::Gt,
-            Token::Bool(true),
-            Token::Bool(false),
-            Token::Nil,
-            Token::In,
-        ];
+        let e6 = vec![Token::Gt, Token::Bool(true), Token::Bool(false), Token::Nil, Token::In];
         assert_eq!(t6.unwrap(), e6);
     }
 
@@ -558,8 +551,7 @@ line2""#,
 
     #[test]
     fn complex_list_map() {
-        let t =
-            Tokenizer::tokenize(r#"[{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]"#);
+        let t = Tokenizer::tokenize(r#"[{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]"#);
         let e = vec![
             Token::LBracket,
             Token::LBrace,

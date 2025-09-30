@@ -124,9 +124,7 @@ impl Tokenizer {
     }
 
     /// Tokenize and return tokens with precise spans aligned by index
-    pub fn tokenize_enhanced_with_spans(
-        s: &str,
-    ) -> std::result::Result<(Vec<Token>, Vec<Span>), ParseError> {
+    pub fn tokenize_enhanced_with_spans(s: &str) -> std::result::Result<(Vec<Token>, Vec<Span>), ParseError> {
         let mut t = Tokenizer::new_enhanced(s);
         match t.parse() {
             Ok(()) => Ok((t.tokens, t.token_spans)),
@@ -292,11 +290,7 @@ impl Tokenizer {
                     self.push_with_span(Token::Str(content), start_pos, end_pos);
                 }
                 return Ok(());
-            } else if !in_expr
-                && c == '$'
-                && self.idx + 1 < self.len
-                && self.chars[self.idx + 1] == '{'
-            {
+            } else if !in_expr && c == '$' && self.idx + 1 < self.len && self.chars[self.idx + 1] == '{' {
                 // Start of interpolation: ${...}
                 is_template = true;
                 content.push_str("${");
@@ -338,9 +332,7 @@ impl Tokenizer {
                     }
                     self.advance_char();
                 } else {
-                    return Err(anyhow!(
-                        self.err("Incomplete escape sequence at end of string")
-                    ));
+                    return Err(anyhow!(self.err("Incomplete escape sequence at end of string")));
                 }
             } else {
                 content.push(c);
@@ -513,9 +505,7 @@ impl Tokenizer {
         // If we didn't consume any character, report an unknown character to avoid
         // non-advancing loops that can blow up memory.
         if id.is_empty() {
-            return Err(anyhow!(
-                self.err("Invalid identifier start or unknown character")
-            ));
+            return Err(anyhow!(self.err("Invalid identifier start or unknown character")));
         }
         let end_pos = self.current_position();
         self.push_with_span(Token::Id(id), start_pos, end_pos);
@@ -850,12 +840,10 @@ impl Tokenizer {
                         Some(self.chars[prev_idx])
                     };
 
-                    let is_after_expr =
-                        matches!(prev_char, Some(')' | ']' | '}' | '"' | '\'' | '`'))
-                            || matches!(prev_char, Some(c) if c.is_alphanumeric());
+                    let is_after_expr = matches!(prev_char, Some(')' | ']' | '}' | '"' | '\'' | '`'))
+                        || matches!(prev_char, Some(c) if c.is_alphanumeric());
 
-                    let is_after_delim =
-                        matches!(prev_char, None | Some('=' | '(' | '{' | ',' | ';' | ':'));
+                    let is_after_delim = matches!(prev_char, None | Some('=' | '(' | '{' | ',' | ';' | ':'));
 
                     if is_after_delim && !is_after_expr {
                         // Empty-parameter closure context: emit two Pipe tokens with spans
@@ -1053,8 +1041,7 @@ impl Tokenizer {
                 // Keywords: true false nil if else while let break continue return goto fn for as ...
                 // Also: go, select/case/default
                 // NOTE: include starting letters for all keywords so they route to parse_keywords.
-                't' | 'f' | 'n' | 'i' | 'e' | 'w' | 'l' | 'b' | 'c' | 'g' | 's' | 'd' | 'a'
-                | 'm' => {
+                't' | 'f' | 'n' | 'i' | 'e' | 'w' | 'l' | 'b' | 'c' | 'g' | 's' | 'd' | 'a' | 'm' => {
                     self.parse_keywords()?;
                 }
                 _ => {

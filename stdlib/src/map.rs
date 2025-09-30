@@ -36,7 +36,7 @@ impl MapModule {
         Self { functions }
     }
 
-    fn len(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn len(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("len() takes exactly 1 argument"));
         }
@@ -46,7 +46,7 @@ impl MapModule {
         }
     }
 
-    fn keys(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn keys(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("keys() takes exactly 1 argument"));
         }
@@ -62,7 +62,7 @@ impl MapModule {
         }
     }
 
-    fn values(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn values(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("values() takes exactly 1 argument"));
         }
@@ -78,7 +78,7 @@ impl MapModule {
         }
     }
 
-    fn has(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn has(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!("has() takes exactly 2 arguments: map, key"));
         }
@@ -93,7 +93,7 @@ impl MapModule {
         Ok(Val::Bool(map.contains_key(key)))
     }
 
-    fn get(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+    fn get(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!("get() takes exactly 2 arguments: map, key"));
         }
@@ -140,13 +140,12 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = std::collections::HashMap::<String, Val>::new().into();
 
         let mut registry = qcl_core::module::ModuleRegistry::new();
         register_stdlib_modules(&mut registry);
         let resolver = Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
-        program.execute_with_env(&ctx, &mut env)
+        program.execute_with_env(&mut env)
     }
 
     #[test]
@@ -161,14 +160,8 @@ mod tests {
             _ => panic!("unexpected keys output: {}", keys),
         }
         // has/get
-        assert_eq!(
-            run("let m={\"a\":1}; return m.has(\"a\");")?,
-            Val::Bool(true)
-        );
-        assert_eq!(
-            run("let m={\"a\":1}; return m.has(\"b\");")?,
-            Val::Bool(false)
-        );
+        assert_eq!(run("let m={\"a\":1}; return m.has(\"a\");")?, Val::Bool(true));
+        assert_eq!(run("let m={\"a\":1}; return m.has(\"b\");")?, Val::Bool(false));
         assert_eq!(run("let m={\"a\":1}; return m.get(\"a\");")?, Val::Int(1));
         assert_eq!(run("let m={\"a\":1}; return m.get(\"b\");")?, Val::Nil);
         Ok(())

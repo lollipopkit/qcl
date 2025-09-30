@@ -4,42 +4,9 @@ use qcl_core::val::Val;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-// Prepare context data for benchmarking (contains various types)
-fn make_context() -> Val {
-    let mut ctx_map = HashMap::new();
-    // Basic values
-    ctx_map.insert("val_small".to_string(), Val::Int(11));
-    ctx_map.insert("val_large".to_string(), Val::Int(9999));
-    ctx_map.insert("x".to_string(), Val::Int(1));
-    // Lists (small and large)
-    ctx_map.insert(
-        "smalllist".to_string(),
-        (1..=10).map(Val::Int).collect::<Vec<_>>().into(),
-    );
-    ctx_map.insert(
-        "biglist".to_string(),
-        (0..1000).map(Val::Int).collect::<Vec<_>>().into(),
-    );
-    // Map and keys
-    ctx_map.insert("key".to_string(), Val::Str(Arc::from("key50")));
-    let mut bigmap_inner = HashMap::new();
-    for i in 0..100 {
-        bigmap_inner.insert(format!("key{}", i), Val::Int(i));
-    }
-    ctx_map.insert("bigmap".to_string(), bigmap_inner.into());
-    // Long string
-    let big_string = "a".repeat(1000) + "z";
-    ctx_map.insert(
-        "bigstr".to_string(),
-        Val::Str(Arc::from(big_string.as_str())),
-    );
-    ctx_map.into()
-}
-
 // Benchmark 1: Expression parsing performance (without cache vs with cache)
 fn bench_parsing(c: &mut Criterion) {
-    let expr_str =
-        "(user.age + 2) * (3 + 4) && user.name == \"Alice\" || [1, 2, 3].1 in [0, 1, 2]";
+    let expr_str = "(user.age + 2) * (3 + 4) && user.name == \"Alice\" || [1, 2, 3].1 in [0, 1, 2]";
 
     // Parsing without cache
     c.bench_function("parse_without_cache", |b| {
@@ -62,9 +29,7 @@ fn bench_parsing(c: &mut Criterion) {
 
 // Benchmark 2: Expression evaluation performance (constant folding vs no folding)
 fn bench_evaluation(c: &mut Criterion) {
-    let ctx = make_context();
-
-    // Build long expression: pure constants and containing context variables
+    // Build long expression: pure constants and containing variable references
     let expr_const_str = concat!(
         "1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + ",
         "11 + 12 + 13 + 14 + 15 + 16 + 17 + 18 + 19 + 20 + ",
@@ -86,23 +51,21 @@ fn bench_evaluation(c: &mut Criterion) {
     // Evaluate constant-folded expression
     c.bench_function("eval_constant_folded", |b| {
         b.iter(|| {
-            black_box(expr_constant.eval(&ctx).unwrap());
+            black_box(expr_constant.eval().unwrap());
         })
     });
 
     // Evaluate non-folded expression
     c.bench_function("eval_not_folded", |b| {
         b.iter(|| {
-            black_box(expr_nonconstant.eval(&ctx).unwrap());
+            black_box(expr_nonconstant.eval().unwrap());
         })
     });
 }
 
 // Benchmark 3: 'in' operator performance comparison (small list vs large list vs Map vs string)
 fn bench_in_operator(c: &mut Criterion) {
-    let ctx = make_context();
-
-    // Build test expressions containing 'in' (using predefined data in context)
+    // Build test expressions containing 'in' (using predefined variables)
     let expr_in_list_small = Expr::parse_cached_arc("val_small in smalllist").unwrap();
     let expr_in_list_large = Expr::parse_cached_arc("val_large in biglist").unwrap();
     let expr_in_map = Expr::parse_cached_arc("key in bigmap").unwrap();
@@ -111,28 +74,28 @@ fn bench_in_operator(c: &mut Criterion) {
     // Small list membership
     c.bench_function("in_list_small", |b| {
         b.iter(|| {
-            black_box(expr_in_list_small.eval(&ctx).unwrap());
+            black_box(expr_in_list_small.eval().unwrap());
         })
     });
 
     // Large list membership
     c.bench_function("in_list_large", |b| {
         b.iter(|| {
-            black_box(expr_in_list_large.eval(&ctx).unwrap());
+            black_box(expr_in_list_large.eval().unwrap());
         })
     });
 
     // Map key lookup
     c.bench_function("in_map_keys", |b| {
         b.iter(|| {
-            black_box(expr_in_map.eval(&ctx).unwrap());
+            black_box(expr_in_map.eval().unwrap());
         })
     });
 
     // String substring lookup
     c.bench_function("in_string", |b| {
         b.iter(|| {
-            black_box(expr_in_str.eval(&ctx).unwrap());
+            black_box(expr_in_str.eval().unwrap());
         })
     });
 }
@@ -325,8 +288,6 @@ fn bench_complex_arithmetic(c: &mut Criterion) {
     ctx_map.insert("map1".to_string(), Val::from(map1));
     ctx_map.insert("map2".to_string(), Val::from(map2));
 
-    let ctx = Val::from(ctx_map);
-
     // Complex arithmetic operations that trigger multiple clones
     let expr_list_ops = Expr::parse_cached_arc("list1 + list2 - [75, 76, 77]").unwrap();
     let expr_map_ops = Expr::parse_cached_arc("map1 + map2 - \"key25\"").unwrap();
@@ -334,21 +295,21 @@ fn bench_complex_arithmetic(c: &mut Criterion) {
 
     c.bench_function("complex_list_arithmetic", |b| {
         b.iter(|| {
-            let result = expr_list_ops.eval(&ctx).unwrap();
+            let result = expr_list_ops.eval().unwrap();
             black_box(result);
         })
     });
 
     c.bench_function("complex_map_arithmetic", |b| {
         b.iter(|| {
-            let result = expr_map_ops.eval(&ctx).unwrap();
+            let result = expr_map_ops.eval().unwrap();
             black_box(result);
         })
     });
 
     c.bench_function("complex_mixed_arithmetic", |b| {
         b.iter(|| {
-            let result = expr_mixed.eval(&ctx).unwrap();
+            let result = expr_mixed.eval().unwrap();
             black_box(result);
         })
     });

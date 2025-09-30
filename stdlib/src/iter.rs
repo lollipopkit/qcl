@@ -54,7 +54,7 @@ impl Module for IterModule {
 
 /// enumerate - 为序列添加索引
 /// enumerate([1, 2, 3]) => [[0, 1], [1, 2], [2, 3]]
-pub fn enumerate(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+pub fn enumerate(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("enumerate expects 1 argument, got {}", args.len()));
     }
@@ -76,15 +76,11 @@ pub fn enumerate(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -
 /// range(5) => [0, 1, 2, 3, 4]
 /// range(2, 5) => [2, 3, 4]
 /// range(0, 10, 2) => [0, 2, 4, 6, 8]
-pub fn range(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+pub fn range(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     let (start, end, step) = match args.len() {
         1 => (0, extract_int(&args[0])?, 1),
         2 => (extract_int(&args[0])?, extract_int(&args[1])?, 1),
-        3 => (
-            extract_int(&args[0])?,
-            extract_int(&args[1])?,
-            extract_int(&args[2])?,
-        ),
+        3 => (extract_int(&args[0])?, extract_int(&args[1])?, extract_int(&args[2])?),
         _ => return Err(anyhow!("range expects 1-3 arguments, got {}", args.len())),
     };
 
@@ -120,7 +116,7 @@ fn extract_int(val: &Val) -> Result<i64> {
 
 /// zip - pair elements from two lists by index
 /// zip([1,2], ["a","b","c"]) => [[1,"a"], [2,"b"]]
-pub fn zip(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+pub fn zip(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.len() != 2 {
         return Err(anyhow!("zip expects 2 arguments: list1, list2"));
     }
@@ -141,7 +137,7 @@ pub fn zip(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Resu
 }
 
 /// take - take first n elements from list
-pub fn take(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+pub fn take(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.len() != 2 {
         return Err(anyhow!("take expects 2 arguments: list, n"));
     }
@@ -158,7 +154,7 @@ pub fn take(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Res
 }
 
 /// skip - skip first n elements from list
-pub fn skip(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+pub fn skip(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.len() != 2 {
         return Err(anyhow!("skip expects 2 arguments: list, n"));
     }
@@ -175,7 +171,7 @@ pub fn skip(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Res
 }
 
 /// chain - concatenate two lists
-pub fn chain(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+pub fn chain(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.len() != 2 {
         return Err(anyhow!("chain expects 2 arguments: list1, list2"));
     }
@@ -194,7 +190,7 @@ pub fn chain(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Re
 }
 
 /// flatten - flatten one level of nesting in a list
-pub fn flatten(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+pub fn flatten(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("flatten expects 1 argument: list"));
     }
@@ -213,7 +209,7 @@ pub fn flatten(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> 
 }
 
 /// unique - remove duplicates (O(n^2), stable)
-pub fn unique(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+pub fn unique(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("unique expects 1 argument: list"));
     }
@@ -234,7 +230,7 @@ pub fn unique(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> R
 }
 
 /// chunk - split list into chunks of given positive size
-pub fn chunk(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+pub fn chunk(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.len() != 2 {
         return Err(anyhow!("chunk expects 2 arguments: list, size"));
     }
@@ -259,6 +255,7 @@ pub fn chunk(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Re
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use crate::register_stdlib_modules;
     use anyhow::Result;
@@ -269,13 +266,12 @@ mod tests {
         let tokens = Tokenizer::tokenize(source)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        let ctx = Val::Map(Arc::new(Default::default()));
 
         let mut registry = qcl_core::module::ModuleRegistry::new();
         register_stdlib_modules(&mut registry);
         let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
         let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
-        program.execute_with_env(&ctx, &mut env)
+        program.execute_with_env(&mut env)
     }
 
     #[test]
@@ -314,22 +310,12 @@ mod tests {
         // chain
         assert_eq!(
             run("import iter; return iter.chain([1,2], [3,4]);")?,
-            Val::List(Arc::from(vec![
-                Val::Int(1),
-                Val::Int(2),
-                Val::Int(3),
-                Val::Int(4)
-            ]))
+            Val::List(Arc::from(vec![Val::Int(1), Val::Int(2), Val::Int(3), Val::Int(4)]))
         );
         // flatten (one level)
         assert_eq!(
             run("import iter; return iter.flatten([[1,2],[3],4]);")?,
-            Val::List(Arc::from(vec![
-                Val::Int(1),
-                Val::Int(2),
-                Val::Int(3),
-                Val::Int(4)
-            ]))
+            Val::List(Arc::from(vec![Val::Int(1), Val::Int(2), Val::Int(3), Val::Int(4)]))
         );
         // unique (stable)
         assert_eq!(

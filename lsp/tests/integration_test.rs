@@ -13,7 +13,7 @@ use tower_lsp::lsp_types::*;
 pub struct AnalysisResult {
     pub diagnostics: Vec<Diagnostic>,
     pub symbols: Vec<DocumentSymbol>,
-    pub context_references: HashSet<String>,
+    pub identifier_roots: HashSet<String>,
 }
 
 #[derive(Default)]
@@ -28,7 +28,7 @@ impl QclAnalyzer {
         let mut result = AnalysisResult {
             diagnostics: Vec::new(),
             symbols: Vec::new(),
-            context_references: HashSet::new(),
+            identifier_roots: HashSet::new(),
         };
 
         // Try parsing as expression first
@@ -51,8 +51,8 @@ impl QclAnalyzer {
         let mut expr_parser = ExprParser::new(&tokens);
         match expr_parser.parse() {
             Ok(expr) => {
-                // Collect context references
-                result.context_references = expr.requested_ctx();
+                // Collect identifier roots
+                result.identifier_roots = expr.requested_ctx();
 
                 // Add expression symbol
                 let symbol = DocumentSymbol {
@@ -63,10 +63,7 @@ impl QclAnalyzer {
                     #[allow(deprecated)]
                     deprecated: None,
                     range: Range::new(Position::new(0, 0), Position::new(0, content.len() as u32)),
-                    selection_range: Range::new(
-                        Position::new(0, 0),
-                        Position::new(0, content.len() as u32),
-                    ),
+                    selection_range: Range::new(Position::new(0, 0), Position::new(0, content.len() as u32)),
                     children: None,
                 };
                 result.symbols.push(symbol);
@@ -76,7 +73,7 @@ impl QclAnalyzer {
                 let mut stmt_parser = StmtParser::new(&tokens);
                 match stmt_parser.parse_program() {
                     Ok(program) => {
-                        // Analyze statements for symbols and context references
+                        // Analyze statements for symbols and identifier roots
                         self.analyze_statements(&program.statements, &mut result);
                     }
                     Err(stmt_err) => {
@@ -86,10 +83,7 @@ impl QclAnalyzer {
                             Some(DiagnosticSeverity::ERROR),
                             None,
                             Some("qcl".to_string()),
-                            format!(
-                                "Parse error - Expression: {}, Statement: {}",
-                                expr_err, stmt_err
-                            ),
+                            format!("Parse error - Expression: {}, Statement: {}", expr_err, stmt_err),
                             None,
                             None,
                         ));
@@ -106,9 +100,7 @@ impl QclAnalyzer {
             match stmt.as_ref() {
                 Stmt::Let { pattern, .. } => {
                     // Extract variable names from pattern and create symbols for each
-                    if let Some(variables) =
-                        qcl_lsp::analyzer::extract_variables_from_pattern(pattern)
-                    {
+                    if let Some(variables) = qcl_lsp::analyzer::extract_variables_from_pattern(pattern) {
                         for var_name in variables {
                             result.symbols.push(DocumentSymbol {
                                 name: var_name.clone(),
@@ -117,14 +109,8 @@ impl QclAnalyzer {
                                 tags: None,
                                 #[allow(deprecated)]
                                 deprecated: None,
-                                range: Range::new(
-                                    Position::new(i as u32, 0),
-                                    Position::new(i as u32, 100),
-                                ),
-                                selection_range: Range::new(
-                                    Position::new(i as u32, 0),
-                                    Position::new(i as u32, 100),
-                                ),
+                                range: Range::new(Position::new(i as u32, 0), Position::new(i as u32, 100)),
+                                selection_range: Range::new(Position::new(i as u32, 0), Position::new(i as u32, 100)),
                                 children: None,
                             });
                         }
@@ -139,10 +125,7 @@ impl QclAnalyzer {
                         #[allow(deprecated)]
                         deprecated: None,
                         range: Range::new(Position::new(i as u32, 0), Position::new(i as u32, 100)),
-                        selection_range: Range::new(
-                            Position::new(i as u32, 0),
-                            Position::new(i as u32, 100),
-                        ),
+                        selection_range: Range::new(Position::new(i as u32, 0), Position::new(i as u32, 100)),
                         children: None,
                     });
                 }
@@ -168,10 +151,7 @@ impl QclAnalyzer {
                         #[allow(deprecated)]
                         deprecated: None,
                         range: Range::new(Position::new(i as u32, 0), Position::new(i as u32, 100)),
-                        selection_range: Range::new(
-                            Position::new(i as u32, 0),
-                            Position::new(i as u32, 100),
-                        ),
+                        selection_range: Range::new(Position::new(i as u32, 0), Position::new(i as u32, 100)),
                         children: None,
                     });
                 }
@@ -180,10 +160,10 @@ impl QclAnalyzer {
         }
     }
 
-    pub fn get_context_completions(&self, prefix: &str) -> Vec<CompletionItem> {
+    pub fn get_var_completions(&self, prefix: &str) -> Vec<CompletionItem> {
         let mut items = Vec::new();
 
-        // Common context patterns
+        // Common variable patterns
         let common_contexts = [
             ("req", "Request object"),
             ("req.user", "User information"),
@@ -263,8 +243,7 @@ impl TestLanguageServer {
         let content = &document.content;
 
         // Tokenize with spans; pick first non-whitespace token to emulate a hover position
-        let (tokens, spans) =
-            qcl_core::token::Tokenizer::tokenize_enhanced_with_spans(content).ok()?;
+        let (tokens, spans) = qcl_core::token::Tokenizer::tokenize_enhanced_with_spans(content).ok()?;
         let hover_idx = Self::first_non_ws_token_index(content, &spans)?;
         let text = Self::describe_token_hover_test(&tokens, hover_idx);
 
@@ -291,10 +270,7 @@ impl TestLanguageServer {
         // Legacy '@' context path hover removed
         match &tokens[idx] {
             T::Id(name) => {
-                let is_call = tokens
-                    .get(idx + 1)
-                    .map(|t| matches!(t, T::LParen))
-                    .unwrap_or(false);
+                let is_call = tokens.get(idx + 1).map(|t| matches!(t, T::LParen)).unwrap_or(false);
                 if is_call {
                     format!("Function call: {}(…)", name)
                 } else {
@@ -382,8 +358,8 @@ impl TestLanguageServer {
 
         // QCL keywords
         let keywords = [
-            "if", "else", "while", "let", "fn", "return", "break", "continue", "import", "from",
-            "as", "go", "select", "case", "default", "true", "false", "nil",
+            "if", "else", "while", "let", "fn", "return", "break", "continue", "import", "from", "as", "go", "select",
+            "case", "default", "true", "false", "nil",
         ];
 
         for keyword in keywords {
@@ -410,9 +386,9 @@ impl TestLanguageServer {
         items.push(CompletionItem {
             label: "req".to_string(),
             kind: Some(CompletionItemKind::VARIABLE),
-            detail: Some("Context root example".to_string()),
+            detail: Some("Identifier root example".to_string()),
             documentation: Some(Documentation::String(
-                "Access context variables (e.g., req.user.role)".to_string(),
+                "Access common variables (e.g., req.user.role)".to_string(),
             )),
             ..Default::default()
         });
@@ -468,9 +444,7 @@ async fn test_lsp_statement_validation() {
         }
     "#;
 
-    server
-        .open_document(uri.clone(), program.to_string(), 1)
-        .await;
+    server.open_document(uri.clone(), program.to_string(), 1).await;
     let diagnostics = server.validate_document(&uri).await;
     assert!(diagnostics.is_empty());
 
@@ -488,7 +462,7 @@ async fn test_lsp_hover_functionality() {
     let server = TestLanguageServer::new();
     let uri = Url::parse("file:///test.qcl").unwrap();
 
-    // Test hover with context references
+    // Test hover with identifier roots
     server
         .open_document(
             uri.clone(),
@@ -501,11 +475,9 @@ async fn test_lsp_hover_functionality() {
 
     let hover = hover.unwrap();
     if let HoverContents::Scalar(MarkedString::String(content)) = hover.contents {
-        // Should describe a token, not necessarily a context path
+        // Should describe a token, not necessarily a member path
         assert!(
-            content.contains("Identifier:")
-                || content.contains("Operator:")
-                || content.contains("String literal:")
+            content.contains("Identifier:") || content.contains("Operator:") || content.contains("String literal:")
         );
     } else {
         panic!("Expected string hover content");
@@ -517,9 +489,7 @@ async fn test_lsp_hover_functionality() {
         let result = math.sqrt(42);
         fn test() { return result; }
     "#;
-    server
-        .update_document(uri.clone(), program.to_string(), 2)
-        .await;
+    server.update_document(uri.clone(), program.to_string(), 2).await;
     let hover = server.get_hover_info(&uri).await;
     assert!(hover.is_some());
 
@@ -551,7 +521,7 @@ async fn test_lsp_completion_functionality() {
     assert!(labels.contains(&&"&&".to_string()));
     assert!(labels.contains(&&"||".to_string()));
 
-    // Check for context access root identifier (no legacy '@')
+    // Check for common access root identifier (no legacy '@')
     assert!(labels.contains(&&"req".to_string()));
 
     // Verify completion kinds
@@ -598,9 +568,7 @@ async fn test_lsp_document_symbols() {
         let final_result = main();
     "#;
 
-    server
-        .open_document(uri.clone(), program.to_string(), 1)
-        .await;
+    server.open_document(uri.clone(), program.to_string(), 1).await;
     let symbols = server.get_document_symbols(&uri).await;
     assert!(symbols.is_some());
 
@@ -615,32 +583,23 @@ async fn test_lsp_document_symbols() {
     assert!(symbol_names.contains(&&"main".to_string()));
 
     // Check symbol kinds
-    let import_symbols: Vec<_> = symbols
-        .iter()
-        .filter(|s| s.kind == SymbolKind::MODULE)
-        .collect();
+    let import_symbols: Vec<_> = symbols.iter().filter(|s| s.kind == SymbolKind::MODULE).collect();
     assert_eq!(import_symbols.len(), 2);
 
-    let function_symbols: Vec<_> = symbols
-        .iter()
-        .filter(|s| s.kind == SymbolKind::FUNCTION)
-        .collect();
+    let function_symbols: Vec<_> = symbols.iter().filter(|s| s.kind == SymbolKind::FUNCTION).collect();
     assert_eq!(function_symbols.len(), 2);
 
-    let variable_symbols: Vec<_> = symbols
-        .iter()
-        .filter(|s| s.kind == SymbolKind::VARIABLE)
-        .collect();
+    let variable_symbols: Vec<_> = symbols.iter().filter(|s| s.kind == SymbolKind::VARIABLE).collect();
     // Only top-level variables are detected in our simple analyzer
     assert!(variable_symbols.len() >= 2); // At least global_var and final_result
 }
 
 #[tokio::test]
-async fn test_lsp_context_completions() {
+async fn test_lsp_var_completions() {
     let analyzer = QclAnalyzer::new();
 
     // Test context completions with "req" prefix
-    let completions = analyzer.get_context_completions("req");
+    let completions = analyzer.get_var_completions("req");
     assert!(!completions.is_empty());
 
     let labels: Vec<&String> = completions.iter().map(|c| &c.label).collect();
@@ -697,9 +656,7 @@ async fn test_lsp_complex_program_analysis() {
         }
     "#;
 
-    server
-        .open_document(uri.clone(), complex_program.to_string(), 1)
-        .await;
+    server.open_document(uri.clone(), complex_program.to_string(), 1).await;
 
     // Test diagnostics - should be clean
     let diagnostics = server.validate_document(&uri).await;
@@ -729,7 +686,7 @@ async fn test_lsp_complex_program_analysis() {
     assert!(symbol_names.contains(&&"validate_access".to_string()));
     assert!(symbol_names.contains(&&"calculate_score".to_string()));
 
-    // Test hover - should detect context references or symbols
+    // Test hover - should detect identifier roots or symbols
     let hover = server.get_hover_info(&uri).await;
     assert!(hover.is_some());
 
@@ -739,7 +696,7 @@ async fn test_lsp_complex_program_analysis() {
         assert!(
             content.contains("Keyword:")
                 || content.contains("Identifier:")
-                || content.contains("Context path:")
+                || content.contains("Member path:")
                 || content.contains("Operator:")
                 || content.contains("String literal:")
         );
@@ -755,13 +712,10 @@ async fn test_lsp_error_recovery() {
 
     // Test various error conditions
     let error_cases = [
-        ("", vec![]), // Empty document should be fine
-        (
-            "req.user.role == 'unterminated",
-            vec![DiagnosticSeverity::ERROR],
-        ), // Tokenization error
-        ("let incomplete", vec![DiagnosticSeverity::ERROR]), // Incomplete statement
-        ("req.user.role == 'admin'", vec![]), // Valid expression should work
+        ("", vec![]),                                                        // Empty document should be fine
+        ("req.user.role == 'unterminated", vec![DiagnosticSeverity::ERROR]), // Tokenization error
+        ("let incomplete", vec![DiagnosticSeverity::ERROR]),                 // Incomplete statement
+        ("req.user.role == 'admin'", vec![]),                                // Valid expression should work
     ];
 
     for (i, (code, expected_severities)) in error_cases.iter().enumerate() {

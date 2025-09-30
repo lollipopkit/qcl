@@ -58,10 +58,7 @@ impl<'a> StmtParser<'a> {
     }
 
     /// Parse program with enhanced error reporting
-    pub fn parse_program_with_enhanced_errors(
-        &mut self,
-        input: &str,
-    ) -> std::result::Result<Program, ParseError> {
+    pub fn parse_program_with_enhanced_errors(&mut self, input: &str) -> std::result::Result<Program, ParseError> {
         let mut statements = Vec::new();
 
         while !self.eof() {
@@ -79,10 +76,7 @@ impl<'a> StmtParser<'a> {
                     if let Some(spans) = &self.token_spans
                         && self.pos < spans.len()
                     {
-                        return Err(ParseError::with_span(
-                            err.to_string(),
-                            spans[self.pos].clone(),
-                        ));
+                        return Err(ParseError::with_span(err.to_string(), spans[self.pos].clone()));
                     }
                     let position = offset_to_position(
                         input,
@@ -118,10 +112,7 @@ impl<'a> StmtParser<'a> {
 
     /// Recovering parse: continue after errors using simple synchronization points to collect multiple errors.
     /// Returns a flat list of statements (without label map validation) and a list of parse errors with spans.
-    pub fn parse_program_recovering_with_enhanced_errors(
-        &mut self,
-        input: &str,
-    ) -> (Vec<Box<Stmt>>, Vec<ParseError>) {
+    pub fn parse_program_recovering_with_enhanced_errors(&mut self, input: &str) -> (Vec<Box<Stmt>>, Vec<ParseError>) {
         let mut statements = Vec::new();
         let mut errors = Vec::new();
 
@@ -252,9 +243,7 @@ impl<'a> StmtParser<'a> {
             Token::LBrace => self.parse_block_stmt(),
             Token::Id(id) => {
                 // 优先解析短声明 `id := expr` 以避免与标签 `id:` 冲突
-                if self.peek_ahead(1) == Some(&Token::Colon)
-                    && self.peek_ahead(2) == Some(&Token::Assign)
-                {
+                if self.peek_ahead(1) == Some(&Token::Colon) && self.peek_ahead(2) == Some(&Token::Assign) {
                     self.parse_define_stmt_with_id(id.clone())
                 } else if self.peek_ahead(1) == Some(&Token::Assign) {
                     // 赋值 (id = expr;)
@@ -492,15 +481,11 @@ impl<'a> StmtParser<'a> {
                                 if !self.eof() && self.tokens[self.pos] == Token::RBracket {
                                     break;
                                 } else {
-                                    return Err(anyhow!(
-                                        self.err("No patterns allowed after rest pattern")
-                                    ));
+                                    return Err(anyhow!(self.err("No patterns allowed after rest pattern")));
                                 }
                             }
                             _ => {
-                                return Err(anyhow!(
-                                    self.err("Expected ']' or ',' after rest pattern")
-                                ));
+                                return Err(anyhow!(self.err("Expected ']' or ',' after rest pattern")));
                             }
                         }
                     } else {
@@ -948,10 +933,9 @@ impl<'a> StmtParser<'a> {
         }
 
         if std::mem::discriminant(&self.tokens[self.pos]) != std::mem::discriminant(&expected) {
-            return Err(anyhow!(self.err(&format!(
-                "Expected {:?}, found {:?}",
-                expected, self.tokens[self.pos]
-            ))));
+            return Err(anyhow!(
+                self.err(&format!("Expected {:?}, found {:?}", expected, self.tokens[self.pos]))
+            ));
         }
 
         self.pos += 1;
@@ -1272,8 +1256,7 @@ impl<'a> StmtParser<'a> {
         }
 
         let type_str = self.tokens_to_type_string(&tokens);
-        Type::parse(&type_str)
-            .ok_or_else(|| anyhow!(self.err(&format!("Invalid type: {}", type_str))))
+        Type::parse(&type_str).ok_or_else(|| anyhow!(self.err(&format!("Invalid type: {}", type_str))))
     }
 
     /// Parse a return type until the start of the function body '{' at zero depth.
@@ -1346,8 +1329,7 @@ impl<'a> StmtParser<'a> {
         }
 
         let type_str = self.tokens_to_type_string(&tokens);
-        Type::parse(&type_str)
-            .ok_or_else(|| anyhow!(self.err(&format!("Invalid return type: {}", type_str))))
+        Type::parse(&type_str).ok_or_else(|| anyhow!(self.err(&format!("Invalid return type: {}", type_str))))
     }
 
     fn err(&self, msg: &str) -> String {

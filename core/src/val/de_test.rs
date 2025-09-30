@@ -288,14 +288,8 @@ name = "test.txt"
                 }
 
                 if let Some(Val::Map(resource_map)) = req_map.get("resource") {
-                    assert_eq!(
-                        resource_map.get("type"),
-                        Some(&Val::Str(Arc::from("document")))
-                    );
-                    assert_eq!(
-                        resource_map.get("name"),
-                        Some(&Val::Str(Arc::from("test.txt")))
-                    );
+                    assert_eq!(resource_map.get("type"), Some(&Val::Str(Arc::from("document"))));
+                    assert_eq!(resource_map.get("name"), Some(&Val::Str(Arc::from("test.txt"))));
                 } else {
                     panic!("Expected resource map");
                 }
@@ -351,10 +345,7 @@ role = "user"
     fn test_detect_format_json() {
         assert_eq!(detect_format(r#"{"key": "value"}"#), Format::Json);
         assert_eq!(detect_format(r#"[1, 2, 3]"#), Format::Json);
-        assert_eq!(
-            detect_format(r#"{"nested": {"key": "value"}}"#),
-            Format::Json
-        );
+        assert_eq!(detect_format(r#"{"nested": {"key": "value"}}"#), Format::Json);
         assert_eq!(detect_format(""), Format::Json); // Empty defaults to JSON
     }
 
@@ -373,10 +364,7 @@ role = "user"
     fn test_detect_format_toml() {
         assert_eq!(detect_format("[section]\nkey = value"), Format::Toml);
         assert_eq!(detect_format("key = \"value\""), Format::Toml);
-        assert_eq!(
-            detect_format("number = 42\nstring = \"hello\""),
-            Format::Toml
-        );
+        assert_eq!(detect_format("number = 42\nstring = \"hello\""), Format::Toml);
         assert_eq!(detect_format("[[array]]\nname = \"test\""), Format::Toml);
         assert_eq!(detect_format("nested.key = \"value\""), Format::Toml);
     }
@@ -392,14 +380,8 @@ role = "user"
         assert_eq!(detect_format("key=value"), Format::Toml);
 
         // Complex nested structures
-        assert_eq!(
-            detect_format("user:\n  name: test\n  age: 25"),
-            Format::Yaml
-        );
-        assert_eq!(
-            detect_format("[user]\nname = \"test\"\nage = 25"),
-            Format::Toml
-        );
+        assert_eq!(detect_format("user:\n  name: test\n  age: 25"), Format::Yaml);
+        assert_eq!(detect_format("[user]\nname = \"test\"\nage = 25"), Format::Toml);
     }
 
     #[test]

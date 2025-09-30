@@ -59,10 +59,7 @@ impl TypeRegistry {
     /// Register a trait implementation
     pub fn register_trait_impl(&mut self, impl_def: TraitImpl) {
         let type_name = Self::type_to_string(&impl_def.target_type);
-        self.implementations
-            .entry(type_name)
-            .or_default()
-            .push(impl_def);
+        self.implementations.entry(type_name).or_default().push(impl_def);
     }
 
     /// Resolve a named type to its concrete type
@@ -84,9 +81,7 @@ impl TypeRegistry {
     pub fn implements_trait(&self, typ: &Type, trait_name: &str) -> bool {
         let type_name = Self::type_to_string(typ);
         if let Some(impls) = self.implementations.get(&type_name) {
-            impls
-                .iter()
-                .any(|impl_def| impl_def.trait_name == trait_name)
+            impls.iter().any(|impl_def| impl_def.trait_name == trait_name)
         } else {
             false
         }
@@ -122,11 +117,7 @@ impl TypeRegistry {
             Type::Bool => "Bool".to_string(),
             Type::Nil => "Nil".to_string(),
             Type::List(inner) => format!("List<{}>", Self::type_to_string(inner)),
-            Type::Map(k, v) => format!(
-                "Map<{}, {}>",
-                Self::type_to_string(k),
-                Self::type_to_string(v)
-            ),
+            Type::Map(k, v) => format!("Map<{}, {}>", Self::type_to_string(k), Self::type_to_string(v)),
             Type::Function { .. } => "Function".to_string(),
             Type::Task(inner) => format!("Task<{}>", Self::type_to_string(inner)),
             Type::Channel(inner) => format!("Channel<{}>", Self::type_to_string(inner)),
@@ -140,8 +131,7 @@ impl TypeRegistry {
                 if params.is_empty() {
                     name.clone()
                 } else {
-                    let param_names: Vec<String> =
-                        params.iter().map(Self::type_to_string).collect();
+                    let param_names: Vec<String> = params.iter().map(Self::type_to_string).collect();
                     format!("{}<{}>", name, param_names.join(", "))
                 }
             }
@@ -331,21 +321,14 @@ impl TypeInferenceEngine {
             // Variable unification
             (Type::Variable(var), typ) | (typ, Type::Variable(var)) => {
                 if Self::occurs_check(&var, &typ) {
-                    Err(anyhow!(
-                        "Occurs check failed: {} occurs in {}",
-                        var,
-                        typ.display()
-                    ))
+                    Err(anyhow!("Occurs check failed: {} occurs in {}", var, typ.display()))
                 } else {
                     // Apply the new substitution to existing substitutions
                     let new_substitution = typ.clone();
                     let mut updated_substitutions = HashMap::new();
                     for (existing_var, existing_type) in &self.substitutions {
-                        let updated_type = existing_type.substitute(
-                            &[(var.clone(), new_substitution.clone())]
-                                .into_iter()
-                                .collect(),
-                        );
+                        let updated_type =
+                            existing_type.substitute(&[(var.clone(), new_substitution.clone())].into_iter().collect());
                         updated_substitutions.insert(existing_var.clone(), updated_type);
                     }
                     // Apply to the substitution itself recursively
@@ -455,11 +438,7 @@ impl TypeInferenceEngine {
             }
 
             // Type mismatch
-            _ => Err(anyhow!(
-                "Cannot unify {} with {}",
-                t1.display(),
-                t2.display()
-            )),
+            _ => Err(anyhow!("Cannot unify {} with {}", t1.display(), t2.display())),
         }
     }
 
@@ -472,17 +451,12 @@ impl TypeInferenceEngine {
     fn occurs_check(var: &str, typ: &Type) -> bool {
         match typ {
             Type::Variable(v) => v == var,
-            Type::List(inner)
-            | Type::Optional(inner)
-            | Type::Task(inner)
-            | Type::Channel(inner) => Self::occurs_check(var, inner),
+            Type::List(inner) | Type::Optional(inner) | Type::Task(inner) | Type::Channel(inner) => {
+                Self::occurs_check(var, inner)
+            }
             Type::Map(k, v) => Self::occurs_check(var, k) || Self::occurs_check(var, v),
-            Type::Function {
-                params,
-                return_type,
-            } => {
-                params.iter().any(|p| Self::occurs_check(var, p))
-                    || Self::occurs_check(var, return_type)
+            Type::Function { params, return_type } => {
+                params.iter().any(|p| Self::occurs_check(var, p)) || Self::occurs_check(var, return_type)
             }
             Type::Union(types) => types.iter().any(|t| Self::occurs_check(var, t)),
             Type::Generic { params, .. } => params.iter().any(|p| Self::occurs_check(var, p)),

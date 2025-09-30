@@ -148,10 +148,7 @@ impl ModuleResolver {
             ));
         }
 
-        if path
-            .components()
-            .any(|c| matches!(c, std::path::Component::ParentDir))
-        {
+        if path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
             return Err(anyhow!(
                 "Parent directory components ('..') are not allowed in imports: {}",
                 path.display()
@@ -200,8 +197,7 @@ impl ModuleResolver {
         let src = std::fs::read_to_string(path)?;
 
         // Tokenize with spans for better diagnostics
-        let (tokens, spans) =
-            Tokenizer::tokenize_enhanced_with_spans(&src).map_err(|e| anyhow!(e.to_string()))?;
+        let (tokens, spans) = Tokenizer::tokenize_enhanced_with_spans(&src).map_err(|e| anyhow!(e.to_string()))?;
 
         // Parse program with enhanced errors
         let mut parser = StmtParser::new_with_spans(&tokens, &spans);
@@ -212,8 +208,7 @@ impl ModuleResolver {
         // Execute in a fresh environment that shares this resolver
         let resolver = std::sync::Arc::new(self.clone());
         let mut env = crate::stmt::Environment::with_resolver(resolver);
-        let ctx = Val::Nil;
-        let _ = program.execute_with_env(&ctx, &mut env)?;
+        let _ = program.execute_with_env(&mut env)?;
 
         // Collect top-level definitions as exports
         let exports = env.export_symbols();
@@ -252,10 +247,7 @@ impl ImportContext {
             ImportStmt::File { path } => {
                 let mod_def = resolver.resolve_file(path)?;
                 // Import file module as namespace using filename (without extension)
-                let module_name = Path::new(path)
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("module");
+                let module_name = Path::new(path).file_stem().and_then(|s| s.to_str()).unwrap_or("module");
                 self.symbols.insert(module_name.to_string(), mod_def);
             }
             ImportStmt::Items { items, source } => {
@@ -271,8 +263,7 @@ impl ImportContext {
                             .ok_or_else(|| anyhow!("Export '{}' not found in module", item.name))?;
 
                         let symbol_name = item.alias.as_ref().unwrap_or(&item.name);
-                        self.symbols
-                            .insert(symbol_name.clone(), export_value.clone());
+                        self.symbols.insert(symbol_name.clone(), export_value.clone());
                     }
                 }
             }
@@ -413,8 +404,7 @@ mod tests {
         // Execute with a resolver (search base is current directory only)
         let resolver = std::sync::Arc::new(ModuleResolver::new());
         let mut env = crate::stmt::Environment::with_resolver(resolver);
-        let ctx = Val::Nil;
-        let _ = program.execute_with_env(&ctx, &mut env)?;
+        let _ = program.execute_with_env(&mut env)?;
 
         // Validate
         let z = env.get("z").cloned().unwrap_or(Val::Nil);

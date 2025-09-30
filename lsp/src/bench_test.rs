@@ -68,11 +68,11 @@ mod bench_tests {
         let mut analyzer = QclAnalyzer::new();
 
         let start = Instant::now();
-        let _completions1 = analyzer.get_context_completions("req");
+        let _completions1 = analyzer.get_var_completions("req");
         let first_completion = start.elapsed();
 
         let start = Instant::now();
-        let _completions2 = analyzer.get_context_completions("req");
+        let _completions2 = analyzer.get_var_completions("req");
         let second_completion = start.elapsed();
 
         println!(

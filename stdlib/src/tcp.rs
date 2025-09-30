@@ -59,7 +59,7 @@ impl TcpModule {
     }
 
     /// Connect to a TCP server: tcp.connect(host, port) -> connection_id
-    fn connect(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
+    fn connect(args: &[Val], _env: &Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow!("connect requires 2 arguments: host, port"));
         }
@@ -75,8 +75,7 @@ impl TcpModule {
         };
 
         let addr = format!("{}:{}", host, port);
-        let stream = TcpStream::connect(&addr)
-            .map_err(|e| anyhow!("Failed to connect to {}: {}", addr, e))?;
+        let stream = TcpStream::connect(&addr).map_err(|e| anyhow!("Failed to connect to {}: {}", addr, e))?;
 
         let registry = TcpRegistry::get_global();
         let mut registry = registry.lock().unwrap();
@@ -88,7 +87,7 @@ impl TcpModule {
     }
 
     /// Bind a TCP listener: tcp.bind(host, port) -> listener_id
-    fn bind(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
+    fn bind(args: &[Val], _env: &Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow!("bind requires 2 arguments: host, port"));
         }
@@ -104,8 +103,7 @@ impl TcpModule {
         };
 
         let addr = format!("{}:{}", host, port);
-        let listener = StdTcpListener::bind(&addr)
-            .map_err(|e| anyhow!("Failed to bind to {}: {}", addr, e))?;
+        let listener = StdTcpListener::bind(&addr).map_err(|e| anyhow!("Failed to bind to {}: {}", addr, e))?;
 
         let registry = TcpRegistry::get_global();
         let mut registry = registry.lock().unwrap();
@@ -117,7 +115,7 @@ impl TcpModule {
     }
 
     /// Accept a connection from a listener: tcp.accept(listener_id) -> connection_id
-    fn accept(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
+    fn accept(args: &[Val], _env: &Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow!("accept requires 1 argument: listener_id"));
         }
@@ -148,11 +146,9 @@ impl TcpModule {
     }
 
     /// Read data from a connection: tcp.read(connection_id, [max_bytes]) -> string
-    fn read(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
+    fn read(args: &[Val], _env: &Environment) -> Result<Val> {
         if args.is_empty() || args.len() > 2 {
-            return Err(anyhow!(
-                "read requires 1-2 arguments: connection_id, [max_bytes]"
-            ));
+            return Err(anyhow!("read requires 1-2 arguments: connection_id, [max_bytes]"));
         }
 
         let conn_id = match &args[0] {
@@ -189,7 +185,7 @@ impl TcpModule {
     }
 
     /// Write data to a connection: tcp.write(connection_id, data) -> bytes_written
-    fn write(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
+    fn write(args: &[Val], _env: &Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow!("write requires 2 arguments: connection_id, data"));
         }
@@ -224,7 +220,7 @@ impl TcpModule {
     }
 
     /// Close a connection or listener: tcp.close(id) -> bool
-    fn close(args: &[Val], _env: &Environment, _ctx: &Val) -> Result<Val> {
+    fn close(args: &[Val], _env: &Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow!("close requires 1 argument: id"));
         }
@@ -237,8 +233,7 @@ impl TcpModule {
         let registry = TcpRegistry::get_global();
         let mut registry = registry.lock().unwrap();
 
-        let closed =
-            registry.connections.remove(&id).is_some() || registry.listeners.remove(&id).is_some();
+        let closed = registry.connections.remove(&id).is_some() || registry.listeners.remove(&id).is_some();
 
         Ok(Val::Bool(closed))
     }

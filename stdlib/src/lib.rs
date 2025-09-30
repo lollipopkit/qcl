@@ -2,17 +2,17 @@ pub mod concurrency_chan;
 pub mod concurrency_task;
 pub mod datetime;
 pub mod io;
-pub mod json;
 pub mod iter;
+pub mod json;
 pub mod list;
 pub mod map;
 pub mod math;
 pub mod os;
-pub mod toml;
 pub mod string;
-pub mod yaml;
 pub mod tcp;
 pub mod time;
+pub mod toml;
+pub mod yaml;
 
 #[cfg(test)]
 mod globals_test;
@@ -103,31 +103,19 @@ pub fn register_stdlib_globals(registry: &mut ModuleRegistry) {
         }
     }
 
-    fn print_fn(
-        args: &[Val],
-        _env: &qcl_core::stmt::Environment,
-        _ctx: &Val,
-    ) -> anyhow::Result<Val> {
+    fn print_fn(args: &[Val], _env: &qcl_core::stmt::Environment) -> anyhow::Result<Val> {
         let out = format_variadic(args);
         print!("{}", out);
         Ok(Val::Nil)
     }
 
-    fn println_fn(
-        args: &[Val],
-        _env: &qcl_core::stmt::Environment,
-        _ctx: &Val,
-    ) -> anyhow::Result<Val> {
+    fn println_fn(args: &[Val], _env: &qcl_core::stmt::Environment) -> anyhow::Result<Val> {
         let out = format_variadic(args);
         println!("{}", out);
         Ok(Val::Nil)
     }
 
-    fn panic_fn(
-        args: &[Val],
-        _env: &qcl_core::stmt::Environment,
-        _ctx: &Val,
-    ) -> anyhow::Result<Val> {
+    fn panic_fn(args: &[Val], _env: &qcl_core::stmt::Environment) -> anyhow::Result<Val> {
         // Compose message from all arguments for better diagnostics
         let mut msg = if args.is_empty() {
             "panic".to_string()

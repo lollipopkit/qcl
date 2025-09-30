@@ -65,7 +65,7 @@ impl TimeModule {
 }
 
 /// Sleep for the specified duration in milliseconds
-fn time_sleep(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+fn time_sleep(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("time::sleep() expects exactly 1 argument"));
     }
@@ -99,7 +99,7 @@ fn time_sleep(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> R
 }
 
 /// Create a timeout channel that fires after the specified duration
-fn time_timeout(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+fn time_timeout(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("time::timeout() expects exactly 1 argument"));
     }
@@ -155,7 +155,7 @@ fn time_timeout(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) ->
 }
 
 /// Create a one-shot timer that fires after the specified duration
-fn time_after(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+fn time_after(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("time::after() expects exactly 1 argument"));
     }
@@ -185,9 +185,7 @@ fn time_after(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> R
                     .unwrap()
                     .as_millis() as i64;
                 // Use a new runtime reference to send the time
-                match qcl_core::rt::with_runtime(|rt| {
-                    rt.try_send(timer_channel_id, Val::Int(current_time))
-                }) {
+                match qcl_core::rt::with_runtime(|rt| rt.try_send(timer_channel_id, Val::Int(current_time))) {
                     Ok(_success) => Ok(Val::Nil),
                     Err(e) => Err(anyhow!("Failed to send timer signal: {}", e)),
                 }
@@ -217,7 +215,7 @@ fn time_after(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> R
 }
 
 /// Get the current time in milliseconds since Unix epoch
-fn time_now(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+fn time_now(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if !args.is_empty() {
         return Err(anyhow!("time::now() expects no arguments"));
     }
@@ -231,7 +229,7 @@ fn time_now(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Res
 }
 
 /// Calculate the duration between two timestamps in milliseconds
-fn time_since(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+fn time_since(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.len() != 2 {
         return Err(anyhow!("time::since() expects exactly 2 arguments"));
     }

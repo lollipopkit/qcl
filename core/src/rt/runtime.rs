@@ -174,9 +174,7 @@ impl Runtime {
     pub fn try_send(&self, channel_id: u64, value: Val) -> Result<bool> {
         let (sender, closed_flag) = {
             let channels = self.channels.lock().unwrap();
-            let channel = channels
-                .get(&channel_id)
-                .ok_or_else(|| anyhow!("Channel not found"))?;
+            let channel = channels.get(&channel_id).ok_or_else(|| anyhow!("Channel not found"))?;
             (channel.sender.clone_sender(), channel.closed.clone())
         };
 
@@ -203,9 +201,7 @@ impl Runtime {
     pub async fn send_async(&self, channel_id: u64, value: Val) -> Result<bool> {
         let (sender, closed_flag) = {
             let channels = self.channels.lock().unwrap();
-            let channel = channels
-                .get(&channel_id)
-                .ok_or_else(|| anyhow!("Channel not found"))?;
+            let channel = channels.get(&channel_id).ok_or_else(|| anyhow!("Channel not found"))?;
             (channel.sender.clone_sender(), channel.closed.clone())
         };
 
@@ -231,9 +227,7 @@ impl Runtime {
     pub fn try_recv(&self, channel_id: u64) -> Result<Option<(bool, Val)>> {
         let (receiver_arc, closed_flag) = {
             let channels = self.channels.lock().unwrap();
-            let channel = channels
-                .get(&channel_id)
-                .ok_or_else(|| anyhow!("Channel not found"))?;
+            let channel = channels.get(&channel_id).ok_or_else(|| anyhow!("Channel not found"))?;
             (channel.receiver.clone(), channel.closed.clone())
         };
 
@@ -280,9 +274,7 @@ impl Runtime {
     pub async fn recv_async(&self, channel_id: u64) -> Result<(bool, Val)> {
         let (receiver_arc, closed_flag) = {
             let channels = self.channels.lock().unwrap();
-            let channel = channels
-                .get(&channel_id)
-                .ok_or_else(|| anyhow!("Channel not found"))?;
+            let channel = channels.get(&channel_id).ok_or_else(|| anyhow!("Channel not found"))?;
             (channel.receiver.clone(), channel.closed.clone())
         };
 
@@ -316,9 +308,7 @@ impl Runtime {
     pub async fn join_task(&self, task_id: u64) -> Result<Val> {
         let mut task = {
             let mut tasks = self.tasks.lock().unwrap();
-            tasks
-                .remove(&task_id)
-                .ok_or_else(|| anyhow!("Task not found"))?
+            tasks.remove(&task_id).ok_or_else(|| anyhow!("Task not found"))?
         };
 
         // If result is already available, return it
@@ -468,10 +458,7 @@ impl SelectOperation {
     }
 
     pub fn add_recv(&mut self, case_index: usize, channel_id: u64) {
-        self.arms.push(SelectArm::Recv {
-            case_index,
-            channel_id,
-        });
+        self.arms.push(SelectArm::Recv { case_index, channel_id });
     }
 
     pub fn add_send(&mut self, case_index: usize, channel_id: u64, value: Val) {
@@ -491,10 +478,7 @@ impl SelectOperation {
         // Try fast path first to avoid awaiting when an operation is ready
         for arm in &self.arms {
             match arm {
-                SelectArm::Recv {
-                    case_index,
-                    channel_id,
-                } => {
+                SelectArm::Recv { case_index, channel_id } => {
                     if let Some((ok, value)) = runtime.try_recv(*channel_id)? {
                         return Ok(SelectResult {
                             case_index: Some(*case_index),
@@ -545,10 +529,7 @@ impl SelectOperation {
 
         for arm in &self.arms {
             match arm.clone() {
-                SelectArm::Recv {
-                    case_index,
-                    channel_id,
-                } => {
+                SelectArm::Recv { case_index, channel_id } => {
                     let fut = async move {
                         let (ok, value) = runtime.recv_async(channel_id).await?;
                         Ok(SelectResult {

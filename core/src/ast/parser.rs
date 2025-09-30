@@ -1,5 +1,5 @@
 use crate::{
-    expr::{Expr, SelectCase, SelectPattern, TemplateStringPart},
+    expr::{Expr, Pattern, SelectCase, SelectPattern, TemplateStringPart},
     op::{BinOp, UnaryOp},
     token::{ParseError, Span, Token, Tokenizer, offset_to_position},
     val::Val,
@@ -31,10 +31,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse with enhanced error information that includes position
-    pub fn parse_with_enhanced_errors(
-        &mut self,
-        input: &str,
-    ) -> std::result::Result<Expr, ParseError> {
+    pub fn parse_with_enhanced_errors(&mut self, input: &str) -> std::result::Result<Expr, ParseError> {
         if self.eof() {
             return Ok(Expr::Val(Val::Nil));
         }
@@ -46,10 +43,7 @@ impl<'a> Parser<'a> {
                 if let Some(spans) = &self.token_spans
                     && self.pos < spans.len()
                 {
-                    return Err(ParseError::with_span(
-                        err.to_string(),
-                        spans[self.pos].clone(),
-                    ));
+                    return Err(ParseError::with_span(err.to_string(), spans[self.pos].clone()));
                 }
                 let position = offset_to_position(
                     input,
@@ -197,10 +191,7 @@ impl<'a> Parser<'a> {
     fn parse_range(&mut self) -> Result<Expr> {
         let mut expr = self.parse_add_sub()?;
 
-        if !self.eof()
-            && (self.tokens[self.pos] == Token::Range
-                || self.tokens[self.pos] == Token::RangeInclusive)
-        {
+        if !self.eof() && (self.tokens[self.pos] == Token::Range || self.tokens[self.pos] == Token::RangeInclusive) {
             let inclusive = self.tokens[self.pos] == Token::RangeInclusive;
             self.pos += 1; // consume '..' or '..='
 
@@ -240,12 +231,7 @@ impl<'a> Parser<'a> {
         }
         matches!(
             self.tokens[self.pos],
-            Token::RParen
-                | Token::RBrace
-                | Token::RBracket
-                | Token::Comma
-                | Token::Semicolon
-                | Token::In
+            Token::RParen | Token::RBrace | Token::RBracket | Token::Comma | Token::Semicolon | Token::In
         )
     }
 
@@ -551,10 +537,7 @@ impl<'a> Parser<'a> {
         }
         self.pos += 1;
 
-        Ok(Expr::ChanLiteral {
-            capacity,
-            type_expr,
-        })
+        Ok(Expr::ChanLiteral { capacity, type_expr })
     }
 
     /// Parse send expression: send(channel, value)
@@ -573,9 +556,7 @@ impl<'a> Parser<'a> {
         let channel = self.parse_expr()?;
 
         if self.eof() || self.tokens[self.pos] != Token::Comma {
-            return Err(anyhow!(
-                self.err("Expecting ',' after channel in send expression")
-            ));
+            return Err(anyhow!(self.err("Expecting ',' after channel in send expression")));
         }
         self.pos += 1;
 
@@ -673,10 +654,7 @@ impl<'a> Parser<'a> {
         }
         self.pos += 1;
 
-        Ok(Expr::Select {
-            cases,
-            default_case,
-        })
+        Ok(Expr::Select { cases, default_case })
     }
 
     /// Parse match expression: match value { pattern => expr, ... }
@@ -712,10 +690,7 @@ impl<'a> Parser<'a> {
             arms.push(crate::expr::MatchArm { pattern, body });
 
             // Handle optional comma/semicolon between arms
-            if !self.eof()
-                && (self.tokens[self.pos] == Token::Comma
-                    || self.tokens[self.pos] == Token::Semicolon)
-            {
+            if !self.eof() && (self.tokens[self.pos] == Token::Comma || self.tokens[self.pos] == Token::Semicolon) {
                 self.pos += 1;
             }
         }
@@ -726,21 +701,19 @@ impl<'a> Parser<'a> {
         self.pos += 1;
 
         if arms.is_empty() {
-            return Err(anyhow!(
-                self.err("Match expression must have at least one arm")
-            ));
+            return Err(anyhow!(self.err("Match expression must have at least one arm")));
         }
 
         Ok(Expr::Match { value, arms })
     }
 
     /// Parse a pattern for match expressions
-    pub fn parse_pattern(&mut self) -> Result<crate::expr::Pattern> {
+    pub fn parse_pattern(&mut self) -> Result<Pattern> {
         self.parse_or_pattern()
     }
 
     /// Parse OR pattern: pattern1 | pattern2
-    fn parse_or_pattern(&mut self) -> Result<crate::expr::Pattern> {
+    fn parse_or_pattern(&mut self) -> Result<Pattern> {
         let mut patterns = vec![self.parse_guard_pattern()?];
 
         while !self.eof() && self.tokens[self.pos] == Token::Pipe {
@@ -751,18 +724,18 @@ impl<'a> Parser<'a> {
         if patterns.len() == 1 {
             Ok(patterns.into_iter().next().unwrap())
         } else {
-            Ok(crate::expr::Pattern::Or(patterns))
+            Ok(Pattern::Or(patterns))
         }
     }
 
     /// Parse pattern with optional guard: pattern if expr
-    fn parse_guard_pattern(&mut self) -> Result<crate::expr::Pattern> {
+    fn parse_guard_pattern(&mut self) -> Result<Pattern> {
         let pattern = self.parse_primary_pattern()?;
 
         if !self.eof() && self.tokens[self.pos] == Token::If {
             self.pos += 1; // Skip if
             let guard = Box::new(self.parse_conditional()?);
-            Ok(crate::expr::Pattern::Guard {
+            Ok(Pattern::Guard {
                 pattern: Box::new(pattern),
                 guard,
             })
@@ -772,7 +745,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse primary pattern: literals, variables, destructuring
-    fn parse_primary_pattern(&mut self) -> Result<crate::expr::Pattern> {
+    fn parse_primary_pattern(&mut self) -> Result<Pattern> {
         if self.eof() {
             return Err(anyhow!(self.err("Unexpected end of input in pattern")));
         }
@@ -785,20 +758,19 @@ impl<'a> Parser<'a> {
 
                 // Check if this is a range pattern
                 if !self.eof()
-                    && (self.tokens[self.pos] == Token::Range
-                        || self.tokens[self.pos] == Token::RangeInclusive)
+                    && (self.tokens[self.pos] == Token::Range || self.tokens[self.pos] == Token::RangeInclusive)
                 {
                     let inclusive = self.tokens[self.pos] == Token::RangeInclusive;
                     self.pos += 1;
                     let end_expr = Box::new(self.parse_conditional()?);
 
-                    Ok(crate::expr::Pattern::Range {
+                    Ok(Pattern::Range {
                         start: Box::new(Expr::Val(Val::Int(start_val))),
                         end: end_expr,
                         inclusive,
                     })
                 } else {
-                    Ok(crate::expr::Pattern::Literal(Val::Int(start_val)))
+                    Ok(Pattern::Literal(Val::Int(start_val)))
                 }
             }
             Token::Float(f) => {
@@ -806,47 +778,46 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
                 // Check if this is a range pattern
                 if !self.eof()
-                    && (self.tokens[self.pos] == Token::Range
-                        || self.tokens[self.pos] == Token::RangeInclusive)
+                    && (self.tokens[self.pos] == Token::Range || self.tokens[self.pos] == Token::RangeInclusive)
                 {
                     let inclusive = self.tokens[self.pos] == Token::RangeInclusive;
                     self.pos += 1;
                     let end_expr = Box::new(self.parse_conditional()?);
-                    Ok(crate::expr::Pattern::Range {
+                    Ok(Pattern::Range {
                         start: Box::new(Expr::Val(Val::Float(start_val))),
                         end: end_expr,
                         inclusive,
                     })
                 } else {
-                    Ok(crate::expr::Pattern::Literal(Val::Float(start_val)))
+                    Ok(Pattern::Literal(Val::Float(start_val)))
                 }
             }
             Token::Str(s) => {
                 let val = Val::Str(Arc::from(s.clone()));
                 self.pos += 1;
-                Ok(crate::expr::Pattern::Literal(val))
+                Ok(Pattern::Literal(val))
             }
             Token::Bool(b) => {
                 let val = Val::Bool(*b);
                 self.pos += 1;
-                Ok(crate::expr::Pattern::Literal(val))
+                Ok(Pattern::Literal(val))
             }
             Token::Nil => {
                 self.pos += 1;
-                Ok(crate::expr::Pattern::Literal(Val::Nil))
+                Ok(Pattern::Literal(Val::Nil))
             }
 
             // Wildcard pattern
             Token::Id(name) if name == "_" => {
                 self.pos += 1;
-                Ok(crate::expr::Pattern::Wildcard)
+                Ok(Pattern::Wildcard)
             }
 
             // Variable pattern
             Token::Id(name) => {
                 let name = name.clone();
                 self.pos += 1;
-                Ok(crate::expr::Pattern::Variable(name))
+                Ok(Pattern::Variable(name))
             }
 
             // List pattern: [pattern1, pattern2, ..rest]
@@ -863,9 +834,7 @@ impl<'a> Parser<'a> {
                             rest = Some(rest_name.clone());
                             self.pos += 1;
                         } else {
-                            return Err(anyhow!(
-                                self.err("Expecting identifier after '..' in list pattern")
-                            ));
+                            return Err(anyhow!(self.err("Expecting identifier after '..' in list pattern")));
                         }
                         break;
                     } else {
@@ -882,7 +851,7 @@ impl<'a> Parser<'a> {
                 }
                 self.pos += 1;
 
-                Ok(crate::expr::Pattern::List { patterns, rest })
+                Ok(Pattern::List { patterns, rest })
             }
 
             // Map pattern: {"key": pattern, "other": var, ..rest}
@@ -899,9 +868,7 @@ impl<'a> Parser<'a> {
                             rest = Some(rest_name.clone());
                             self.pos += 1;
                         } else {
-                            return Err(anyhow!(
-                                self.err("Expecting identifier after '..' in map pattern")
-                            ));
+                            return Err(anyhow!(self.err("Expecting identifier after '..' in map pattern")));
                         }
                         break;
                     } else {
@@ -910,17 +877,13 @@ impl<'a> Parser<'a> {
                             Token::Str(s) => s.clone(),
                             Token::Id(s) => s.clone(),
                             _ => {
-                                return Err(anyhow!(
-                                    self.err("Expecting string or identifier as map key")
-                                ));
+                                return Err(anyhow!(self.err("Expecting string or identifier as map key")));
                             }
                         };
                         self.pos += 1;
 
                         if self.eof() || self.tokens[self.pos] != Token::Colon {
-                            return Err(anyhow!(
-                                self.err("Expecting ':' after map key in pattern")
-                            ));
+                            return Err(anyhow!(self.err("Expecting ':' after map key in pattern")));
                         }
                         self.pos += 1;
 
@@ -938,7 +901,7 @@ impl<'a> Parser<'a> {
                 }
                 self.pos += 1;
 
-                Ok(crate::expr::Pattern::Map { patterns, rest })
+                Ok(Pattern::Map { patterns, rest })
             }
 
             // Unknown pattern
@@ -976,18 +939,14 @@ impl<'a> Parser<'a> {
             let binding_value = binding;
             self.pos += 1;
             if self.eof() || self.tokens[self.pos] != Token::LParen {
-                return Err(anyhow!(
-                    self.err("Expecting '(' after 'recv' in case pattern")
-                ));
+                return Err(anyhow!(self.err("Expecting '(' after 'recv' in case pattern")));
             }
             self.pos += 1;
 
             let channel = self.parse_expr()?;
 
             if self.eof() || self.tokens[self.pos] != Token::RParen {
-                return Err(anyhow!(
-                    self.err("Expecting ')' after channel in recv pattern")
-                ));
+                return Err(anyhow!(self.err("Expecting ')' after channel in recv pattern")));
             }
             self.pos += 1;
 
@@ -1001,27 +960,21 @@ impl<'a> Parser<'a> {
             }
             self.pos += 1;
             if self.eof() || self.tokens[self.pos] != Token::LParen {
-                return Err(anyhow!(
-                    self.err("Expecting '(' after 'send' in case pattern")
-                ));
+                return Err(anyhow!(self.err("Expecting '(' after 'send' in case pattern")));
             }
             self.pos += 1;
 
             let channel = self.parse_expr()?;
 
             if self.eof() || self.tokens[self.pos] != Token::Comma {
-                return Err(anyhow!(
-                    self.err("Expecting ',' after channel in send pattern")
-                ));
+                return Err(anyhow!(self.err("Expecting ',' after channel in send pattern")));
             }
             self.pos += 1;
 
             let value = self.parse_expr()?;
 
             if self.eof() || self.tokens[self.pos] != Token::RParen {
-                return Err(anyhow!(
-                    self.err("Expecting ')' after value in send pattern")
-                ));
+                return Err(anyhow!(self.err("Expecting ')' after value in send pattern")));
             }
             self.pos += 1;
 
@@ -1074,26 +1027,23 @@ impl<'a> Parser<'a> {
                     // End of ${...} expression
                     let expr_content = &content[expr_start..pos];
                     if !expr_content.is_empty() {
-                        let expr_tokens =
-                            match Tokenizer::tokenize_enhanced(expr_content) {
-                                Ok(tokens) => tokens,
-                                Err(e) => {
-                                    return Err(anyhow!(self.err(&format!(
-                                        "Failed to parse template expression: {}",
-                                        e
-                                    ))));
-                                }
-                            };
+                        let expr_tokens = match Tokenizer::tokenize_enhanced(expr_content) {
+                            Ok(tokens) => tokens,
+                            Err(e) => {
+                                return Err(anyhow!(
+                                    self.err(&format!("Failed to parse template expression: {}", e))
+                                ));
+                            }
+                        };
 
                         if !expr_tokens.is_empty() {
                             let mut expr_parser = Parser::new(&expr_tokens);
                             match expr_parser.parse_expr() {
                                 Ok(expr) => parts.push(TemplateStringPart::Expr(Box::new(expr))),
                                 Err(e) => {
-                                    return Err(anyhow!(self.err(&format!(
-                                        "Failed to parse template expression: {}",
-                                        e
-                                    ))));
+                                    return Err(anyhow!(
+                                        self.err(&format!("Failed to parse template expression: {}", e))
+                                    ));
                                 }
                             }
                         }
@@ -1103,18 +1053,13 @@ impl<'a> Parser<'a> {
                 } else {
                     pos += 1;
                 }
-            } else if c == '$'
-                && pos + 1 < content.len()
-                && content.chars().nth(pos + 1) == Some('{')
-            {
+            } else if c == '$' && pos + 1 < content.len() && content.chars().nth(pos + 1) == Some('{') {
                 // Start of original ${expr} syntax
                 pos += 2; // skip '${'
 
                 // Push the current literal if not empty
                 if !current_literal.is_empty() {
-                    parts.push(TemplateStringPart::Literal(std::mem::take(
-                        &mut current_literal,
-                    )));
+                    parts.push(TemplateStringPart::Literal(std::mem::take(&mut current_literal)));
                 }
 
                 in_expr = true;
@@ -1367,8 +1312,7 @@ impl<'a> Parser<'a> {
                     }
                     Token::RBrace => break,
                     _ => {
-                        let msg =
-                            format!("Expecting ',' or '}}', found {:?}", self.tokens[self.pos]);
+                        let msg = format!("Expecting ',' or '}}', found {:?}", self.tokens[self.pos]);
                         return Err(anyhow!(self.err(&msg)));
                     }
                 }
@@ -1457,11 +1401,7 @@ impl<'a> Parser<'a> {
     /// Recovering expression analysis: collect multiple parse errors across expression segments
     /// without building a final AST. Uses shallow segmentation on common boundaries to surface
     /// multiple issues within a single line/chunk.
-    pub fn recover_expression_errors(
-        tokens: &'a [Token],
-        spans: &'a [Span],
-        input: &str,
-    ) -> Vec<ParseError> {
+    pub fn recover_expression_errors(tokens: &'a [Token], spans: &'a [Span], input: &str) -> Vec<ParseError> {
         let mut errors = Vec::new();
         let len = tokens.len();
         let mut i = 0usize;
@@ -1474,12 +1414,7 @@ impl<'a> Parser<'a> {
         fn is_hard_boundary(tok: &Token) -> bool {
             matches!(
                 tok,
-                Token::Comma
-                    | Token::Semicolon
-                    | Token::RParen
-                    | Token::RBracket
-                    | Token::RBrace
-                    | Token::Else
+                Token::Comma | Token::Semicolon | Token::RParen | Token::RBracket | Token::RBrace | Token::Else
             )
         }
 
@@ -1630,9 +1565,9 @@ impl<'a> Parser<'a> {
                 params.push(param_name.clone());
                 self.pos += 1;
             } else {
-                return Err(anyhow!(self.err(
-                    "Expected parameter name or '|' after opening '|' in closure"
-                )));
+                return Err(anyhow!(
+                    self.err("Expected parameter name or '|' after opening '|' in closure")
+                ));
             }
 
             // Parse additional parameters separated by commas
@@ -1643,26 +1578,20 @@ impl<'a> Parser<'a> {
                     params.push(param_name.clone());
                     self.pos += 1;
                 } else {
-                    return Err(anyhow!(
-                        self.err("Expected parameter name after comma in closure")
-                    ));
+                    return Err(anyhow!(self.err("Expected parameter name after comma in closure")));
                 }
             }
         }
 
         // Expect closing '|'
         if self.eof() || self.tokens[self.pos] != Token::Pipe {
-            return Err(anyhow!(
-                self.err("Expected '|' to close parameter list in closure")
-            ));
+            return Err(anyhow!(self.err("Expected '|' to close parameter list in closure")));
         }
         self.pos += 1; // Consume closing '|'
 
         // Parse closure body
         if self.eof() || !self.is_valid_expr_start() {
-            return Err(anyhow!(
-                self.err("Expected expression after closure parameters")
-            ));
+            return Err(anyhow!(self.err("Expected expression after closure parameters")));
         }
 
         let body = self.parse_expr()?;

@@ -66,7 +66,7 @@ impl ChannelModule {
 }
 
 /// Close a channel
-fn chan_close(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+fn chan_close(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("chan::close() expects exactly 1 argument"));
     }
@@ -91,7 +91,7 @@ fn chan_close(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> R
 }
 
 /// Get the current length of a channel (number of buffered items)
-fn chan_len(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+fn chan_len(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("chan::len() expects exactly 1 argument"));
     }
@@ -115,7 +115,7 @@ fn chan_len(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Res
 }
 
 /// Get the capacity of a channel
-fn chan_capacity(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+fn chan_capacity(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("chan::capacity() expects exactly 1 argument"));
     }
@@ -132,7 +132,7 @@ fn chan_capacity(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -
 }
 
 /// Check if a channel is closed
-fn chan_is_closed(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+fn chan_is_closed(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("chan::is_closed() expects exactly 1 argument"));
     }
@@ -156,7 +156,7 @@ fn chan_is_closed(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) 
 }
 
 /// Try to send a value to a channel without blocking
-fn chan_try_send(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+fn chan_try_send(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.len() != 2 {
         return Err(anyhow!("chan::try_send() expects exactly 2 arguments"));
     }
@@ -179,14 +179,12 @@ fn chan_try_send(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -
                 Ok(Val::Bool(true))
             }
         }
-        _ => Err(anyhow!(
-            "chan::try_send() expects a Channel as first argument"
-        )),
+        _ => Err(anyhow!("chan::try_send() expects a Channel as first argument")),
     }
 }
 
 /// Try to receive a value from a channel without blocking
-fn chan_try_recv(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> Result<Val> {
+fn chan_try_recv(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("chan::try_recv() expects exactly 1 argument"));
     }

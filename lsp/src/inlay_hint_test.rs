@@ -28,19 +28,9 @@ mod inlay_hint_tests {
                 _ => String::new(),
             })
             .collect();
-        assert!(
-            labels.iter().any(|l| l.trim() == "a:"),
-            "missing a: hint: {:?}",
-            labels
-        );
-        assert!(
-            labels.iter().any(|l| l.trim() == "b:"),
-            "missing b: hint: {:?}",
-            labels
-        );
-        assert!(hints
-            .iter()
-            .all(|h| h.kind == Some(InlayHintKind::PARAMETER)));
+        assert!(labels.iter().any(|l| l.trim() == "a:"), "missing a: hint: {:?}", labels);
+        assert!(labels.iter().any(|l| l.trim() == "b:"), "missing b: hint: {:?}", labels);
+        assert!(hints.iter().all(|h| h.kind == Some(InlayHintKind::PARAMETER)));
     }
 
     #[test]
@@ -59,21 +49,9 @@ mod inlay_hint_tests {
             })
             .collect();
         // Should include hints for both calls (x: for bar, a:/b: for foo)
-        assert!(
-            labels.iter().any(|l| l.trim() == "x:"),
-            "missing x: hint: {:?}",
-            labels
-        );
-        assert!(
-            labels.iter().any(|l| l.trim() == "a:"),
-            "missing a: hint: {:?}",
-            labels
-        );
-        assert!(
-            labels.iter().any(|l| l.trim() == "b:"),
-            "missing b: hint: {:?}",
-            labels
-        );
+        assert!(labels.iter().any(|l| l.trim() == "x:"), "missing x: hint: {:?}", labels);
+        assert!(labels.iter().any(|l| l.trim() == "a:"), "missing a: hint: {:?}", labels);
+        assert!(labels.iter().any(|l| l.trim() == "b:"), "missing b: hint: {:?}", labels);
     }
 
     #[test]
@@ -85,12 +63,7 @@ mod inlay_hint_tests {
         "#;
         let hints = compute_inlay_hints(src, full_range(src));
         // Expect exactly two parameter hints for the real call
-        assert_eq!(
-            hints.len(),
-            2,
-            "expected two hints for foo(1, 2), got {:?}",
-            hints
-        );
+        assert_eq!(hints.len(), 2, "expected two hints for foo(1, 2), got {:?}", hints);
         let labels: Vec<String> = hints
             .iter()
             .map(|h| match &h.label {
@@ -171,12 +144,7 @@ mod inlay_hint_tests {
         "#;
         let hints = compute_inlay_hints(src, full_range(src));
         // Should produce exactly two hints for the call, not for the fn params
-        assert_eq!(
-            hints.len(),
-            2,
-            "expected only call argument hints, got {:?}",
-            hints
-        );
+        assert_eq!(hints.len(), 2, "expected only call argument hints, got {:?}", hints);
         let labels: Vec<String> = hints
             .iter()
             .map(|h| match &h.label {
@@ -197,10 +165,7 @@ mod inlay_hint_tests {
         let analyzer = QclAnalyzer::new();
         let mut hints = analyzer.compute_type_inlay_hints(src, full_range(src));
         hints.extend(analyzer.compute_define_type_hints(src, full_range(src)));
-        assert!(
-            !hints.is_empty(),
-            "expected type hints for let/define, got none"
-        );
+        assert!(!hints.is_empty(), "expected type hints for let/define, got none");
         assert!(hints.iter().all(|h| h.kind == Some(InlayHintKind::TYPE)));
         let labels: Vec<String> = hints
             .iter()
@@ -209,10 +174,7 @@ mod inlay_hint_tests {
                 _ => String::new(),
             })
             .collect();
-        assert!(
-            labels.iter().any(|l| l.contains(": Int"))
-                || labels.iter().any(|l| l.contains(": Float"))
-        );
+        assert!(labels.iter().any(|l| l.contains(": Int")) || labels.iter().any(|l| l.contains(": Float")));
     }
 
     #[test]
@@ -280,9 +242,7 @@ mod inlay_hint_tests {
         // 1) All enabled -> both kinds present
         let all_on = filter_hints(combined.clone(), true, true);
         assert!(
-            all_on
-                .iter()
-                .any(|h| h.kind == Some(InlayHintKind::PARAMETER)),
+            all_on.iter().any(|h| h.kind == Some(InlayHintKind::PARAMETER)),
             "expected parameter hints when enabled"
         );
         assert!(
@@ -293,9 +253,7 @@ mod inlay_hint_tests {
         // 2) Parameters only
         let params_only = filter_hints(combined.clone(), true, false);
         assert!(
-            params_only
-                .iter()
-                .all(|h| h.kind == Some(InlayHintKind::PARAMETER)),
+            params_only.iter().all(|h| h.kind == Some(InlayHintKind::PARAMETER)),
             "only parameter hints should remain"
         );
         let p_labels = labels(&params_only);
@@ -305,9 +263,7 @@ mod inlay_hint_tests {
         // 3) Types only
         let types_only = filter_hints(combined.clone(), false, true);
         assert!(
-            types_only
-                .iter()
-                .all(|h| h.kind == Some(InlayHintKind::TYPE)),
+            types_only.iter().all(|h| h.kind == Some(InlayHintKind::TYPE)),
             "only type hints should remain"
         );
         let t_labels = labels(&types_only);
@@ -358,14 +314,10 @@ mod inlay_hint_tests {
         "#;
         let analyzer = QclAnalyzer::new();
         let hints = analyzer.compute_function_return_type_hints(src, full_range(src));
-        assert!(
-            !hints.is_empty(),
-            "expected function return type hint for union"
-        );
+        assert!(!hints.is_empty(), "expected function return type hint for union");
         let labs = labels(&hints);
         assert!(
-            labs.iter().any(|l| l.contains("-> Int | String"))
-                || labs.iter().any(|l| l.contains("-> String | Int")),
+            labs.iter().any(|l| l.contains("-> Int | String")) || labs.iter().any(|l| l.contains("-> String | Int")),
             "expected union return type hint (Int | String), got {:?}",
             labs
         );
