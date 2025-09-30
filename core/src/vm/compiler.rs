@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{expr::Expr, stmt::Stmt, val::Val};
 
-use super::bytecode::{Function, Op, ClosureProto};
+use super::bytecode::{ClosureProto, Function, Op};
 
 /// A simple single-function compiler that lowers a subset of Stmt/Expr to register bytecode.
 /// - Locals are assigned sequential indices at first definition and never deallocated.
@@ -10,7 +10,9 @@ use super::bytecode::{Function, Op, ClosureProto};
 pub struct Compiler;
 
 impl Compiler {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 
     /// Compile a single expression into a self-contained function.
     pub fn compile_expr(&self, expr: &Expr) -> Function {
@@ -43,18 +45,50 @@ struct FunctionBuilder {
 
 impl FunctionBuilder {
     fn new() -> Self {
-        Self { consts: Vec::new(), code: Vec::new(), n_regs: 0, vars: HashMap::new(), protos: Vec::new() }
+        Self {
+            consts: Vec::new(),
+            code: Vec::new(),
+            n_regs: 0,
+            vars: HashMap::new(),
+            protos: Vec::new(),
+        }
     }
-    fn finish(self) -> Function { Function { consts: self.consts, code: self.code, n_regs: self.n_regs, protos: self.protos } }
-    fn emit(&mut self, op: Op) { self.code.push(op); }
-    fn alloc(&mut self) -> u16 { let r = self.n_regs; self.n_regs = self.n_regs.saturating_add(1); r }
+    fn finish(self) -> Function {
+        Function {
+            consts: self.consts,
+            code: self.code,
+            n_regs: self.n_regs,
+            protos: self.protos,
+        }
+    }
+    fn emit(&mut self, op: Op) {
+        self.code.push(op);
+    }
+    fn alloc(&mut self) -> u16 {
+        let r = self.n_regs;
+        self.n_regs = self.n_regs.saturating_add(1);
+        r
+    }
     fn k(&mut self, v: Val) -> u16 {
-        if let Some((i, _)) = self.consts.iter().enumerate().find(|(_, x)| *x == &v) { i as u16 } else { self.consts.push(v); (self.consts.len() - 1) as u16 }
+        if let Some((i, _)) = self.consts.iter().enumerate().find(|(_, x)| *x == &v) {
+            i as u16
+        } else {
+            self.consts.push(v);
+            (self.consts.len() - 1) as u16
+        }
     }
     fn get_or_define(&mut self, name: &str) -> u16 {
-        if let Some(&i) = self.vars.get(name) { i } else { let idx = self.alloc(); self.vars.insert(name.to_string(), idx); idx }
+        if let Some(&i) = self.vars.get(name) {
+            i
+        } else {
+            let idx = self.alloc();
+            self.vars.insert(name.to_string(), idx);
+            idx
+        }
     }
-    fn lookup(&self, name: &str) -> Option<u16> { self.vars.get(name).copied() }
+    fn lookup(&self, name: &str) -> Option<u16> {
+        self.vars.get(name).copied()
+    }
 
     // Expression compilation returns the register containing the result
     fn expr(&mut self, e: &Expr) -> u16 {
@@ -97,11 +131,15 @@ impl FunctionBuilder {
                         // falsey branch
                         let target = self.code.len();
                         // patch JmpFalse to jump here
-                        if let Op::JmpFalse(_, ref mut ofs) = self.code[jslot] { *ofs = (target as isize - jslot as isize) as i16; }
+                        if let Op::JmpFalse(_, ref mut ofs) = self.code[jslot] {
+                            *ofs = (target as isize - jslot as isize) as i16;
+                        }
                         self.emit(Op::LoadK(out, k_true));
                         // end label
                         let end = self.code.len();
-                        if let Op::Jmp(ref mut ofs) = self.code[jend] { *ofs = (end as isize - jend as isize) as i16; }
+                        if let Op::Jmp(ref mut ofs) = self.code[jend] {
+                            *ofs = (end as isize - jend as isize) as i16;
+                        }
                         out
                     }
                 }
@@ -123,12 +161,18 @@ impl FunctionBuilder {
                 let jend = self.code.len();
                 self.emit(Op::Jmp(0));
                 let f2 = self.code.len();
-                if let Op::JmpFalse(_, ref mut ofs) = self.code[jf2] { *ofs = (f2 as isize - jf2 as isize) as i16; }
+                if let Op::JmpFalse(_, ref mut ofs) = self.code[jf2] {
+                    *ofs = (f2 as isize - jf2 as isize) as i16;
+                }
                 self.emit(Op::LoadK(out, k_false));
                 let end = self.code.len();
-                if let Op::Jmp(ref mut ofs) = self.code[jend] { *ofs = (end as isize - jend as isize) as i16; }
+                if let Op::Jmp(ref mut ofs) = self.code[jend] {
+                    *ofs = (end as isize - jend as isize) as i16;
+                }
                 // patch first false to jump to set false
-                if let Op::JmpFalse(_, ref mut ofs) = self.code[jf] { *ofs = (f2 as isize - jf as isize) as i16; }
+                if let Op::JmpFalse(_, ref mut ofs) = self.code[jf] {
+                    *ofs = (f2 as isize - jf as isize) as i16;
+                }
                 out
             }
             Expr::Or(l, r) => {
@@ -143,7 +187,9 @@ impl FunctionBuilder {
                 let jend = self.code.len();
                 self.emit(Op::Jmp(0));
                 let fall = self.code.len();
-                if let Op::JmpFalse(_, ref mut ofs) = self.code[jf] { *ofs = (fall as isize - jf as isize) as i16; }
+                if let Op::JmpFalse(_, ref mut ofs) = self.code[jf] {
+                    *ofs = (fall as isize - jf as isize) as i16;
+                }
                 let rr = self.expr(r);
                 let jf2 = self.code.len();
                 self.emit(Op::JmpFalse(rr, 0));
@@ -151,11 +197,17 @@ impl FunctionBuilder {
                 let jend2 = self.code.len();
                 self.emit(Op::Jmp(0));
                 let f2 = self.code.len();
-                if let Op::JmpFalse(_, ref mut ofs) = self.code[jf2] { *ofs = (f2 as isize - jf2 as isize) as i16; }
+                if let Op::JmpFalse(_, ref mut ofs) = self.code[jf2] {
+                    *ofs = (f2 as isize - jf2 as isize) as i16;
+                }
                 self.emit(Op::LoadK(out, k_false));
                 let end = self.code.len();
-                if let Op::Jmp(ref mut ofs) = self.code[jend] { *ofs = (end as isize - jend as isize) as i16; }
-                if let Op::Jmp(ref mut ofs) = self.code[jend2] { *ofs = (end as isize - jend2 as isize) as i16; }
+                if let Op::Jmp(ref mut ofs) = self.code[jend] {
+                    *ofs = (end as isize - jend as isize) as i16;
+                }
+                if let Op::Jmp(ref mut ofs) = self.code[jend2] {
+                    *ofs = (end as isize - jend2 as isize) as i16;
+                }
                 out
             }
             // legacy '@' context access removed
@@ -183,11 +235,15 @@ impl FunctionBuilder {
                 self.emit(Op::Jmp(0));
                 // not nil path
                 let not_nil = self.code.len();
-                if let Op::JmpFalse(_, ref mut ofs) = self.code[j_not_nil] { *ofs = (not_nil as isize - j_not_nil as isize) as i16; }
+                if let Op::JmpFalse(_, ref mut ofs) = self.code[j_not_nil] {
+                    *ofs = (not_nil as isize - j_not_nil as isize) as i16;
+                }
                 let f = self.expr(field);
                 self.emit(Op::Access(out, b, f));
                 let end = self.code.len();
-                if let Op::Jmp(ref mut ofs) = self.code[jend] { *ofs = (end as isize - jend as isize) as i16; }
+                if let Op::Jmp(ref mut ofs) = self.code[jend] {
+                    *ofs = (end as isize - jend as isize) as i16;
+                }
                 out
             }
             Expr::NullishCoalescing(l, r) => {
@@ -207,10 +263,14 @@ impl FunctionBuilder {
                 let jend = self.code.len();
                 self.emit(Op::Jmp(0));
                 let use_left = self.code.len();
-                if let Op::JmpFalse(_, ref mut ofs) = self.code[j_not_nil] { *ofs = (use_left as isize - j_not_nil as isize) as i16; }
+                if let Op::JmpFalse(_, ref mut ofs) = self.code[j_not_nil] {
+                    *ofs = (use_left as isize - j_not_nil as isize) as i16;
+                }
                 self.emit(Op::Move(out, rl));
                 let end = self.code.len();
-                if let Op::Jmp(ref mut ofs) = self.code[jend] { *ofs = (end as isize - jend as isize) as i16; }
+                if let Op::Jmp(ref mut ofs) = self.code[jend] {
+                    *ofs = (end as isize - jend as isize) as i16;
+                }
                 out
             }
             Expr::Bin(l, op, r) => {
@@ -245,11 +305,22 @@ impl FunctionBuilder {
                 let mut count = 0u16;
                 for it in items {
                     let ri = self.expr(it);
-                    if first.is_none() { first = Some(ri); }
+                    if first.is_none() {
+                        first = Some(ri);
+                    }
                     count += 1;
                 }
-                let b = first.unwrap_or_else(|| { let z=self.alloc(); let k=self.k(Val::Nil); self.emit(Op::LoadK(z,k)); z});
-                self.emit(Op::BuildList { dst, base: b, len: count });
+                let b = first.unwrap_or_else(|| {
+                    let z = self.alloc();
+                    let k = self.k(Val::Nil);
+                    self.emit(Op::LoadK(z, k));
+                    z
+                });
+                self.emit(Op::BuildList {
+                    dst,
+                    base: b,
+                    len: count,
+                });
                 dst
             }
             Expr::Map(pairs) => {
@@ -260,12 +331,23 @@ impl FunctionBuilder {
                 for (k, v) in pairs {
                     let rk = self.expr(k);
                     let rv = self.expr(v);
-                    if first.is_none() { first = Some(rk); }
+                    if first.is_none() {
+                        first = Some(rk);
+                    }
                     let _ = rv; // ensure evaluation order
                     n += 1;
                 }
-                let b = first.unwrap_or_else(|| { let z=self.alloc(); let k=self.k(Val::Nil); self.emit(Op::LoadK(z,k)); z});
-                self.emit(Op::BuildMap { dst, base: b, len: n });
+                let b = first.unwrap_or_else(|| {
+                    let z = self.alloc();
+                    let k = self.k(Val::Nil);
+                    self.emit(Op::LoadK(z, k));
+                    z
+                });
+                self.emit(Op::BuildMap {
+                    dst,
+                    base: b,
+                    len: n,
+                });
                 dst
             }
             Expr::Call(name, args) => {
@@ -279,15 +361,27 @@ impl FunctionBuilder {
                     let _ = self.expr(arg);
                 }
                 let argc = args.len() as u8;
-                self.emit(Op::Call { f, base, argc, retc: 1 });
+                self.emit(Op::Call {
+                    f,
+                    base,
+                    argc,
+                    retc: 1,
+                });
                 base
             }
             Expr::CallExpr(callee, args) => {
                 let f = self.expr(callee);
                 let base = self.n_regs;
-                for arg in args { let _ = self.expr(arg); }
+                for arg in args {
+                    let _ = self.expr(arg);
+                }
                 let argc = args.len() as u8;
-                self.emit(Op::Call { f, base, argc, retc: 1 });
+                self.emit(Op::Call {
+                    f,
+                    base,
+                    argc,
+                    retc: 1,
+                });
                 base
             }
             // Minimal fallback for uncompiled nodes
@@ -303,7 +397,9 @@ impl FunctionBuilder {
     fn stmt(&mut self, s: &Stmt) {
         match s {
             Stmt::Block { statements } => {
-                for st in statements { self.stmt(st); }
+                for st in statements {
+                    self.stmt(st);
+                }
             }
             Stmt::Define { name, value } => {
                 // Define as local first, then mirror to global env as well for compatibility
@@ -313,27 +409,55 @@ impl FunctionBuilder {
                 let kname = self.k(Val::Str(name.clone().into()));
                 self.emit(Op::DefineGlobal(kname, idx));
             }
-            Stmt::Let { pattern: crate::expr::Pattern::Variable(name), type_annotation: _, value, span: _ } => {
+            Stmt::Let {
+                pattern: crate::expr::Pattern::Variable(name),
+                type_annotation: _,
+                value,
+                span: _,
+            } => {
                 let idx = self.get_or_define(name);
                 let rv = self.expr(value);
                 self.emit(Op::StoreLocal(idx, rv));
             }
-            Stmt::Assign { name, value, span: _ } => {
-                if let Some(idx) = self.lookup(name) { let rv = self.expr(value); self.emit(Op::StoreLocal(idx, rv)); }
+            Stmt::Assign {
+                name,
+                value,
+                span: _,
+            } => {
+                if let Some(idx) = self.lookup(name) {
+                    let rv = self.expr(value);
+                    self.emit(Op::StoreLocal(idx, rv));
+                }
             }
-            Stmt::Expr(e) => { let _ = self.expr(e); }
-            Stmt::If { condition, then_stmt, else_stmt } => {
+            Stmt::Expr(e) => {
+                let _ = self.expr(e);
+            }
+            Stmt::If {
+                condition,
+                then_stmt,
+                else_stmt,
+            } => {
                 let rc = self.expr(condition);
                 let jf = self.code.len();
                 self.emit(Op::JmpFalse(rc, 0));
                 self.stmt(then_stmt);
                 let jend_pos = self.code.len();
                 let need_else = else_stmt.is_some();
-                if need_else { self.emit(Op::Jmp(0)); }
+                if need_else {
+                    self.emit(Op::Jmp(0));
+                }
                 let else_label = self.code.len();
-                if let Op::JmpFalse(_, ref mut ofs) = self.code[jf] { *ofs = (else_label as isize - jf as isize) as i16; }
-                if let Some(es) = else_stmt { self.stmt(es); }
-                if need_else { if let Op::Jmp(ref mut ofs) = self.code[jend_pos] { *ofs = (self.code.len() as isize - jend_pos as isize) as i16; } }
+                if let Op::JmpFalse(_, ref mut ofs) = self.code[jf] {
+                    *ofs = (else_label as isize - jf as isize) as i16;
+                }
+                if let Some(es) = else_stmt {
+                    self.stmt(es);
+                }
+                if need_else {
+                    if let Op::Jmp(ref mut ofs) = self.code[jend_pos] {
+                        *ofs = (self.code.len() as isize - jend_pos as isize) as i16;
+                    }
+                }
             }
             Stmt::While { condition, body } => {
                 let start = self.code.len();
@@ -344,18 +468,39 @@ impl FunctionBuilder {
                 let back = start as isize - self.code.len() as isize;
                 self.emit(Op::Jmp(back as i16));
                 let end = self.code.len();
-                if let Op::JmpFalse(_, ref mut ofs) = self.code[jf] { *ofs = (end as isize - jf as isize) as i16; }
+                if let Op::JmpFalse(_, ref mut ofs) = self.code[jf] {
+                    *ofs = (end as isize - jf as isize) as i16;
+                }
             }
             Stmt::Return { value } => {
-                let base = if let Some(v) = value { self.expr(v) } else { let k = self.k(Val::Nil); let r = self.alloc(); self.emit(Op::LoadK(r, k)); r };
+                let base = if let Some(v) = value {
+                    self.expr(v)
+                } else {
+                    let k = self.k(Val::Nil);
+                    let r = self.alloc();
+                    self.emit(Op::LoadK(r, k));
+                    r
+                };
                 self.emit(Op::Ret { base, retc: 1 });
             }
-            Stmt::Function { name, params, param_types: _, return_type: _, body } => {
+            Stmt::Function {
+                name,
+                params,
+                param_types: _,
+                return_type: _,
+                body,
+            } => {
                 // Create closure proto and emit MakeClosure, then store to local and define global
                 let proto_idx = self.protos.len() as u16;
-                self.protos.push(ClosureProto { params: params.clone(), body: (**body).clone() });
+                self.protos.push(ClosureProto {
+                    params: params.clone(),
+                    body: (**body).clone(),
+                });
                 let dst = self.alloc();
-                self.emit(Op::MakeClosure { dst, proto: proto_idx });
+                self.emit(Op::MakeClosure {
+                    dst,
+                    proto: proto_idx,
+                });
                 let idx = self.get_or_define(name);
                 self.emit(Op::StoreLocal(idx, dst));
                 let kname = self.k(Val::Str(name.clone().into()));
@@ -370,7 +515,10 @@ impl FunctionBuilder {
 fn name_of_define(s: &Stmt) -> &str {
     match s {
         Stmt::Define { name, .. } => name,
-        Stmt::Let { pattern: crate::expr::Pattern::Variable(name), .. } => name,
+        Stmt::Let {
+            pattern: crate::expr::Pattern::Variable(name),
+            ..
+        } => name,
         // Fallback: anonymous temp
         _ => "_",
     }

@@ -42,8 +42,8 @@ mod tests {
 
     #[test]
     fn test_expr_recovery_numeric_path_segments_spans_aligned() {
-        // Ensure token spans remain aligned when parsing numeric segments in @ paths
-        let input = "@user.emails.0.company, @data.1 + 2";
+        // Ensure token spans remain aligned when parsing numeric segments in identifier paths
+        let input = "user.emails.0.company, data.1 + 2";
         let (tokens, spans) =
             Tokenizer::tokenize_enhanced_with_spans(input).expect("tokenize with spans");
 

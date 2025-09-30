@@ -24,12 +24,12 @@
 模板字符串
 - 仅在普通引号（`"..."` 和 `'...'`）内用 `${expr}` 做插值。
 - 原始字符串不支持插值。
-- 示例：`"Hello, ${@user.name}!"`，`"Sum: ${1 + 2}"`。
+- 示例：`"Hello, ${user.name}!"`，`"Sum: ${1 + 2}"`。
 
-上下文访问 `@`
-- `@` 从输入上下文读取（例如通过 CLI 从标准输入传入 JSON）。路径以点分隔。
-- 第一段可为标识符、字符串或带括号的表达式；之后的段可为标识符/字符串/整数。
-- 示例：`@req.user.id`、`@users.0.name`、`@user.(@record.index - 1)`。
+输入与变量
+- 不再存在隐式的运行期上下文。标识符必须在词法作用域中定义（例如通过语句中的 `let`、函数参数或导入）。
+- 通过标准库显式读取外部输入：`io.read()`（字符串）。解析请手动调用 `json.parse(...)`、`yaml.parse(...)`、`toml.parse(...)`。
+- 示例：`import io; import json; let data = json.parse(io.read()); return data.req.user.id == 1;`
 
 函数调用与方法
 - 可调用任意表达式：`f(x, y)`，`(g)(z)`。
@@ -64,7 +64,7 @@
 - `in` 支持：子串（`str in str`）、列表成员、映射键存在性。对 `list in list`，检查左侧所有元素是否都包含于右侧。
 
 ## 表达式
-- 字面量、列表、映射、变量、上下文 `@...`、调用、属性/索引访问、闭包、区间、逻辑/比较、`??` 与 `?:`。
+- 字面量、列表、映射、变量、调用、属性/索引访问、闭包、区间、逻辑/比较、`??` 与 `?:`。
 - 并发表达式（功能门控 `concurrency`）：
   - `spawn(expr)` → Task
   - `chan(capacity?, type?)` → Channel（类型为如 `"Int"` 的字符串）
@@ -177,12 +177,10 @@ dot         ::= '.' field
 opt_dot     ::= '?.' field
 index       ::= '[' expr ']'
 opt_index   ::= '?[' expr ']'
-primary     ::= nil | false | true | int | float | string | template | at | list | map | var | paren
+primary     ::= nil | false | true | int | float | string | template | list | map | var | paren
              | closure | spawn | chan | send | recv | select | match
 closure     ::= '|' [id {',' id}] '|' expr
 template    ::= string_with_${...}
-at          ::= '@' at_field { '.' at_field }
-at_field    ::= id | int | string | '(' expr ')'
 field       ::= id | int | string
 list        ::= '[' [ expr { ',' expr } [ ',' ] ] ']'
 map         ::= '{' [ expr ':' expr { ',' expr ':' expr } [ ',' ] ] '}'
@@ -240,10 +238,10 @@ for_pattern  ::= '_' | id | '(' for_pattern { ',' for_pattern } ')' | '[' for_pa
 
 ## CLI 使用说明
 - 表达式模式（`--expr`）仅求值单个表达式，不会建立语句环境或初始化标准库模块。程序模式（默认，或传入文件）会解析语句、初始化标准库并支持导入/函数。
-- 上下文从标准输入读取（JSON/YAML/TOML）。按上文方式通过 `@` 访问。
+- 上下文从标准输入读取（JSON/YAML/TOML）。按上文方式通过标识符访问。
 
-- `@user.role == 'admin'` —— ACL 评估示例
-- 使用表达式进行动态字段访问：`@(expr).field`
+- `user.role == 'admin'` —— ACL 评估示例
+- 使用表达式进行动态字段访问：`(expr).field`
 
 ### 类型
 - `String` —— UTF‑8 字符串

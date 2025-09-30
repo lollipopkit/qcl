@@ -39,7 +39,7 @@ fn make_context() -> Val {
 // Benchmark 1: Expression parsing performance (without cache vs with cache)
 fn bench_parsing(c: &mut Criterion) {
     let expr_str =
-        "(@user.age + 2) * (3 + 4) && @user.name == \"Alice\" || [1, 2, 3].1 in [0, 1, 2]";
+        "(user.age + 2) * (3 + 4) && user.name == \"Alice\" || [1, 2, 3].1 in [0, 1, 2]";
 
     // Parsing without cache
     c.bench_function("parse_without_cache", |b| {
@@ -77,11 +77,11 @@ fn bench_evaluation(c: &mut Criterion) {
         "81 + 82 + 83 + 84 + 85 + 86 + 87 + 88 + 89 + 90 + ",
         "91 + 92 + 93 + 94 + 95 + 96 + 97 + 98 + 99 + 100"
     );
-    let expr_nonconst_str = "@x + ".repeat(99) + "@x";
+    let expr_nonconst_str = "x + ".repeat(99) + "x";
 
     // Parse expressions (constant folding will happen during parsing)
     let expr_constant = Expr::parse_cached_arc(expr_const_str).unwrap(); // Will fold to a constant
-    let expr_nonconstant = Expr::parse_cached_arc(&expr_nonconst_str).unwrap(); // Keep chain of @x additions
+    let expr_nonconstant = Expr::parse_cached_arc(&expr_nonconst_str).unwrap(); // Keep chain of x additions
 
     // Evaluate constant-folded expression
     c.bench_function("eval_constant_folded", |b| {
@@ -103,10 +103,10 @@ fn bench_in_operator(c: &mut Criterion) {
     let ctx = make_context();
 
     // Build test expressions containing 'in' (using predefined data in context)
-    let expr_in_list_small = Expr::parse_cached_arc("@val_small in @smalllist").unwrap();
-    let expr_in_list_large = Expr::parse_cached_arc("@val_large in @biglist").unwrap();
-    let expr_in_map = Expr::parse_cached_arc("@key in @bigmap").unwrap();
-    let expr_in_str = Expr::parse_cached_arc("\"z\" in @bigstr").unwrap();
+    let expr_in_list_small = Expr::parse_cached_arc("val_small in smalllist").unwrap();
+    let expr_in_list_large = Expr::parse_cached_arc("val_large in biglist").unwrap();
+    let expr_in_map = Expr::parse_cached_arc("key in bigmap").unwrap();
+    let expr_in_str = Expr::parse_cached_arc("\"z\" in bigstr").unwrap();
 
     // Small list membership
     c.bench_function("in_list_small", |b| {
@@ -328,9 +328,9 @@ fn bench_complex_arithmetic(c: &mut Criterion) {
     let ctx = Val::from(ctx_map);
 
     // Complex arithmetic operations that trigger multiple clones
-    let expr_list_ops = Expr::parse_cached_arc("@list1 + @list2 - [75, 76, 77]").unwrap();
-    let expr_map_ops = Expr::parse_cached_arc("@map1 + @map2 - \"key25\"").unwrap();
-    let expr_mixed = Expr::parse_cached_arc("(@list1 + [999]) + (@list2 - [100, 101])").unwrap();
+    let expr_list_ops = Expr::parse_cached_arc("list1 + list2 - [75, 76, 77]").unwrap();
+    let expr_map_ops = Expr::parse_cached_arc("map1 + map2 - \"key25\"").unwrap();
+    let expr_mixed = Expr::parse_cached_arc("(list1 + [999]) + (list2 - [100, 101])").unwrap();
 
     c.bench_function("complex_list_arithmetic", |b| {
         b.iter(|| {

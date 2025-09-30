@@ -44,13 +44,32 @@ pub enum Op {
     LoadCtx(u16 /*dst*/),
     // Access and constructors
     Access(u16 /*dst*/, u16 /*base*/, u16 /*field*/),
-    BuildList { dst: u16, base: u16, len: u16 },
-    BuildMap { dst: u16, base: u16, len: u16 }, // base..base+2*len-1 as k,v pairs
-    MakeClosure { dst: u16, proto: u16 },
+    BuildList {
+        dst: u16,
+        base: u16,
+        len: u16,
+    },
+    BuildMap {
+        dst: u16,
+        base: u16,
+        len: u16,
+    }, // base..base+2*len-1 as k,v pairs
+    MakeClosure {
+        dst: u16,
+        proto: u16,
+    },
     Jmp(i16 /*ofs*/),
     JmpFalse(u16 /*r*/, i16 /*ofs*/),
-    Call { f: u16, base: u16, argc: u8, retc: u8 },
-    Ret { base: u16, retc: u8 },
+    Call {
+        f: u16,
+        base: u16,
+        argc: u8,
+        retc: u8,
+    },
+    Ret {
+        base: u16,
+        retc: u8,
+    },
 }
 
 impl fmt::Debug for Op {
@@ -75,12 +94,21 @@ impl fmt::Debug for Op {
             Op::DefineGlobal(k, s) => write!(f, "DefineGlobal k{}, r{}", k, s),
             Op::LoadCtx(d) => write!(f, "LoadCtx r{}", d),
             Op::Access(d, b, fld) => write!(f, "Access r{}, r{}, r{}", d, b, fld),
-            Op::BuildList { dst, base, len } => write!(f, "BuildList r{}, base={}, len={}", dst, base, len),
-            Op::BuildMap { dst, base, len } => write!(f, "BuildMap r{}, base={}, len={}", dst, base, len),
+            Op::BuildList { dst, base, len } => {
+                write!(f, "BuildList r{}, base={}, len={}", dst, base, len)
+            }
+            Op::BuildMap { dst, base, len } => {
+                write!(f, "BuildMap r{}, base={}, len={}", dst, base, len)
+            }
             Op::MakeClosure { dst, proto } => write!(f, "MakeClosure r{}, p{}", dst, proto),
             Op::Jmp(ofs) => write!(f, "Jmp {}", ofs),
             Op::JmpFalse(r, ofs) => write!(f, "JmpFalse r{}, {}", r, ofs),
-            Op::Call { f: rf, base, argc, retc } => write!(
+            Op::Call {
+                f: rf,
+                base,
+                argc,
+                retc,
+            } => write!(
                 f,
                 "Call r{}, base={}, argc={}, retc={}",
                 rf, base, argc, retc

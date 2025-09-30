@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-QCL (Query Check Language) is a domain-specific language for access control evaluation, written in Rust. It allows parsing and evaluating expressions like `@req.user.role == 'admin' || @req.user.id in @record.granted` against JSON/YAML/TOML contexts. The project includes a core library, CLI tool, standard library modules, and a Language Server Protocol (LSP) implementation.
+QCL (Query Check Language) is a domain-specific language for access control evaluation, written in Rust. It allows parsing and evaluating expressions like `req.user.role == 'admin' || req.user.id in record.granted` against JSON/YAML/TOML contexts. The project includes a core library, CLI tool, standard library modules, and a Language Server Protocol (LSP) implementation.
 
 ## Common Development Commands
 
@@ -80,7 +80,7 @@ The language supports both expressions and full statement programs:
 - `muldiv` (*, /, %)
 - `unary` (!)
 - `postfix` (field access with .)
-- `primary` (literals, @context) - highest precedence
+- `primary` (literals, identifiers) - highest precedence
 
 #### Statement Grammar:
 ```
@@ -108,7 +108,7 @@ The `Expr::parse_cached()` method uses `once_cell::sync::Lazy` for caching parse
 
 #### Context Access
 
-- `@` prefix accesses context objects (e.g., `@req.user.name`)
+- Use plain identifiers to access context objects (e.g., `req.user.name`)
 - Context must be provided as `Val` (typically parsed from JSON/YAML/TOML)
 - Use `expr.requested_ctx()` to discover required context keys
 
@@ -196,7 +196,7 @@ The project includes a complete LSP implementation (`lsp/`) that provides:
 - **Hover Information**: Shows type information, context references, and symbol counts
 - **Code Completion**: Auto-complete for QCL keywords, operators, context variables, and standard library functions
 - **Document Symbols**: Navigate through variables, functions, imports, and labels in QCL programs
-- **Context Analysis**: Detects and analyzes context variable usage (@req, @record, etc.)
+- **Context Analysis**: Detects and analyzes context variable usage (req, record, etc.)
 
 ### LSP Architecture
 
@@ -226,12 +226,12 @@ The binary reads context from stdin and supports both expression and statement m
 
 ### Expression Mode
 ```bash
-echo '{"req": {"user": {"role": "admin"}}}' | cargo run -p qcl-cli -- --expr '@req.user.role == "admin"'
+echo '{"req": {"user": {"role": "admin"}}}' | cargo run -p qcl-cli -- --expr 'req.user.role == "admin"'
 ```
 
 ### Statement Mode
 ```bash
-echo '{"req": {"user": {"role": "admin"}}}' | cargo run -p qcl-cli -- --stmt 'import math; let result = math.sqrt(@req.user.level); return result;'
+echo '{"req": {"user": {"role": "admin"}}}' | cargo run -p qcl-cli -- --stmt 'import math; let result = math.sqrt(req.user.level); return result;'
 ```
 
 ### File Execution

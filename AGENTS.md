@@ -7,7 +7,7 @@
 ## Build, Test, and Development Commands
 - Build all crates: `cargo build --workspace`
 - Run all tests: `cargo test --workspace`
-- Run CLI: `echo '{"req":{"user":{"id":1}}}' | cargo run -p qcl-cli -- --expr "@req.user.id == 1"`
+- Run CLI: `echo '{"req":{"user":{"id":1}}}' | cargo run -p qcl-cli -- --expr "req.user.id == 1"`
 - Run LSP server: `cargo run -p qcl-lsp`
 - VS Code extension: `cd vscode-qcl && npm run compile` (package with `vsce package`)
 
@@ -28,4 +28,3 @@
 ## Security & Configuration Tips
 - CLI file inputs: use relative, sanitized paths only (no absolute paths or `..`). Features gate input formats: enable `json`, `yaml`, or `toml` as needed.
 - Avoid introducing `unsafe` unless justified; keep dependencies within workspace standards.
-

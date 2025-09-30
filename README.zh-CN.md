@@ -9,25 +9,28 @@
 
 QCL 设计用于 ACL（访问控制列表）等场景，用表达式来判断用户是否有权访问某个资源。
 
-### 示例
+### 示例（语句）
 
 ```rust
-fn user_can_access() {
-    return @record.owner == @req.user.id
-        || @record.published;
+import io;
+import json;
+let data = json.parse(io.read());
+
+fn user_can_access(record, req) {
+    return record.owner == req.user.id || record.published;
 }
-fn admin_can_access() {
-    return @req.user.role == 'admin' || @req.user.id in @record.granted;
+fn admin_can_access(req, record) {
+    return req.user.role == 'admin' || req.user.id in record.granted;
 }
-return user_can_access() || admin_can_access();
+return user_can_access(data.record, data.req) || admin_can_access(data.req, data.record);
 ```
 
 说明：
 
-- `@req.user.role == 'admin'`：判断用户角色是否为 `admin`。
-- `@req.user.id in @record.granted`：判断用户 ID 是否在记录的 `granted` 列表中。
-- `@record.published`：判断记录是否已公开。
-- `@record.owner == @req.user.id`：判断记录的所有者是否为该用户。
+- `req.user.role == 'admin'`：判断用户角色是否为 `admin`。
+- `req.user.id in record.granted`：判断用户 ID 是否在记录的 `granted` 列表中。
+- `record.published`：判断记录是否已公开。
+- `record.owner == req.user.id`：判断记录的所有者是否为该用户。
 
 以上示例展示了一个简化的访问控制判断。
 
@@ -43,38 +46,26 @@ return user_can_access() || admin_can_access();
 
 ### 用法
 
-#### 集成
+#### 集成（库）
 
 ```rust
-// 解析表达式
-let expr = "@req.user.name in 'foobar' && @files.0.published == true";
-let expr = Expr::try_from(expr)?;
+use qcl_core::{expr::Expr, stmt::Environment, val::Val};
 
-// 构造上下文（从表达式可推断所需键）
-let ctx_names = expr.requested_ctx(); // ["req", "files"]
-// 实际构造可自行完成，这里用 json! 简化
-let ctx = json!({
-    "req": {
-        "user": "foo"
-    },
-    "files": [
-        {
-            "name": "file1",
-            "published": true
-        }
-    ]
-});
+// 解析表达式
+let expr_src = "data.req.user.name in 'foobar' && data.files.0.published == true";
+let expr = Expr::try_from(expr_src)?;
+
+// 通过词法环境提供变量（不再有隐式上下文）
+let mut env = Environment::new();
+let data_val: Val = serde_json::json!({
+    "req": { "user": { "name": "foo" } },
+    "files": [ { "name": "file1", "published": true } ]
+}).into();
+env.define("data".to_string(), data_val);
 
 // 求值
-let result = expr.eval(ctx.into())?; // Val::Bool(true)
-match result {
-    Val::Bool(b) => {
-        assert!(b);
-    }
-    _ => {
-        panic!("unexpected result");
-    }
-}
+let result = expr.eval_with_env(&Val::Nil, Some(&env))?; // Val::Bool(true)
+assert_eq!(result, Val::Bool(true));
 ```
 
 #### CLI
@@ -93,7 +84,7 @@ match result {
 示例（在项目根目录运行）：
 
 ```bash
-echo '{"req":{"user":{"id":1}}}' | cargo run -p qcl-cli -- --expr "@req.user.id == 1"
+echo '{"req":{"user":{"id":1}}}' | cargo run -p qcl-cli -- --stmt -- "import io; import json; let d = json.parse(io.read()); return d.req.user.id == 1;"
 ```
 
 ## 许可证

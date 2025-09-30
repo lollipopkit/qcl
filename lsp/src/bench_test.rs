@@ -8,7 +8,7 @@ mod bench_tests {
         let mut analyzer = QclAnalyzer::new();
 
         // Test expression analysis
-        let expr = "@req.user.role == 'admin' && @req.user.level > 5";
+        let expr = "req.user.role == 'admin' && req.user.level > 5";
         let start = Instant::now();
 
         // First run - no cache
@@ -29,8 +29,8 @@ mod bench_tests {
         // Test statement analysis
         let program = r#"
             import math;
-            let user_level = @req.user.level;
-            let user_role = @req.user.role;
+            let user_level = req.user.level;
+            let user_role = req.user.role;
             
             fn calculate_access_score(base_score) {
                 if user_role == "admin" {
@@ -68,11 +68,11 @@ mod bench_tests {
         let mut analyzer = QclAnalyzer::new();
 
         let start = Instant::now();
-        let _completions1 = analyzer.get_context_completions("@req");
+        let _completions1 = analyzer.get_context_completions("req");
         let first_completion = start.elapsed();
 
         let start = Instant::now();
-        let _completions2 = analyzer.get_context_completions("@req");
+        let _completions2 = analyzer.get_context_completions("req");
         let second_completion = start.elapsed();
 
         println!(

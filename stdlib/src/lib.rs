@@ -2,12 +2,15 @@ pub mod concurrency_chan;
 pub mod concurrency_task;
 pub mod datetime;
 pub mod io;
+pub mod json;
 pub mod iter;
 pub mod list;
 pub mod map;
 pub mod math;
 pub mod os;
+pub mod toml;
 pub mod string;
+pub mod yaml;
 pub mod tcp;
 pub mod time;
 
@@ -22,6 +25,9 @@ use qcl_core::val::Val;
 /// Register all stdlib modules with the given registry
 pub fn register_stdlib_modules(registry: &mut ModuleRegistry) {
     registry.register_module("io", Box::new(io::IoModule::new()));
+    registry.register_module("json", Box::new(json::JsonModule::new()));
+    registry.register_module("yaml", Box::new(yaml::YamlModule::new()));
+    registry.register_module("toml", Box::new(toml::TomlModule::new()));
     registry.register_module("iter", Box::new(iter::IterModule::new()));
     registry.register_module("math", Box::new(math::MathModule::new()));
     registry.register_module("string", Box::new(string::StringModule::new()));

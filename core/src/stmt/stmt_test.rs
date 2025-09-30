@@ -227,21 +227,22 @@ mod tests {
 
     #[test]
     fn test_context_access_with_variables() {
-        let mut ctx_map: HashMap<String, Val> = HashMap::new();
         let mut user_map: HashMap<String, Val> = HashMap::new();
         user_map.insert("age".to_string(), Val::Int(25));
-        ctx_map.insert("user".to_string(), user_map.into());
-        let ctx: Val = ctx_map.into();
+        let user_val: Val = user_map.into();
 
         let program = parse_program(
             r#"
             let min_age = 18;
-            let user_age = @user.age;
+            let user_age = user.age;
             let is_adult = user_age >= min_age;
         "#,
         );
 
-        let result = program.execute(&ctx).expect("Failed to execute");
+        let mut env = crate::stmt::Environment::new();
+        env.define("user".to_string(), user_val);
+        let result =
+            program.execute_with_env(&Val::Nil, &mut env).expect("Failed to execute");
         assert_eq!(result, Val::Nil);
     }
 

@@ -9,25 +9,28 @@ English | [简体中文](README.zh-CN.md)
 
 It's designed to be used in ACL (Access Control List) systems, where you need to check if a user has access to a resource.
 
-### Example
+### Example (statements)
 
 ```rust
-fn user_can_access() {
-    return @record.owner == @req.user.id
-        || @record.published;
+import io;
+import json;
+let data = json.parse(io.read());
+
+fn user_can_access(record, req) {
+    return record.owner == req.user.id || record.published;
 }
-fn admin_can_access() {
-    return @req.user.role == 'admin' || @req.user.id in @record.granted;
+fn admin_can_access(req, record) {
+    return req.user.role == 'admin' || req.user.id in record.granted;
 }
-return user_can_access() || admin_can_access();
+return user_can_access(data.record, data.req) || admin_can_access(data.req, data.record);
 ```
 
 Let's break it down:
 
-- `@req.user.role == 'admin'`: Check if the user has the role of `admin`.
-- `@req.user.id in @record.granted`: Check if the user's id is in the `granted` list of the record.
-- `@record.published`: Check if the record is published.
-- `@record.owner == @req.user.id`: Check if the record's owner is the user.
+- `req.user.role == 'admin'`: Check if the user has the role of `admin`.
+- `req.user.id in record.granted`: Check if the user's id is in the `granted` list of the record.
+- `record.published`: Check if the record is published.
+- `record.owner == req.user.id`: Check if the record's owner is the user.
 
 The above example is a simple ACL system that checks if the user has access to a record.
 
@@ -43,38 +46,26 @@ At least one input format feature must be enabled. The default configuration ena
 
 ### Usage
 
-#### Integration
+#### Integration (library)
 
 ```rust
-// Parse expr
-let expr = "@req.user.name in 'foobar' && @files.0.published == true";
-let expr = Expr::try_from(expr)?;
+use qcl_core::{expr::Expr, stmt::Environment, val::Val};
 
-// Construct context
-let ctx_names = expr.requested_ctx(); // ["req", "files"]
-// You can construct the context indeed, but we use json! for simplicity
-let ctx = json!({
-    "req": {
-        "user": "foo"
-    },
-    "files": [
-        {
-            "name": "file1",
-            "published": true
-        }
-    ]
-});
+// Parse expr
+let expr_src = "data.req.user.name in 'foobar' && data.files.0.published == true";
+let expr = Expr::try_from(expr_src)?;
+
+// Provide variables via the lexical environment (no implicit context)
+let mut env = Environment::new();
+let data_val: Val = serde_json::json!({
+    "req": { "user": { "name": "foo" } },
+    "files": [ { "name": "file1", "published": true } ]
+}).into();
+env.define("data".to_string(), data_val);
 
 // Eval
-let result = expr.eval(ctx.into())?; // Val::Bool(true)
-match result {
-    Val::Bool(b) => {
-        assert!(b);
-    }
-    _ => {
-        panic!("unexpected result");
-    }
-}
+let result = expr.eval_with_env(&Val::Nil, Some(&env))?; // Val::Bool(true)
+assert_eq!(result, Val::Bool(true));
 ```
 
 #### CLI
@@ -83,6 +74,9 @@ match result {
     <img src="https://cdn.lpkt.cn/img/capture/qcl.png" alt="QCL" />
 </div>
 
+- Input handling:
+  - There is no implicit context. Read from stdin explicitly via `io.read()` and parse manually using stdlib modules (`json/yaml/toml`).
+  - Example: `cat test.json | qcl --stmt -- "import io; import json; let d = json.parse(io.read()); return d.user.id == 1;"`
 - File import safety and resolution:
   - Only relative, sanitized paths are allowed (no `..`, no absolute paths).
   - When importing files, resolution tries `${MOD_NAME}.qcl` then `${MOD_NAME}/mod.qcl` relative to the current directory. Quoted paths with `.qcl` are used directly if they exist.

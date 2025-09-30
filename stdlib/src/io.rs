@@ -195,6 +195,9 @@ impl IoModule {
         functions.insert("stdout".to_string(), make_stdout_object());
         functions.insert("stderr".to_string(), make_stderr_object());
 
+        // Convenience top-level helpers
+        functions.insert("read".to_string(), Val::RustFunction(mod_read));
+
         IoModule { functions }
     }
 }
@@ -212,6 +215,21 @@ impl Module for IoModule {
     fn exports(&self) -> HashMap<String, Val> {
         self.functions.clone()
     }
+}
+
+// ----- Top-level helpers -----
+
+fn read_all_to_string() -> anyhow::Result<String> {
+    let mut s = String::new();
+    std::io::stdin().lock().read_to_string(&mut s)?;
+    Ok(s)
+}
+
+fn mod_read(args: &[Val], _env: &qcl_core::stmt::Environment, _ctx: &Val) -> anyhow::Result<Val> {
+    if !args.is_empty() {
+        return Err(anyhow::anyhow!("io.read() takes no arguments"));
+    }
+    Ok(Val::Str(read_all_to_string()?.into()))
 }
 
 #[cfg(test)]

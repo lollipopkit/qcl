@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::{expr::Expr, op::BinOp, val::Val};
+    use crate::{expr::Expr, val::Val};
 
     #[cfg(feature = "json")]
     use serde_json::json;
@@ -16,43 +16,49 @@ mod tests {
                     "list-2": [1]
                 });
 
-                let l: Expr = $l.try_into().unwrap();
-                let r: Expr = $r.try_into().unwrap();
+                let op_str = match stringify!($op) {
+                    "Add" => "+",
+                    "Sub" => "-",
+                    "Mul" => "*",
+                    "Div" => "/",
+                    _ => panic!("unsupported op in test"),
+                };
+                let expr_src = format!("({}) {} ({})", $l, op_str, $r);
+                let expr: Expr = expr_src.try_into().unwrap();
+                let mut env = crate::stmt::Environment::new();
+                let ctx_val: Val = ctx.into();
+                if let Val::Map(m) = &ctx_val { for (k,v) in m.iter() { env.define(k.to_string(), v.clone()); } }
                 let res: Val = $res.into();
-                assert_eq!(BinOp::$op.eval(&l, &r, &ctx.into()).unwrap(), res);
+                assert_eq!(expr.eval_with_env(&Val::Nil, Some(&env)).unwrap(), res);
             }
         };
     }
 
-    test_op!(add, Add, "@list.0", "1", 2);
+    test_op!(add, Add, "list.0", "1", 2);
     #[cfg(feature = "adv_arith")]
-    test_op!(num_str_add, Add, "@list.0", "'str'", "1str");
-    test_op!(sub, Sub, "@list.0", "1", 0);
-    test_op!(mul, Mul, "@list.0", "2", 2);
+    test_op!(num_str_add, Add, "list.0", "'str'", "1str");
+    test_op!(sub, Sub, "list.0", "1", 0);
+    test_op!(mul, Mul, "list.0", "2", 2);
     #[cfg(feature = "sem_arith")]
-    test_op!(div, Div, "@list.2", "2", 1.5);
+    test_op!(div, Div, "list.2", "2", 1.5);
     #[cfg(not(feature = "sem_arith"))]
-    test_op!(div, Div, "@list.2", "2", 1);
+    test_op!(div, Div, "list.2", "2", 1);
     #[cfg(feature = "adv_arith")]
-    test_op!(list_add_val, Add, "@list", "4", vec![1, 2, 3, 4]);
+    test_op!(list_add_val, Add, "list", "4", vec![1, 2, 3, 4]);
     #[cfg(feature = "adv_arith")]
-    test_op!(list_add_list, Add, "@list", "@list-2", vec![1, 2, 3, 1]);
+    test_op!(list_add_list, Add, "list", "list-2", vec![1, 2, 3, 1]);
     #[cfg(feature = "adv_arith")]
-    test_op!(list_sub_val, Sub, "@list", "2", vec![1, 3]);
+    test_op!(list_sub_val, Sub, "list", "2", vec![1, 3]);
     #[cfg(feature = "adv_arith")]
-    test_op!(list_sub_list, Sub, "@list", "@list-2", vec![2, 3]);
+    test_op!(list_sub_list, Sub, "list", "list-2", vec![2, 3]);
 
     // Tests with literal expressions
     #[cfg(feature = "adv_arith")]
     #[cfg(feature = "json")]
     #[test]
     fn literal_list_operations() {
-        let ctx: Val = json!({}).into();
-
-        let l: Expr = "[1, 2, 3]".try_into().unwrap();
-        let r: Expr = "[4, 5]".try_into().unwrap();
-
-        let result = BinOp::Add.eval(&l, &r, &ctx).unwrap();
+        let expr: Expr = "([1, 2, 3]) + ([4, 5])".try_into().unwrap();
+        let result = expr.eval(&Val::Nil).unwrap();
         let expected: Val = vec![1, 2, 3, 4, 5].into();
         assert_eq!(result, expected);
     }
@@ -61,12 +67,8 @@ mod tests {
     #[cfg(feature = "json")]
     #[test]
     fn literal_map_operations() {
-        let ctx: Val = json!({}).into();
-
-        let l: Expr = r#"{"a": 1, "b": 2}"#.try_into().unwrap();
-        let r: Expr = r#"{"c": 3, "a": 4}"#.try_into().unwrap();
-
-        let result = BinOp::Add.eval(&l, &r, &ctx).unwrap();
+        let expr: Expr = r#"({"a": 1, "b": 2}) + ({"c": 3, "a": 4})"#.try_into().unwrap();
+        let result = expr.eval(&Val::Nil).unwrap();
 
         // The result should be a map with "a": 4, "b": 2, "c": 3
         if let Val::Map(map) = result {
@@ -87,83 +89,69 @@ mod tests {
         .into();
 
         // Compare with literal list
-        let l: Expr = "@user.age".try_into().unwrap();
-        let r: Expr = "25".try_into().unwrap();
-        let result = BinOp::Eq.eval(&l, &r, &ctx).unwrap();
+        let expr: Expr = "user.age == 25".try_into().unwrap();
+        let mut env = crate::stmt::Environment::new();
+        if let Val::Map(m) = &ctx { for (k,v) in m.iter() { env.define(k.to_string(), v.clone()); } }
+        let result = expr.eval_with_env(&Val::Nil, Some(&env)).unwrap();
         assert_eq!(result, Val::Bool(true));
 
         // Test 'in' operator with literal list
-        let l: Expr = "25".try_into().unwrap();
-        let r: Expr = "[20, 25, 30]".try_into().unwrap();
-        let result = BinOp::In.eval(&l, &r, &ctx).unwrap();
+        let expr: Expr = "25 in [20, 25, 30]".try_into().unwrap();
+        let result = expr.eval(&Val::Nil).unwrap();
         assert_eq!(result, Val::Bool(true));
 
-        let l: Expr = "35".try_into().unwrap();
-        let r: Expr = "[20, 25, 30]".try_into().unwrap();
-        let result = BinOp::In.eval(&l, &r, &ctx).unwrap();
+        let expr: Expr = "35 in [20, 25, 30]".try_into().unwrap();
+        let result = expr.eval(&Val::Nil).unwrap();
         assert_eq!(result, Val::Bool(false));
 
         // Test 'in' operator with literal map
-        let l: Expr = r#""name""#.try_into().unwrap();
-        let r: Expr = r#"{"name": "Alice", "age": 25}"#.try_into().unwrap();
-        let result = BinOp::In.eval(&l, &r, &ctx).unwrap();
+        let expr: Expr = r#""name" in {"name": "Alice", "age": 25}"#.try_into().unwrap();
+        let result = expr.eval(&Val::Nil).unwrap();
         assert_eq!(result, Val::Bool(true));
 
-        let l: Expr = r#""email""#.try_into().unwrap();
-        let r: Expr = r#"{"name": "Alice", "age": 25}"#.try_into().unwrap();
-        let result = BinOp::In.eval(&l, &r, &ctx).unwrap();
+        let expr: Expr = r#""email" in {"name": "Alice", "age": 25}"#.try_into().unwrap();
+        let result = expr.eval(&Val::Nil).unwrap();
         assert_eq!(result, Val::Bool(false));
     }
 
     #[test]
     #[cfg(feature = "json")]
     fn nested_literal_comparisons() {
-        let ctx: Val = json!({}).into();
-
         // Compare nested lists
-        let l: Expr = "[[1, 2], [3, 4]]".try_into().unwrap();
-        let r: Expr = "[[1, 2], [3, 4]]".try_into().unwrap();
-        let result = BinOp::Eq.eval(&l, &r, &ctx).unwrap();
+        let expr: Expr = "[[1, 2], [3, 4]] == [[1, 2], [3, 4]]".try_into().unwrap();
+        let result = expr.eval(&Val::Nil).unwrap();
         assert_eq!(result, Val::Bool(true));
 
-        let l: Expr = "[[1, 2], [3, 4]]".try_into().unwrap();
-        let r: Expr = "[[1, 2], [3, 5]]".try_into().unwrap();
-        let result = BinOp::Eq.eval(&l, &r, &ctx).unwrap();
+        let expr: Expr = "[[1, 2], [3, 4]] == [[1, 2], [3, 5]]".try_into().unwrap();
+        let result = expr.eval(&Val::Nil).unwrap();
         assert_eq!(result, Val::Bool(false));
 
         // Compare nested maps
-        let l: Expr = r#"{"user": {"name": "Alice"}}"#.try_into().unwrap();
-        let r: Expr = r#"{"user": {"name": "Alice"}}"#.try_into().unwrap();
-        let result = BinOp::Eq.eval(&l, &r, &ctx).unwrap();
+        let expr: Expr = r#"{"user": {"name": "Alice"}} == {"user": {"name": "Alice"}}"#.try_into().unwrap();
+        let result = expr.eval(&Val::Nil).unwrap();
         assert_eq!(result, Val::Bool(true));
 
-        let l: Expr = r#"{"user": {"name": "Alice"}}"#.try_into().unwrap();
-        let r: Expr = r#"{"user": {"name": "Bob"}}"#.try_into().unwrap();
-        let result = BinOp::Eq.eval(&l, &r, &ctx).unwrap();
+        let expr: Expr = r#"{"user": {"name": "Alice"}} == {"user": {"name": "Bob"}}"#.try_into().unwrap();
+        let result = expr.eval(&Val::Nil).unwrap();
         assert_eq!(result, Val::Bool(false));
     }
 
     #[test]
     #[cfg(feature = "json")]
     fn mixed_type_comparisons() {
-        let ctx: Val = json!({}).into();
-
         // List vs non-list
-        let l: Expr = "[1, 2, 3]".try_into().unwrap();
-        let r: Expr = "123".try_into().unwrap();
-        let result = BinOp::Eq.eval(&l, &r, &ctx).unwrap();
+        let expr: Expr = "[1, 2, 3] == 123".try_into().unwrap();
+        let result = expr.eval(&Val::Nil).unwrap();
         assert_eq!(result, Val::Bool(false));
 
         // Map vs non-map
-        let l: Expr = r#"{"a": 1}"#.try_into().unwrap();
-        let r: Expr = "1".try_into().unwrap();
-        let result = BinOp::Eq.eval(&l, &r, &ctx).unwrap();
+        let expr: Expr = r#"{"a": 1} == 1"#.try_into().unwrap();
+        let result = expr.eval(&Val::Nil).unwrap();
         assert_eq!(result, Val::Bool(false));
 
         // Empty structures
-        let l: Expr = "[]".try_into().unwrap();
-        let r: Expr = "{}".try_into().unwrap();
-        let result = BinOp::Eq.eval(&l, &r, &ctx).unwrap();
+        let expr: Expr = "[] == {}".try_into().unwrap();
+        let result = expr.eval(&Val::Nil).unwrap();
         assert_eq!(result, Val::Bool(false));
     }
 
@@ -179,17 +167,19 @@ mod tests {
         // Add context value to literal list
         #[cfg(feature = "adv_arith")]
         {
-            let l: Expr = "[1, 2, 3]".try_into().unwrap();
-            let r: Expr = "@base".try_into().unwrap();
-            let result = BinOp::Add.eval(&l, &r, &ctx).unwrap();
+            let expr: Expr = "[1, 2, 3] + base".try_into().unwrap();
+            let mut env = crate::stmt::Environment::new();
+            if let Val::Map(m) = &ctx { for (k,v) in m.iter() { env.define(k.to_string(), v.clone()); } }
+            let result = expr.eval_with_env(&Val::Nil, Some(&env)).unwrap();
             let expected: Val = vec![1, 2, 3, 10].into();
             assert_eq!(result, expected);
         }
 
         // Multiply literal with context
-        let l: Expr = "5".try_into().unwrap();
-        let r: Expr = "@multiplier".try_into().unwrap();
-        let result = BinOp::Mul.eval(&l, &r, &ctx).unwrap();
+        let expr: Expr = "5 * multiplier".try_into().unwrap();
+        let mut env = crate::stmt::Environment::new();
+        if let Val::Map(m) = &ctx { for (k,v) in m.iter() { env.define(k.to_string(), v.clone()); } }
+        let result = expr.eval_with_env(&Val::Nil, Some(&env)).unwrap();
         assert_eq!(result, Val::Int(10));
     }
 }

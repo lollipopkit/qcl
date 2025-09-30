@@ -662,7 +662,7 @@ impl Tokenizer {
     // legacy '@' list parser removed
 
     fn parse_int(&mut self) -> Result<()> {
-        // Record span for integers parsed in contexts like @a.0 or .123
+        // Record span for integers parsed in contexts like a.0 or .123
         let start_pos = self.current_position();
         let mut num = String::new();
         while !self.eof() {

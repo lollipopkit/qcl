@@ -345,12 +345,9 @@ impl Pattern {
 }
 
 /// Details:
-/// - @expr
-///   + All accessible objects of `@` expr are maps actually.
-///   + You can use `.` to access the fields of the map.
-///   + @req: Request object, `@req.user` is the user object.
-///   + @record: Record object, `@record` is the record object.
-///   + All valid objects are defined in the [Context]
+/// - No implicit context
+///   + Identifiers must be defined in the lexical environment (e.g., via `let` in statements).
+///   + There is no implicit runtime context lookup. Read with `io.read()` and parse with `json/yaml/toml` modules when needed.
 /// - int / float are considered as `i64 / f64`.
 /// - bool can be `true` or `false`.
 /// - String
@@ -364,8 +361,8 @@ impl Pattern {
 /// - Access literals: `[1, 2, 3].1`, `{"name": "Alice"}.name`
 ///
 /// Examples:
-/// - `@req.user.age >= 18`
-/// - `@req.user.name == "Alice" && @record.status == "active"`
+/// - `{ "age": 20 }.age >= 18`
+/// - `import json; let data = json.parse(io.read()); data.user.name == "Alice"` (in statements)
 /// - `[1, 2, 3]`
 /// - `{"name": "John", "age": 30}`
 /// - `[1, 2, 3].1`
@@ -568,17 +565,13 @@ impl Expr {
             }
             Expr::Paren(expr) => expr.eval_with_env(ctx, env),
             Expr::Var(name) => {
-                // 1) Prefer lexical environment variable
+                // Only resolve variables from the lexical environment. No implicit context lookup.
                 if let Some(env) = env {
                     if let Some(val) = env.get_value(name) {
                         return Ok(val);
                     }
                 }
-                // 2) Fallback: treat identifier as top-level key in context map
-                match ctx {
-                    Val::Map(map) => Ok(map.get(name).cloned().unwrap_or(Val::Nil)),
-                    _ => Err(anyhow!("Undefined variable: {}", name)),
-                }
+                Err(anyhow!("Undefined variable: {}", name))
             }
             Expr::Call(func_name, args) => {
                 if let Some(env) = env {
@@ -1028,7 +1021,7 @@ impl Expr {
 
     /// Helper method to collect context names recursively
     ///
-    /// eg.: `@user.props.(@req.service).value && @list` => `["user", "req", "list"]`
+    /// eg.: `user.props.(req.service).value && list` => `["user", "req", "list"]`
     fn collect_ctx_names(&self, names: &mut HashSet<String>) {
         match self {
             Expr::Conditional(c, t, e) => {

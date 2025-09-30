@@ -1,13 +1,19 @@
 #[cfg(test)]
 mod tests {
-    use crate::{stmt::StmtParser, token::Tokenizer, val::Val};
+    use crate::{stmt::{Environment, StmtParser}, token::Tokenizer, val::Val};
     use std::sync::Arc;
 
     fn parse_and_execute_stmt(stmt_code: &str, ctx: &Val) -> Result<Val, anyhow::Error> {
         let tokens = Tokenizer::tokenize(stmt_code)?;
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
-        program.execute(ctx)
+        let mut env = Environment::new();
+        if let Val::Map(m) = ctx {
+            for (k, v) in m.iter() {
+                env.define(k.to_string(), v.clone());
+            }
+        }
+        program.execute_with_env(&Val::Nil, &mut env)
     }
 
     #[test]
@@ -17,7 +23,7 @@ mod tests {
             .collect::<std::collections::HashMap<String, Val>>()
             .into();
 
-        let result = parse_and_execute_stmt("if let x = @data { return x; }", &ctx).unwrap();
+        let result = parse_and_execute_stmt("if let x = data { return x; }", &ctx).unwrap();
 
         assert_eq!(result, Val::Int(42));
     }
@@ -30,7 +36,7 @@ mod tests {
             .into();
 
         let result = parse_and_execute_stmt(
-            r#"if let "ok" = @status { return 1; } else { return 0; }"#,
+            r#"if let "ok" = status { return 1; } else { return 0; }"#,
             &ctx,
         )
         .unwrap();
@@ -46,7 +52,7 @@ mod tests {
             .into();
 
         let result = parse_and_execute_stmt(
-            r#"if let "ok" = @status { return 1; } else { return 0; }"#,
+            r#"if let "ok" = status { return 1; } else { return 0; }"#,
             &ctx,
         )
         .unwrap();
@@ -65,7 +71,7 @@ mod tests {
         .into();
 
         let result = parse_and_execute_stmt(
-            "if let [first, second, third] = @list { return first + second + third; }",
+            "if let [first, second, third] = list { return first + second + third; }",
             &ctx,
         )
         .unwrap();
@@ -89,7 +95,7 @@ mod tests {
         .into();
 
         let result =
-            parse_and_execute_stmt("if let [first, ..rest] = @list { return first; }", &ctx)
+            parse_and_execute_stmt("if let [first, ..rest] = list { return first; }", &ctx)
                 .unwrap();
 
         assert_eq!(result, Val::Int(1));
@@ -103,16 +109,16 @@ mod tests {
                 ("name".to_string(), Val::Str("Alice".into())),
                 ("age".to_string(), Val::Int(30)),
             ]
-                .into_iter()
-                .collect::<std::collections::HashMap<String, Val>>()
-                .into()),
+            .into_iter()
+            .collect::<std::collections::HashMap<String, Val>>()
+            .into()),
         )]
         .into_iter()
         .collect::<std::collections::HashMap<String, Val>>()
         .into();
 
         let result =
-            parse_and_execute_stmt(r#"if let {"name": name} = @user { return name; }"#, &ctx)
+            parse_and_execute_stmt(r#"if let {"name": name} = user { return name; }"#, &ctx)
                 .unwrap();
 
         assert_eq!(result, Val::Str("Alice".into()));
@@ -126,7 +132,7 @@ mod tests {
             .into();
 
         let result =
-            parse_and_execute_stmt("if let _ = @data { return 1; } else { return 0; }", &ctx)
+            parse_and_execute_stmt("if let _ = data { return 1; } else { return 0; }", &ctx)
                 .unwrap();
 
         assert_eq!(result, Val::Int(1));
@@ -136,25 +142,23 @@ mod tests {
     fn test_if_let_nested_pattern() {
         let ctx: Val = [(
             "data".to_string(),
-            ([
-                (
-                    "items".to_string(),
-                    Val::List(Arc::from(vec![
-                        Val::Str("first".into()),
-                        Val::Str("second".into()),
-                    ])),
-                ),
-            ]
-                .into_iter()
-                .collect::<std::collections::HashMap<String, Val>>()
-                .into()),
+            ([(
+                "items".to_string(),
+                Val::List(Arc::from(vec![
+                    Val::Str("first".into()),
+                    Val::Str("second".into()),
+                ])),
+            )]
+            .into_iter()
+            .collect::<std::collections::HashMap<String, Val>>()
+            .into()),
         )]
         .into_iter()
         .collect::<std::collections::HashMap<String, Val>>()
         .into();
 
         let result = parse_and_execute_stmt(
-            r#"if let {"items": [first, second]} = @data { return first; }"#,
+            r#"if let {"items": [first, second]} = data { return first; }"#,
             &ctx,
         )
         .unwrap();
@@ -170,7 +174,7 @@ mod tests {
             .into();
 
         let result = parse_and_execute_stmt(
-            "if let 200 | 201 | 202 = @status { return 1; } else { return 0; }",
+            "if let 200 | 201 | 202 = status { return 1; } else { return 0; }",
             &ctx,
         )
         .unwrap();
@@ -186,7 +190,7 @@ mod tests {
             .into();
 
         let result = parse_and_execute_stmt(
-            "if let x if x > 10 = @value { return x; } else { return 0; }",
+            "if let x if x > 10 = value { return x; } else { return 0; }",
             &ctx,
         )
         .unwrap();
@@ -202,7 +206,7 @@ mod tests {
             .into();
 
         let result = parse_and_execute_stmt(
-            "if let x if x > 10 = @value { return x; } else { return 0; }",
+            "if let x if x > 10 = value { return x; } else { return 0; }",
             &ctx,
         )
         .unwrap();
@@ -218,7 +222,7 @@ mod tests {
             .into();
 
         let result = parse_and_execute_stmt(
-            r#"if let 18..65 = @age { return "adult"; } else { return "other"; }"#,
+            r#"if let 18..65 = age { return "adult"; } else { return "other"; }"#,
             &ctx,
         )
         .unwrap();
@@ -237,7 +241,7 @@ mod tests {
         let result = parse_and_execute_stmt(
             r#"
             let x = "outer";
-            if let y = @data {
+            if let y = data {
                 return y;
             }
             return x;
@@ -253,20 +257,22 @@ mod tests {
     fn test_if_let_complex_expression() {
         let ctx: Val = [(
             "data".to_string(),
-            Val::List(Arc::from(vec![([
-                ("id".to_string(), Val::Int(1)),
-                ("value".to_string(), Val::Str("test".into())),
-            ]
-            .into_iter()
-            .collect::<std::collections::HashMap<String, Val>>()
-            .into())])),
+            Val::List(Arc::from(vec![
+                ([
+                    ("id".to_string(), Val::Int(1)),
+                    ("value".to_string(), Val::Str("test".into())),
+                ]
+                .into_iter()
+                .collect::<std::collections::HashMap<String, Val>>()
+                .into()),
+            ])),
         )]
         .into_iter()
         .collect::<std::collections::HashMap<String, Val>>()
         .into();
 
         let result = parse_and_execute_stmt(
-            r#"if let [{"id": id, "value": value}] = @data { return value; }"#,
+            r#"if let [{"id": id, "value": value}] = data { return value; }"#,
             &ctx,
         )
         .unwrap();
@@ -281,7 +287,7 @@ mod tests {
             .collect::<std::collections::HashMap<String, Val>>()
             .into();
 
-        let result = parse_and_execute_stmt("if let 42 = @data { return 1; }", &ctx).unwrap();
+        let result = parse_and_execute_stmt("if let 42 = data { return 1; }", &ctx).unwrap();
 
         assert_eq!(result, Val::Nil); // No match, no else, returns nil
     }

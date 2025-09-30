@@ -1562,6 +1562,7 @@ impl QclAnalyzer {
     }
 
     /// Get context-aware completions for the given prefix
+    #[allow(dead_code)]
     pub fn get_context_completions(&mut self, prefix: &str) -> Vec<CompletionItem> {
         // Use cached completion items if available
         let all_items = if let Some(ref cached) = self.completion_cache {
@@ -1726,7 +1727,6 @@ impl QclAnalyzer {
         const STRING_IDX: u32 = 4;
         const NUMBER_IDX: u32 = 5;
         const OPERATOR_IDX: u32 = 6;
-        const PROPERTY_IDX: u32 = 8;
 
         let lines: Vec<&str> = content.lines().collect();
 
@@ -1942,12 +1942,7 @@ impl QclAnalyzer {
                     continue;
                 }
 
-                // Handle context access (@) - mark as property token
-                if c == '@' {
-                    tokens.push(self.create_token(line_number, char_index, 1, PROPERTY_IDX, 0));
-                    char_index += 1;
-                    continue;
-                }
+                // Legacy '@' context access removed; treat '@' as punctuation
 
                 // Handle operators - only tokenize multi-character operators to reduce density
                 if c == '=' || c == '!' || c == '<' || c == '>' || c == '&' || c == '|' || c == '-'
@@ -2079,7 +2074,6 @@ impl QclAnalyzer {
         const STRING_IDX: u32 = 4;
         const NUMBER_IDX: u32 = 5;
         const OPERATOR_IDX: u32 = 6;
-        const PROPERTY_IDX: u32 = 8;
 
         let lines: Vec<&str> = content_slice.lines().collect();
         if lines.is_empty() {
@@ -2298,12 +2292,7 @@ impl QclAnalyzer {
                     continue;
                 }
 
-                // Context access '@' - mark as property token
-                if c == '@' {
-                    tokens.push(self.create_token(line_number, char_index, 1, PROPERTY_IDX, 0));
-                    char_index += 1;
-                    continue;
-                }
+                // Legacy '@' context access removed; treat '@' as punctuation
 
                 // Operators - only tokenize multi-character operators to reduce density
                 if "=!<>|&-".contains(c) {
@@ -2500,7 +2489,7 @@ mod tests {
     #[test]
     fn test_analyze_simple_expression() {
         let mut analyzer = create_analyzer();
-        let result = analyzer.analyze("@req.user.role == 'admin'");
+        let result = analyzer.analyze("req.user.role == 'admin'");
 
         // Should have context references
         assert!(result.context_references.contains("req"));
@@ -2521,7 +2510,7 @@ mod tests {
     #[test]
     fn test_analyze_invalid_expression() {
         let mut analyzer = create_analyzer();
-        let result = analyzer.analyze("@req.user.role == 'unterminated string");
+        let result = analyzer.analyze("req.user.role == 'unterminated string");
 
         // Should have diagnostic for invalid expression (tokenization error due to unterminated string)
         assert!(!result.diagnostics.is_empty());
@@ -2537,7 +2526,7 @@ mod tests {
         let mut analyzer = create_analyzer();
         let code = r#"
             import math;
-            let user_level = @req.user.level;
+            let user_level = req.user.level;
             fn calculate_score(base) {
                 return math.sqrt(base * user_level);
             }
@@ -2561,20 +2550,20 @@ mod tests {
     #[test]
     fn test_get_context_completions() {
         let mut analyzer = create_analyzer();
-        let completions = analyzer.get_context_completions("@req");
+        let completions = analyzer.get_context_completions("req");
 
-        // Should return completions that start with "@req"
+        // Should return completions that start with "req"
         assert!(!completions.is_empty());
 
         let labels: Vec<&String> = completions.iter().map(|c| &c.label).collect();
-        assert!(labels.contains(&&"@req".to_string()));
-        assert!(labels.contains(&&"@req.user".to_string()));
-        assert!(labels.contains(&&"@req.user.id".to_string()));
-        assert!(labels.contains(&&"@req.user.role".to_string()));
-        assert!(labels.contains(&&"@req.user.name".to_string()));
+        assert!(labels.contains(&&"req".to_string()));
+        assert!(labels.contains(&&"req.user".to_string()));
+        assert!(labels.contains(&&"req.user.id".to_string()));
+        assert!(labels.contains(&&"req.user.role".to_string()));
+        assert!(labels.contains(&&"req.user.name".to_string()));
 
         // Should not include completions that don't match the prefix
-        assert!(!labels.contains(&&"@record".to_string()));
+        assert!(!labels.contains(&&"record".to_string()));
     }
 
     #[test]
@@ -2594,7 +2583,7 @@ mod tests {
         let context = Val::from(context_map);
 
         // Parse expression that uses req.user.role
-        let tokens = qcl_core::token::Tokenizer::tokenize("@req.user.role == 'admin'").unwrap();
+        let tokens = qcl_core::token::Tokenizer::tokenize("req.user.role == 'admin'").unwrap();
         let mut parser = qcl_core::ast::Parser::new(&tokens);
         let expr_result = parser.parse();
 
@@ -2631,13 +2620,12 @@ mod tests {
     #[test]
     fn test_generate_semantic_tokens_simple_expression() {
         let analyzer = create_analyzer();
-        let content = "@req.user.role == 'admin'";
+        let content = "req.user.role == 'admin'";
         let tokens = analyzer.generate_semantic_tokens(content);
 
         // Define the legend indices for testing
         const OPERATOR_IDX: u32 = 6;
         const STRING_IDX: u32 = 4;
-        const PROPERTY_IDX: u32 = 8;
 
         // Should have tokens for: @, req, ., user, ., role, ==, 'admin'
         assert!(!tokens.is_empty());
@@ -2645,28 +2633,25 @@ mod tests {
         // Check that we have a keyword token for '==' (operator)
         let mut found_operator = false;
         let mut found_string = false;
-        let mut found_property = false;
 
         for token in &tokens {
             if token.token_type == OPERATOR_IDX {
                 found_operator = true;
             } else if token.token_type == STRING_IDX {
                 found_string = true;
-            } else if token.token_type == PROPERTY_IDX {
-                found_property = true;
             }
         }
 
         assert!(found_operator, "Should find operator token");
         assert!(found_string, "Should find string token");
-        assert!(found_property, "Should find property token for '@'");
+        // '@' token removed; property tokens still present for identifiers
     }
 
     #[test]
     fn test_generate_semantic_tokens_statement_program() {
         let analyzer = create_analyzer();
         let content = r#"
-            let user_level = @req.user.level;
+            let user_level = req.user.level;
             if user_level > 5 {
                 return "admin";
             }

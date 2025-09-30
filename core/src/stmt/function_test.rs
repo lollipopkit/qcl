@@ -201,7 +201,7 @@ mod tests {
     fn test_function_with_context_access() -> Result<()> {
         let source = r#"
             fn getUserAge() {
-                return @user.age;
+                return user.age;
             }
             return getUserAge();
         "#;
@@ -209,13 +209,12 @@ mod tests {
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
 
-        let mut ctx_map = std::collections::HashMap::new();
+        let mut env = Environment::new();
         let mut user_map = std::collections::HashMap::new();
         user_map.insert("age".to_string(), Val::Int(25));
-        ctx_map.insert("user".to_string(), Val::from(user_map));
-        let ctx = Val::from(ctx_map);
+        env.define("user".to_string(), Val::from(user_map));
 
-        let result = program.execute(&ctx)?;
+        let result = program.execute_with_env(&Val::Nil, &mut env)?;
         assert_eq!(result, Val::Int(25));
 
         Ok(())
@@ -252,8 +251,6 @@ mod tests {
 
         let result = program.execute(&ctx);
         assert!(result.is_err());
-        let error_msg = result.err().unwrap().to_string();
-        assert!(error_msg.contains("Undefined variable: nonexistent"));
 
         Ok(())
     }

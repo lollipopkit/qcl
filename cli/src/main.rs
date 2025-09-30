@@ -1,4 +1,4 @@
-use std::io::{BufRead, IsTerminal};
+use std::io::IsTerminal;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
@@ -8,7 +8,7 @@ use qcl_core::{
     module::ModuleRegistry,
     stmt::{self, stmt_parser::StmtParser},
     token::Tokenizer,
-    val::{Val, de},
+    val::Val,
 };
 
 #[cfg(feature = "concurrency")]
@@ -45,20 +45,10 @@ fn main() -> anyhow::Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
     // Print usage only when no args and not in a terminal
     if args.len() < 2 && !std::io::stdin().is_terminal() {
-        let formats = ["json", "yaml", "toml"];
-
-        let format_str = formats.join("|");
-        let flag_str = formats
-            .iter()
-            .map(|f| format!("--{}", f))
-            .collect::<Vec<_>>()
-            .join("|");
-
         eprintln!(
-            "Usage: cat <{}> | {} [--repl] [{}] [--expr|--stmt] [--vm] <expr|program|file>",
-            format_str, args[0], flag_str
+            "Usage: {} [--repl] [--expr|--stmt] [--vm] <expr|program|file>",
+            args[0]
         );
-        eprintln!("  Format is auto-detected unless {} is specified", flag_str);
         eprintln!("  Default is expression mode, use --stmt for statement mode");
         eprintln!("  If a single argument is a file path, it will be executed");
         eprintln!("  Use --repl for interactive mode (or run with no args in a TTY)");
@@ -69,7 +59,6 @@ fn main() -> anyhow::Result<()> {
     }
 
     let mut arg_idx = 1;
-    let mut format_override = None;
     // Default to expression mode; fallback target is expr when not a file
     let mut is_statement_mode = false;
     let mut repl_mode = false;
@@ -77,18 +66,6 @@ fn main() -> anyhow::Result<()> {
 
     while arg_idx < args.len() {
         match args[arg_idx].as_str() {
-            "--json" => {
-                format_override = Some(de::Format::Json);
-                arg_idx += 1;
-            }
-            "--yaml" => {
-                format_override = Some(de::Format::Yaml);
-                arg_idx += 1;
-            }
-            "--toml" => {
-                format_override = Some(de::Format::Toml);
-                arg_idx += 1;
-            }
             "--stmt" => {
                 is_statement_mode = true;
                 arg_idx += 1;
@@ -109,27 +86,8 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    let raw = if std::io::stdin().is_terminal() {
-        // If stdin is a terminal (interactive mode), don't wait for input
-        String::new()
-    } else {
-        // If stdin is piped/redirected, read from it
-        let raw = std::io::stdin()
-            .lock()
-            .lines()
-            .collect::<Result<Vec<_>, _>>();
-
-        match raw {
-            Ok(lines) => lines.join("\n"),
-            Err(_) => String::new(),
-        }
-    };
-
-    let ctx: Val = if raw.is_empty() {
-        Val::Map(Arc::new(Default::default()))
-    } else {
-        de::parse_with_format(&raw, format_override)?
-    };
+    // Context has been removed; programs should read from stdin explicitly via io.read()
+    let ctx: Val = Val::Nil;
 
     // If --repl specified, or no remaining args and in terminal, enter REPL
     if repl_mode || (arg_idx >= args.len() && std::io::stdin().is_terminal()) {
@@ -211,14 +169,18 @@ fn main() -> anyhow::Result<()> {
             #[cfg(feature = "vm")]
             {
                 // Compile entire program block to bytecode and execute with VM
-                let block = qcl_core::stmt::Stmt::Block { statements: program.statements.clone() };
+                let block = qcl_core::stmt::Stmt::Block {
+                    statements: program.statements.clone(),
+                };
                 let func = qcl_core::vm::Compiler::new().compile_stmt(&block);
                 let mut vm = qcl_core::vm::Vm::new();
                 return vm.exec_with(&func, Some(&mut env), &ctx);
             }
             #[cfg(not(feature = "vm"))]
             {
-                eprintln!("Warning: --vm specified but this binary was built without 'vm' feature; falling back to interpreter.");
+                eprintln!(
+                    "Warning: --vm specified but this binary was built without 'vm' feature; falling back to interpreter."
+                );
             }
         }
 
@@ -237,7 +199,9 @@ fn main() -> anyhow::Result<()> {
             }
             #[cfg(not(feature = "vm"))]
             {
-                eprintln!("Warning: --vm specified (or QCL_VM set) but this binary was built without 'vm' feature; using interpreter.");
+                eprintln!(
+                    "Warning: --vm specified (or QCL_VM set) but this binary was built without 'vm' feature; using interpreter."
+                );
                 let expr = Expr::parse_cached_arc(&input)?;
                 expr.eval(&ctx)
             }

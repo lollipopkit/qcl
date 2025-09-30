@@ -276,7 +276,10 @@ mod tests {
         };
 
         let mut data = std::collections::HashMap::new();
-        data.insert("users".to_string(), Val::List(Arc::from(vec![user1, user2])));
+        data.insert(
+            "users".to_string(),
+            Val::List(Arc::from(vec![user1, user2])),
+        );
         data.insert("count".to_string(), Val::Int(2));
 
         let match_expr = Expr::Match {

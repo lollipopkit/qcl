@@ -73,7 +73,12 @@ impl Clone for Val {
             Val::Bool(b) => Val::Bool(*b),
             Val::Map(m) => Val::Map(m.clone()),
             Val::List(l) => Val::List(l.clone()),
-            Val::Closure { params, body, env, upvalues } => Val::Closure {
+            Val::Closure {
+                params,
+                body,
+                env,
+                upvalues,
+            } => Val::Closure {
                 params: params.clone(),
                 body: body.clone(),
                 env: env.clone(),
@@ -761,7 +766,13 @@ impl Sub for &Val {
                     if r.iter().all(|v| matches!(v, Val::Str(_))) {
                         let set: HashSet<&str> = r
                             .iter()
-                            .filter_map(|v| if let Val::Str(s) = v { Some(s.as_ref()) } else { None })
+                            .filter_map(|v| {
+                                if let Val::Str(s) = v {
+                                    Some(s.as_ref())
+                                } else {
+                                    None
+                                }
+                            })
                             .collect();
                         let mut out = Vec::with_capacity(l.len());
                         for v in l.iter() {
@@ -1034,8 +1045,10 @@ impl From<serde_json::Value> for Val {
                 Val::List(Arc::from(v))
             }
             serde_json::Value::Object(o) => {
-                let m: HashMap<Arc<str>, Val> =
-                    o.into_iter().map(|(k, v)| (Arc::<str>::from(k), Val::from(v))).collect();
+                let m: HashMap<Arc<str>, Val> = o
+                    .into_iter()
+                    .map(|(k, v)| (Arc::<str>::from(k), Val::from(v)))
+                    .collect();
                 Val::Map(Arc::new(m))
             }
             serde_json::Value::Null => Val::Nil,

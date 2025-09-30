@@ -1,6 +1,6 @@
 use crate::val::Val;
-use std::collections::HashMap;
 use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 

@@ -8,7 +8,7 @@ A Language Server Protocol (LSP) implementation for the QCL (Query Check Languag
 - **Hover Information**: Shows type information, context references, and symbol counts
 - **Code Completion**: Auto-complete for QCL keywords, operators, context variables, and standard library functions
 - **Document Symbols**: Navigate through variables, functions, imports, and labels in QCL programs
-- **Context Analysis**: Detects and analyzes context variable usage (@req, @record, etc.)
+- **Context Analysis**: Detects and analyzes context variable usage (req, record, etc.)
 
 ## Architecture
 
@@ -24,7 +24,7 @@ The LSP server consists of:
 ## Supported Language Features
 
 ### QCL Expressions
-- Context access (`@req.user.role`)
+- Context access (`req.user.role`)
 - Arithmetic operations (`+`, `-`, `*`, `/`, `%`)
 - Logical operations (`&&`, `||`, `!`)
 - Comparison operations (`==`, `!=`, `<`, `>`, `<=`, `>=`, `in`)
@@ -51,9 +51,9 @@ The LSP server consists of:
 - Channel: `<-`
 
 #### Context Variables
-- `@req.user.id`, `@req.user.role`, `@req.user.name`
-- `@record.id`, `@record.owner`, `@record.granted`
-- `@env`, `@time`
+- `req.user.id`, `req.user.role`, `req.user.name`
+- `record.id`, `record.owner`, `record.granted`
+- `env`, `time`
 
 #### Standard Library Functions
 - Math: `abs`, `sqrt`, `sin`, `cos`
@@ -127,15 +127,15 @@ The LSP server leverages the QCL core library for parsing and analysis:
 Test the LSP server with a QCL file containing:
 ```qcl
 // Expression example
-@req.user.role == 'admin' && @req.user.level >= 5
+req.user.role == 'admin' && req.user.level >= 5
 
 // Statement program example
 import math;
-let result = math.sqrt(@req.user.score);
+let result = math.sqrt(req.user.score);
 fn validate_user(user) {
     return user.role == 'admin' || user.level >= 10;
 }
-if (validate_user(@req.user)) {
+if (validate_user(req.user)) {
     return true;
 }
 ```

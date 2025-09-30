@@ -78,7 +78,7 @@ The extension supports the QCL language with the following features:
 ### Syntax Highlighting
 - Keywords: `if`, `else`, `while`, `let`, `return`, `fn`, `go`, `select`, `case`, `default`, `break`, `continue`, `import`, `from`, `as`, `in`
 - Operators: `||`, `&&`, `==`, `!=`, `<=`, `>=`, `<`, `>`, `+`, `-`, `*`, `/`, `%`, `=`, `!`, `<-`
-- Context access: `@variable`
+- Context access: `variable.path`
 - Strings and numbers
 - Comments
 

@@ -42,8 +42,8 @@ mod tests {
 
     #[test]
     fn test_vm_stmt_block_if_while_return() {
-        use crate::stmt::Stmt;
         use crate::op::BinOp;
+        use crate::stmt::Stmt;
 
         // {
         //   x = 0;
@@ -56,8 +56,14 @@ mod tests {
         // }
         let block = Stmt::Block {
             statements: vec![
-                Box::new(Stmt::Define { name: "x".into(), value: Box::new(Expr::Val(Val::Int(0))) }),
-                Box::new(Stmt::Define { name: "i".into(), value: Box::new(Expr::Val(Val::Int(0))) }),
+                Box::new(Stmt::Define {
+                    name: "x".into(),
+                    value: Box::new(Expr::Val(Val::Int(0))),
+                }),
+                Box::new(Stmt::Define {
+                    name: "i".into(),
+                    value: Box::new(Expr::Val(Val::Int(0))),
+                }),
                 Box::new(Stmt::While {
                     condition: Box::new(Expr::Bin(
                         Box::new(Expr::Var("i".into())),
@@ -93,8 +99,12 @@ mod tests {
                         BinOp::Eq,
                         Box::new(Expr::Val(Val::Int(6))),
                     )),
-                    then_stmt: Box::new(Stmt::Return { value: Some(Box::new(Expr::Var("x".into()))) }),
-                    else_stmt: Some(Box::new(Stmt::Return { value: Some(Box::new(Expr::Val(Val::Int(0)))) })),
+                    then_stmt: Box::new(Stmt::Return {
+                        value: Some(Box::new(Expr::Var("x".into()))),
+                    }),
+                    else_stmt: Some(Box::new(Stmt::Return {
+                        value: Some(Box::new(Expr::Val(Val::Int(0)))),
+                    })),
                 }),
             ],
         };

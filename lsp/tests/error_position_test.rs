@@ -6,7 +6,7 @@ fn test_expression_error_position() {
     let mut analyzer = QclAnalyzer::new();
 
     // Test unterminated string - error should be at the end of line
-    let code = "@req.user.name == 'unterminated string";
+    let code = "req.user.name == 'unterminated string";
     let result = analyzer.analyze(code);
 
     assert!(!result.diagnostics.is_empty());
@@ -52,7 +52,7 @@ if (x == 5 {  // Missing closing parenthesis
 fn test_multiline_error_position() {
     let mut analyzer = QclAnalyzer::new();
 
-    let code = r#"let user = @req.user;
+    let code = r#"let user = req.user;
 let role = user.role;
 let invalid = role == 'admin' &&;  // Invalid syntax at end
 return invalid;"#;
@@ -79,7 +79,7 @@ fn test_simple_syntax_error_position() {
     let mut analyzer = QclAnalyzer::new();
 
     // Test with simple syntax error - missing quote
-    let code = "@req.user.name == 'admin"; // Missing closing quote
+    let code = "req.user.name == 'admin"; // Missing closing quote
     let result = analyzer.analyze(code);
 
     assert!(!result.diagnostics.is_empty());
@@ -98,7 +98,7 @@ fn test_multiple_errors_position() {
     let mut analyzer = QclAnalyzer::new();
 
     // Test with multiple errors in the code
-    let code = r#"let user = @req.user;
+    let code = r#"let user = req.user;
 let invalid1 = user.role == 'admin;  // Missing closing quote
 let invalid2 = user.age > 18 &&;      // Invalid syntax at end
 return invalid1 && invalid2;"#;

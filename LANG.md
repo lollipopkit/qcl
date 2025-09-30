@@ -24,12 +24,12 @@ Collections
 Template Strings
 - Interpolation only with `${expr}` inside normal quotes (both `"..."` and `'...'`).
 - Raw strings do not support interpolation.
-- Examples: `"Hello, ${@user.name}!"`, `"Sum: ${1 + 2}"`.
+- Examples: `"Hello, ${user.name}!"`, `"Sum: ${1 + 2}"`.
 
-Context Access `@`
-- `@` reads from the input context (e.g., JSON piped to CLI). Paths are dot‑separated.
-- First segment may be identifier, string, or parenthesized expression; subsequent segments may be id/str/int.
-- Examples: `@req.user.id`, `@users.0.name`, `@user.(@record.index - 1)`.
+Input and Variables
+- There is no implicit runtime context. Identifiers must be defined in the lexical environment (e.g., via `let` in statements, function params, or imports).
+- Read external input explicitly with stdlib: `io.read()` (string). Parse manually: `json.parse(...)`, `yaml.parse(...)`, `toml.parse(...)`.
+- Example: `import io; import json; let data = json.parse(io.read()); return data.req.user.id == 1;`
 
 Function Calls and Methods
 - Call any expression: `f(x, y)`, `(g)(z)`.
@@ -64,7 +64,7 @@ Notes
 - `in` supports: substring `str in str`, element membership in lists, and key existence in maps. For `list in list`, it checks all elements of the left are contained in the right.
 
 ## Expressions
-- Literals, lists, maps, variables, context `@...`, calls, property/index access, closures, ranges, logical/comparison, `??`, and `?:`.
+- Literals, lists, maps, variables, calls, property/index access, closures, ranges, logical/comparison, `??`, and `?:`.
 - Concurrency expressions (feature‑gated `concurrency`):
   - `spawn(expr)` → Task
   - `chan(capacity?, type?)` → Channel (type is a string like `"Int"`)
@@ -176,12 +176,10 @@ dot         ::= '.' field
 opt_dot     ::= '?.' field
 index       ::= '[' expr ']'
 opt_index   ::= '?[' expr ']'
-primary     ::= nil | false | true | int | float | string | template | at | list | map | var | paren
+primary     ::= nil | false | true | int | float | string | template | list | map | var | paren
              | closure | spawn | chan | send | recv | select | match
 closure     ::= '|' [id {',' id}] '|' expr
 template    ::= string_with_${...}
-at          ::= '@' at_field { '.' at_field }
-at_field    ::= id | int | string | '(' expr ')'
 field       ::= id | int | string
 list        ::= '[' [ expr { ',' expr } [ ',' ] ] ']'
 map         ::= '{' [ expr ':' expr { ',' expr ':' expr } [ ',' ] ] '}'
@@ -239,10 +237,10 @@ for_pattern  ::= '_' | id | '(' for_pattern { ',' for_pattern } ')' | '[' for_pa
 
 ## Notes for CLI usage
 - Expression mode (`--expr`) evaluates a single expression without setting up the statement environment or stdlib modules. Program mode (default, or by passing a file) parses statements, initializes stdlib, and supports imports/functions.
-- Context is read from stdin (JSON/YAML/TOML). Access via `@` as shown above.
+- Context is read from stdin (JSON/YAML/TOML). Access via identifiers as shown above.
 
-- `@user.role == 'admin'` - Example ACL evaluation
-- Dynamic field access with expressions: `@(expr).field`
+- `user.role == 'admin'` - Example ACL evaluation
+- Dynamic field access with expressions: `(expr).field`
 
 ### Types
 - `String` - UTF-8 strings

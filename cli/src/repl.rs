@@ -1,10 +1,14 @@
+use rustyline::{DefaultEditor, error::ReadlineError};
 use std::sync::Arc;
-use rustyline::{error::ReadlineError, DefaultEditor};
 
 #[cfg(feature = "concurrency")]
 use qcl_core::rt;
-use qcl_core::{module::ModuleRegistry, stmt::{self, ModuleResolver, StmtParser}, token::Tokenizer, val::Val};
-
+use qcl_core::{
+    module::ModuleRegistry,
+    stmt::{self, ModuleResolver, StmtParser},
+    token::Tokenizer,
+    val::Val,
+};
 
 fn print_repl_help() {
     eprintln!("Commands: :quit | :exit | :q, :help");
@@ -76,8 +80,15 @@ fn normalize_binary_signs(src: &str) -> String {
             let prev_is_value_like = match prev {
                 Some(ch)
                     if ch.is_ascii_alphanumeric()
-                        || ch == '_' || ch == ')' || ch == ']' || ch == '}'
-                        || ch == '"' || ch == '\'' => true,
+                        || ch == '_'
+                        || ch == ')'
+                        || ch == ']'
+                        || ch == '}'
+                        || ch == '"'
+                        || ch == '\'' =>
+                {
+                    true
+                }
                 _ => false,
             };
 
@@ -96,10 +107,7 @@ fn normalize_binary_signs(src: &str) -> String {
     out
 }
 
-pub fn run(
-    _is_statement_mode: bool,
-    ctx: Val,
-) -> anyhow::Result<()> {
+pub fn run(_is_statement_mode: bool, ctx: Val) -> anyhow::Result<()> {
     // Initialize runtime for concurrency if enabled
     #[cfg(feature = "concurrency")]
     {

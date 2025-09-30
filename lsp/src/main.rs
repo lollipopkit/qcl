@@ -1711,7 +1711,7 @@ impl QclLanguageServer {
                 }
 
                 // Find token at this offset
-                if let Some((idx, token)) = find_token_at_offset(&spans, &tokens, absolute_offset) {
+                if let Some((_, token)) = find_token_at_offset(&spans, &tokens, absolute_offset) {
                     use qcl_core::token::Token;
                     match token {
                         Token::Id(name) => return Some(name),
@@ -2632,8 +2632,7 @@ fn make_param_hint(param: &str, ofs: usize, line_starts: &[usize]) -> InlayHint 
 
 // replaced by multi-line aware helpers above
 
-// Given a token index that is part of an @context path, reconstruct the full path string
-// '@' context path extraction removed
+// Context path extraction using legacy prefix has been removed
 
 #[tokio::main]
 async fn main() {

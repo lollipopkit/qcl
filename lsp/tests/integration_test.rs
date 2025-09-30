@@ -185,17 +185,17 @@ impl QclAnalyzer {
 
         // Common context patterns
         let common_contexts = [
-            ("@req", "Request object"),
-            ("@req.user", "User information"),
-            ("@req.user.id", "User ID"),
-            ("@req.user.role", "User role"),
-            ("@req.user.name", "User name"),
-            ("@record", "Record object"),
-            ("@record.id", "Record ID"),
-            ("@record.owner", "Record owner"),
-            ("@record.granted", "Granted users list"),
-            ("@env", "Environment variables"),
-            ("@time", "Current timestamp"),
+            ("req", "Request object"),
+            ("req.user", "User information"),
+            ("req.user.id", "User ID"),
+            ("req.user.role", "User role"),
+            ("req.user.name", "User name"),
+            ("record", "Record object"),
+            ("record.id", "Record ID"),
+            ("record.owner", "Record owner"),
+            ("record.granted", "Granted users list"),
+            ("env", "Environment variables"),
+            ("time", "Current timestamp"),
         ];
 
         for (context, desc) in common_contexts {
@@ -288,9 +288,7 @@ impl TestLanguageServer {
 
     fn describe_token_hover_test(tokens: &[qcl_core::token::Token], idx: usize) -> String {
         use qcl_core::token::Token as T;
-        if let Some(path) = Self::extract_context_path_test(tokens, idx) {
-            return format!("Context path: {}", path);
-        }
+        // Legacy '@' context path hover removed
         match &tokens[idx] {
             T::Id(name) => {
                 let is_call = tokens
@@ -339,7 +337,7 @@ impl TestLanguageServer {
             T::Colon => "Symbol: :".to_string(),
             T::Comma => "Symbol: ,".to_string(),
             T::Semicolon => "Symbol: ;".to_string(),
-            T::At => "Context root: @".to_string(),
+            // '@' token removed from lexer
             T::LParen => "Symbol: (".to_string(),
             T::RParen => "Symbol: )".to_string(),
             T::LBrace => "Symbol: {".to_string(),
@@ -377,54 +375,7 @@ impl TestLanguageServer {
         }
     }
 
-    fn extract_context_path_test(tokens: &[qcl_core::token::Token], idx: usize) -> Option<String> {
-        use qcl_core::token::Token as T;
-        // find '@'
-        let mut at: Option<usize> = None;
-        let mut j = idx as isize;
-        while j >= 0 {
-            match &tokens[j as usize] {
-                T::At => {
-                    at = Some(j as usize);
-                    break;
-                }
-                T::Id(_) | T::Int(_) | T::Dot => j -= 1,
-                _ => break,
-            }
-        }
-        let start = at?;
-        let mut s = String::from("@");
-        let mut k = start + 1;
-        if let Some(seg) = tokens.get(k) {
-            match seg {
-                T::Id(name) => {
-                    s.push_str(name);
-                    k += 1;
-                }
-                T::Int(n) => {
-                    s.push_str(&n.to_string());
-                    k += 1;
-                }
-                _ => {}
-            }
-        }
-        loop {
-            match (tokens.get(k), tokens.get(k + 1)) {
-                (Some(T::Dot), Some(T::Id(name))) => {
-                    s.push('.');
-                    s.push_str(name);
-                    k += 2;
-                }
-                (Some(T::Dot), Some(T::Int(n))) => {
-                    s.push('.');
-                    s.push_str(&n.to_string());
-                    k += 2;
-                }
-                _ => break,
-            }
-        }
-        Some(s)
-    }
+    // Legacy '@' context path extraction removed
 
     fn get_completions(&self) -> Vec<CompletionItem> {
         let mut items = Vec::new();
@@ -455,13 +406,13 @@ impl TestLanguageServer {
             });
         }
 
-        // Context access
+        // Context access (identifiers)
         items.push(CompletionItem {
-            label: "@".to_string(),
+            label: "req".to_string(),
             kind: Some(CompletionItemKind::VARIABLE),
-            detail: Some("Context access".to_string()),
+            detail: Some("Context root example".to_string()),
             documentation: Some(Documentation::String(
-                "Access context variables (e.g., @req.user.role)".to_string(),
+                "Access context variables (e.g., req.user.role)".to_string(),
             )),
             ..Default::default()
         });
@@ -490,18 +441,14 @@ async fn test_lsp_expression_validation() {
 
     // Test valid expression
     server
-        .open_document(uri.clone(), "@req.user.role == 'admin'".to_string(), 1)
+        .open_document(uri.clone(), "req.user.role == 'admin'".to_string(), 1)
         .await;
     let diagnostics = server.validate_document(&uri).await;
     assert!(diagnostics.is_empty());
 
     // Test invalid expression (tokenization error)
     server
-        .update_document(
-            uri.clone(),
-            "@req.user.role == 'unterminated".to_string(),
-            2,
-        )
+        .update_document(uri.clone(), "req.user.role == 'unterminated".to_string(), 2)
         .await;
     let diagnostics = server.validate_document(&uri).await;
     assert!(!diagnostics.is_empty());
@@ -515,7 +462,7 @@ async fn test_lsp_statement_validation() {
 
     let program = r#"
         import math;
-        let user_level = @req.user.level;
+        let user_level = req.user.level;
         fn calculate_score(base) {
             return math.sqrt(base * user_level);
         }
@@ -545,7 +492,7 @@ async fn test_lsp_hover_functionality() {
     server
         .open_document(
             uri.clone(),
-            "@req.user.role == 'admin' && @req.user.id > 0".to_string(),
+            "req.user.role == 'admin' && req.user.id > 0".to_string(),
             1,
         )
         .await;
@@ -554,8 +501,12 @@ async fn test_lsp_hover_functionality() {
 
     let hover = hover.unwrap();
     if let HoverContents::Scalar(MarkedString::String(content)) = hover.contents {
-        assert!(content.contains("Context path"));
-        assert!(content.contains("@"));
+        // Should describe a token, not necessarily a context path
+        assert!(
+            content.contains("Identifier:")
+                || content.contains("Operator:")
+                || content.contains("String literal:")
+        );
     } else {
         panic!("Expected string hover content");
     }
@@ -600,8 +551,8 @@ async fn test_lsp_completion_functionality() {
     assert!(labels.contains(&&"&&".to_string()));
     assert!(labels.contains(&&"||".to_string()));
 
-    // Check for context access
-    assert!(labels.contains(&&"@".to_string()));
+    // Check for context access root identifier (no legacy '@')
+    assert!(labels.contains(&&"req".to_string()));
 
     // Verify completion kinds
     let keyword_items: Vec<_> = completions
@@ -688,29 +639,19 @@ async fn test_lsp_document_symbols() {
 async fn test_lsp_context_completions() {
     let analyzer = QclAnalyzer::new();
 
-    // Test context completions with "@req" prefix
-    let completions = analyzer.get_context_completions("@req");
+    // Test context completions with "req" prefix
+    let completions = analyzer.get_context_completions("req");
     assert!(!completions.is_empty());
 
     let labels: Vec<&String> = completions.iter().map(|c| &c.label).collect();
-    assert!(labels.contains(&&"@req".to_string()));
-    assert!(labels.contains(&&"@req.user".to_string()));
-    assert!(labels.contains(&&"@req.user.id".to_string()));
-    assert!(labels.contains(&&"@req.user.role".to_string()));
+    assert!(labels.contains(&&"req".to_string()));
+    assert!(labels.contains(&&"req.user".to_string()));
+    assert!(labels.contains(&&"req.user.id".to_string()));
+    assert!(labels.contains(&&"req.user.role".to_string()));
 
     // Should not include non-matching prefixes
-    assert!(!labels.contains(&&"@record".to_string()));
-    assert!(!labels.contains(&&"@env".to_string()));
-
-    // Test with "@" prefix
-    let completions = analyzer.get_context_completions("@");
-    assert!(completions.len() >= 10); // Should have all predefined contexts
-
-    let labels: Vec<&String> = completions.iter().map(|c| &c.label).collect();
-    assert!(labels.contains(&&"@req".to_string()));
-    assert!(labels.contains(&&"@record".to_string()));
-    assert!(labels.contains(&&"@env".to_string()));
-    assert!(labels.contains(&&"@time".to_string()));
+    assert!(!labels.contains(&&"record".to_string()));
+    assert!(!labels.contains(&&"env".to_string()));
 }
 
 #[tokio::test]
@@ -723,9 +664,9 @@ async fn test_lsp_complex_program_analysis() {
         import string;
         import datetime;
         
-        let user_level = @req.user.level;
-        let user_name = @req.user.name;
-        let record_id = @record.id;
+        let user_level = req.user.level;
+        let user_name = req.user.name;
+        let record_id = record.id;
         
         fn validate_access(user_role) {
             if (user_role == "admin") {
@@ -745,7 +686,7 @@ async fn test_lsp_complex_program_analysis() {
             return adjusted_score + name_bonus;
         }
         
-        let access_granted = validate_access(@req.user.role);
+        let access_granted = validate_access(req.user.role);
         
         if (access_granted) {
             let score = calculate_score(100);
@@ -816,11 +757,11 @@ async fn test_lsp_error_recovery() {
     let error_cases = [
         ("", vec![]), // Empty document should be fine
         (
-            "@req.user.role == 'unterminated",
+            "req.user.role == 'unterminated",
             vec![DiagnosticSeverity::ERROR],
         ), // Tokenization error
         ("let incomplete", vec![DiagnosticSeverity::ERROR]), // Incomplete statement
-        ("@req.user.role == 'admin'", vec![]), // Valid expression should work
+        ("req.user.role == 'admin'", vec![]), // Valid expression should work
     ];
 
     for (i, (code, expected_severities)) in error_cases.iter().enumerate() {

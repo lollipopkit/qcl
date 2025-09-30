@@ -270,7 +270,9 @@ impl Environment {
         }
         if let Some(frame) = &self.current_frame {
             if let Ok(mut scopes) = frame.slot_scopes.lock() {
-                if scopes.len() > 1 { scopes.pop(); }
+                if scopes.len() > 1 {
+                    scopes.pop();
+                }
             }
         }
     }
@@ -282,9 +284,11 @@ impl Environment {
         }
         // 若处在函数调用帧中，则为参数/局部 let 分配槽位并写入
         if let Some(frame) = &self.current_frame {
-            if let (Ok(mut next), Ok(mut locals), Ok(mut scopes)) =
-                (frame.next.lock(), frame.locals.lock(), frame.slot_scopes.lock())
-            {
+            if let (Ok(mut next), Ok(mut locals), Ok(mut scopes)) = (
+                frame.next.lock(),
+                frame.locals.lock(),
+                frame.slot_scopes.lock(),
+            ) {
                 if let Some(top) = scopes.last_mut() {
                     let idx = *next as usize;
                     if idx < locals.len() {
@@ -313,7 +317,9 @@ impl Environment {
                 break;
             }
         }
-        if !updated_hash { return Err(anyhow!("Undefined variable: {}", name)); }
+        if !updated_hash {
+            return Err(anyhow!("Undefined variable: {}", name));
+        }
         // Then, if a slot mapping exists, mirror the write to the slot
         if let Some(frame) = &self.current_frame {
             let idx_opt = frame
@@ -370,7 +376,11 @@ impl Environment {
     fn frame_at_depth(&self, mut depth: u16) -> Option<Arc<crate::rt::EnvFrame>> {
         let mut cur = self.current_frame.clone();
         while depth > 0 {
-            if let Some(f) = cur { cur = f.parent.clone(); } else { return None; }
+            if let Some(f) = cur {
+                cur = f.parent.clone();
+            } else {
+                return None;
+            }
             depth -= 1;
         }
         cur
@@ -386,7 +396,10 @@ impl Environment {
     /// Set a value into a slot if available (scaffold API).
     pub fn set_slot(&mut self, depth: u16, index: u16, val: Val) -> Result<()> {
         if let Some(frame) = self.frame_at_depth(depth) {
-            let mut locals = frame.locals.lock().map_err(|_| anyhow!("frame locals poisoned"))?;
+            let mut locals = frame
+                .locals
+                .lock()
+                .map_err(|_| anyhow!("frame locals poisoned"))?;
             if let Some(slot) = locals.get_mut(index as usize) {
                 *slot = val;
                 return Ok(());
@@ -452,12 +465,12 @@ impl Stmt {
                     env.pop_scope(); // 清理未使用的作用域
 
                     // 执行else分支（如果有）
-                if let Some(else_stmt) = else_stmt {
-                    else_stmt.execute(env, ctx)
-                } else {
-                    Ok(ControlFlow::None)
+                    if let Some(else_stmt) = else_stmt {
+                        else_stmt.execute(env, ctx)
+                    } else {
+                        Ok(ControlFlow::None)
+                    }
                 }
-            }
             }
             Stmt::While { condition, body } => {
                 loop {
@@ -604,14 +617,21 @@ impl Stmt {
                 body,
             } => {
                 // Fast path for numeric ranges: avoid materializing a Vec (Lua-style numeric for)
-                if let Expr::Range { start, end, inclusive } = iterable.as_ref() {
+                if let Expr::Range {
+                    start,
+                    end,
+                    inclusive,
+                } = iterable.as_ref()
+                {
                     let start_val = match start {
                         Some(s) => s.eval_with_env(ctx, Some(env))?,
                         None => Val::Int(0),
                     };
                     let end_val = match end {
                         Some(e) => e.eval_with_env(ctx, Some(env))?,
-                        None => return Err(anyhow!("Open-ended ranges not supported in for loops")),
+                        None => {
+                            return Err(anyhow!("Open-ended ranges not supported in for loops"));
+                        }
                     };
 
                     if let (Val::Int(mut i), Val::Int(e)) = (start_val, end_val) {
@@ -630,8 +650,13 @@ impl Stmt {
                                 let result = body.execute(env, ctx);
                                 match result? {
                                     ControlFlow::Break => break,
-                                    ControlFlow::Continue => { i += step; continue; }
-                                    ControlFlow::Return(val) => return Ok(ControlFlow::Return(val)),
+                                    ControlFlow::Continue => {
+                                        i += step;
+                                        continue;
+                                    }
+                                    ControlFlow::Return(val) => {
+                                        return Ok(ControlFlow::Return(val));
+                                    }
                                     ControlFlow::None => {}
                                 }
                                 i += step;
@@ -648,7 +673,10 @@ impl Stmt {
                             env.pop_scope();
                             match result? {
                                 ControlFlow::Break => break,
-                                ControlFlow::Continue => { i += step; continue; }
+                                ControlFlow::Continue => {
+                                    i += step;
+                                    continue;
+                                }
                                 ControlFlow::Return(val) => return Ok(ControlFlow::Return(val)),
                                 ControlFlow::None => {}
                             }

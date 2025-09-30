@@ -31,9 +31,14 @@ mod tests {
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program()?;
 
-        // Use execute_with_env with a new environment
+        // Use execute_with_env with an environment populated from ctx map
         let mut env = crate::stmt::Environment::new();
-        program.execute_with_env(ctx, &mut env)
+        if let Val::Map(m) = ctx {
+            for (k, v) in m.iter() {
+                env.define(k.to_string(), v.clone());
+            }
+        }
+        program.execute_with_env(&Val::Nil, &mut env)
     }
 
     #[test]
@@ -49,7 +54,7 @@ mod tests {
         let result = parse_and_execute_stmt(
             r#"
             let result = [];
-            let x = @data;
+            let x = data;
             while let [first, ..rest] = x {
                 result.push(first);
                 x = rest;
@@ -76,7 +81,7 @@ mod tests {
         let result = parse_and_execute_stmt(
             r#"
             let count = 0;
-            let x = @counter;
+            let x = counter;
             while let val = x {
                 if val <= 0 { break; }
                 count = count + 1;
@@ -100,16 +105,16 @@ mod tests {
                     ("name".to_string(), Val::Str("Alice".into())),
                     ("value".to_string(), Val::Int(10)),
                 ]
-                    .into_iter()
-                    .collect::<std::collections::HashMap<String, Val>>()
-                    .into()),
+                .into_iter()
+                .collect::<std::collections::HashMap<String, Val>>()
+                .into()),
                 ([
                     ("name".to_string(), Val::Str("Bob".into())),
                     ("value".to_string(), Val::Int(20)),
                 ]
-                    .into_iter()
-                    .collect::<std::collections::HashMap<String, Val>>()
-                    .into()),
+                .into_iter()
+                .collect::<std::collections::HashMap<String, Val>>()
+                .into()),
             ])),
         )]
         .into_iter()
@@ -119,7 +124,7 @@ mod tests {
         let result = parse_and_execute_stmt(
             r#"
             let names = [];
-            let list = @items;
+            let list = items;
             while let [{"name": name}] = list {
                 names.push(name);
                 if list.len() == 1 { break; }
@@ -153,7 +158,7 @@ mod tests {
         let result = parse_and_execute_stmt(
             r#"
             let count = 0;
-            let x = @data;
+            let x = data;
             while let [_] = x {
                 count = count + 1;
                 if x.len() == 1 { break; }
@@ -178,7 +183,7 @@ mod tests {
         let result = parse_and_execute_stmt(
             r#"
             let count = 0;
-            while let x = @data {
+            while let x = data {
                 count = count + 1;
                 // This should never execute since Nil doesn't match variable pattern
                 break;
@@ -205,7 +210,7 @@ mod tests {
         let result = parse_and_execute_stmt(
             r#"
             let result = [];
-            let x = @data;
+            let x = data;
             while let [first, ..rest] = x {
                 result.push(first);
                 if first == 2 { break; }
@@ -238,7 +243,7 @@ mod tests {
         let result = parse_and_execute_stmt(
             r#"
             let result = [];
-            let x = @data;
+            let x = data;
             while let [first, ..rest] = x {
                 if first == 2 {
                     x = rest;
@@ -263,13 +268,15 @@ mod tests {
     fn test_while_let_nested_patterns() {
         let ctx: Val = [(
             "data".to_string(),
-            Val::List(Arc::from(vec![([
-                ("first".to_string(), Val::Int(1)),
-                ("second".to_string(), Val::Str("test".into())),
-            ]
-            .into_iter()
-            .collect::<std::collections::HashMap<String, Val>>()
-            .into())])),
+            Val::List(Arc::from(vec![
+                ([
+                    ("first".to_string(), Val::Int(1)),
+                    ("second".to_string(), Val::Str("test".into())),
+                ]
+                .into_iter()
+                .collect::<std::collections::HashMap<String, Val>>()
+                .into()),
+            ])),
         )]
         .into_iter()
         .collect::<std::collections::HashMap<String, Val>>()
@@ -278,7 +285,7 @@ mod tests {
         let result = parse_and_execute_stmt(
             r#"
             let result = [];
-            let x = @data;
+            let x = data;
             while let [{"first": first}] = x {
                 result.push(first);
                 x = [];
@@ -305,7 +312,7 @@ mod tests {
         let result = parse_and_execute_stmt(
             r#"
             let result = [];
-            let x = @values;
+            let x = values;
             while let val if val >= 10 = x[0] {
                 result.push(val);
                 if x.len() == 1 { break; }
@@ -337,7 +344,7 @@ mod tests {
             r#"
             let outer_var = "outer";
             let result = [];
-            let x = @data;
+            let x = data;
             while let [first, ..rest] = x {
                 result.push(first);
                 result.push(outer_var);
@@ -373,7 +380,7 @@ mod tests {
         let result = parse_and_execute_stmt(
             r#"
             let count = 0;
-            let x = @data;
+            let x = data;
             while let [first, ..rest] = x {
                 count = count + 1;
                 x = rest;
@@ -389,17 +396,15 @@ mod tests {
 
     #[test]
     fn test_while_let_single_element_destructuring() {
-        let ctx: Val = [
-            ("data".to_string(), Val::List(Arc::from(vec![Val::Int(42)]))),
-        ]
-        .into_iter()
-        .collect::<std::collections::HashMap<String, Val>>()
-        .into();
+        let ctx: Val = [("data".to_string(), Val::List(Arc::from(vec![Val::Int(42)])))]
+            .into_iter()
+            .collect::<std::collections::HashMap<String, Val>>()
+            .into();
 
         let result = parse_and_execute_stmt(
             r#"
             let result = [];
-            let x = @data;
+            let x = data;
             while let [first] = x {
                 result.push(first);
                 x = [];
