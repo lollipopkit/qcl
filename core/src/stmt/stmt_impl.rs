@@ -1,3 +1,9 @@
+#![allow(
+    clippy::collapsible_if,
+    clippy::collapsible_else_if,
+    clippy::get_first,
+    clippy::useless_conversion
+)]
 use crate::{
     expr::Expr,
     op::BinOp,
@@ -158,7 +164,7 @@ impl Default for Environment {
 impl Environment {
     pub fn new() -> Self {
         Self {
-            scopes: vec![HashMap::with_capacity(0)], // 全局作用域
+            scopes: vec![HashMap::new()], // 全局作用域
             import_ctx: ImportContext::new(),
             resolver: Arc::new(ModuleResolver::new()),
             type_checker: None,
@@ -168,7 +174,7 @@ impl Environment {
 
     pub fn with_resolver(resolver: Arc<ModuleResolver>) -> Self {
         Self {
-            scopes: vec![HashMap::with_capacity(0)],
+            scopes: vec![HashMap::new()],
             import_ctx: ImportContext::new(),
             resolver,
             type_checker: None,
@@ -192,15 +198,33 @@ impl Environment {
     /// 导出当前全局作用域的符号（用于模块导出）
     pub fn export_symbols(&self) -> HashMap<String, Val> {
         // Clone the top-level scope only; imported symbols are not re-exported by default
-        self.scopes.first().cloned().unwrap_or_else(HashMap::new)
+        self.scopes.first().cloned().unwrap_or_default()
     }
 
     /// 进入新的作用域
     pub fn push_scope(&mut self) {
-        self.scopes.push(HashMap::with_capacity(0));
+        self.scopes.push(HashMap::new());
         if let Some(frame) = &self.current_frame {
             if let Ok(mut scopes) = frame.slot_scopes.lock() {
                 scopes.push(HashMap::new());
+                #[cfg(feature = "slots")]
+                if let (Ok(mut next), Ok(pre)) = (frame.next.lock(), frame.preassigned_by_depth.lock()) {
+                    // Determine current block depth after the push (0-based inside function)
+                    let depth = scopes.len() - 1; // at least 1
+                    if let Some(pre_by_depth) = pre.as_ref().as_ref() && depth < pre_by_depth.len() {
+                        let seed = &pre_by_depth[depth];
+                        if let Some(top) = scopes.last_mut() {
+                            let mut max_idx = *next;
+                            for (name, idx) in seed.iter() {
+                                top.entry(name.clone()).or_insert(*idx);
+                                if *idx >= max_idx {
+                                    max_idx = idx.saturating_add(1);
+                                }
+                            }
+                            *next = max_idx;
+                        }
+                    }
+                }
             }
         }
     }
@@ -212,6 +236,24 @@ impl Environment {
         if let Some(frame) = &self.current_frame {
             if let Ok(mut scopes) = frame.slot_scopes.lock() {
                 scopes.push(HashMap::new());
+                #[cfg(feature = "slots")]
+                if let (Ok(mut next), Ok(pre)) = (frame.next.lock(), frame.preassigned_by_depth.lock()) {
+                    // Determine current block depth after the push (0-based inside function)
+                    let depth = scopes.len() - 1; // at least 1
+                    if let Some(pre_by_depth) = pre.as_ref().as_ref() && depth < pre_by_depth.len() {
+                        let seed = &pre_by_depth[depth];
+                        if let Some(top) = scopes.last_mut() {
+                            let mut max_idx = *next;
+                            for (name, idx) in seed.iter() {
+                                top.entry(name.clone()).or_insert(*idx);
+                                if *idx >= max_idx {
+                                    max_idx = idx.saturating_add(1);
+                                }
+                            }
+                            *next = max_idx;
+                        }
+                    }
+                }
             }
         }
     }
@@ -227,6 +269,8 @@ impl Environment {
             locals: std::sync::Mutex::new(vec![Val::Nil; nlocals]),
             slot_scopes: std::sync::Mutex::new(vec![HashMap::new()]),
             next: std::sync::Mutex::new(0),
+            #[cfg(feature = "slots")]
+            preassigned_by_depth: std::sync::Mutex::new(None),
         };
         self.current_frame = Some(Arc::new(frame));
     }
@@ -266,10 +310,8 @@ impl Environment {
             self.scopes.pop();
         }
         if let Some(frame) = &self.current_frame {
-            if let Ok(mut scopes) = frame.slot_scopes.lock() {
-                if scopes.len() > 1 {
-                    scopes.pop();
-                }
+            if let Ok(mut scopes) = frame.slot_scopes.lock() && scopes.len() > 1 {
+                scopes.pop();
             }
         }
     }
@@ -284,7 +326,33 @@ impl Environment {
             if let (Ok(mut next), Ok(mut locals), Ok(mut scopes)) =
                 (frame.next.lock(), frame.locals.lock(), frame.slot_scopes.lock())
             {
-                if let Some(top) = scopes.last_mut() {
+                // Prefer pre-assigned slot if mapping exists (search innermost to outermost scopes)
+                let pre_mapped: Option<u16> = scopes
+                    .iter()
+                    .rev()
+                    .find_map(|m| m.get(&name).copied());
+                if let Some(pre_idx) = pre_mapped {
+                    let idx = pre_idx as usize;
+                    if idx < locals.len() {
+                        locals[idx] = value;
+                    } else if idx == locals.len() {
+                        locals.push(value);
+                    } else {
+                        // pad with Nil until idx
+                        while locals.len() < idx {
+                            locals.push(Val::Nil);
+                        }
+                        locals.push(value);
+                    }
+                    // Ensure `next` is above the used index
+                    if *next <= pre_idx {
+                        *next = pre_idx.saturating_add(1);
+                    }
+                    // Ensure the current scope records the mapping (shadowing-safe)
+                    if let Some(top) = scopes.last_mut() {
+                        top.entry(name).or_insert(pre_idx);
+                    }
+                } else {
                     let idx = *next as usize;
                     if idx < locals.len() {
                         locals[idx] = value;
@@ -294,7 +362,9 @@ impl Environment {
                         // Should not happen: next index skipped ahead
                         locals.push(value);
                     }
-                    top.insert(name, *next);
+                    if let Some(top) = scopes.last_mut() {
+                        top.insert(name, *next);
+                    }
                     *next = next.saturating_add(1);
                 }
             }
@@ -398,6 +468,95 @@ impl Environment {
             }
         }
         Err(anyhow!("slot out of bounds or frame not found"))
+    }
+
+    /// Preload name->slot mappings into the current call frame without assigning values.
+    /// This allows subsequent define() calls to reuse preassigned indices.
+    #[cfg(feature = "slots")]
+    pub fn preload_slot_mappings(&mut self, mappings: &[(String, u16)]) {
+        if let Some(frame) = &self.current_frame {
+            if let (Ok(mut scopes), Ok(mut next)) = (frame.slot_scopes.lock(), frame.next.lock()) {
+                if let Some(top) = scopes.last_mut() {
+                    let mut max_idx = *next;
+                    for (name, idx) in mappings {
+                        top.entry(name.clone()).or_insert(*idx);
+                        if *idx >= max_idx {
+                            max_idx = idx.saturating_add(1);
+                        }
+                    }
+                    *next = max_idx;
+                }
+            }
+        }
+    }
+
+    /// Preload name->slot mappings grouped by block depth for the current call frame.
+    /// Depth 0 corresponds to the parameter scope; deeper numbers to nested blocks.
+    #[cfg(feature = "slots")]
+    pub fn preload_slot_mappings_per_depth(&mut self, mappings: &[(String, u16, u16)]) {
+        if let Some(frame) = &self.current_frame {
+            if let Ok(mut pre) = frame.preassigned_by_depth.lock() {
+                // Compute max depth
+                let max_depth = mappings.iter().map(|(_, _, d)| *d as usize).max().unwrap_or(0);
+                let mut grouped: Vec<Vec<(String, u16)>> = vec![Vec::new(); max_depth.saturating_add(1)];
+                for (name, idx, depth) in mappings {
+                    let d = (*depth) as usize;
+                    grouped[d].push((name.clone(), *idx));
+                }
+                // Store
+                *pre = Some(grouped);
+            }
+            // Also seed depth 0 into the top slot scope immediately, to keep current behavior.
+            if let (Ok(mut scopes), Ok(mut next), Ok(pre)) =
+                (frame.slot_scopes.lock(), frame.next.lock(), frame.preassigned_by_depth.lock())
+            {
+                if let Some(groups) = pre.as_ref().as_ref()
+                    && let Some(seed0) = groups.first()
+                    && let Some(top) = scopes.last_mut()
+                {
+                    let mut max_idx = *next;
+                    for (name, idx) in seed0.iter() {
+                        top.entry(name.clone()).or_insert(*idx);
+                        if *idx >= max_idx {
+                            max_idx = idx.saturating_add(1);
+                        }
+                    }
+                    *next = max_idx;
+                }
+            }
+        }
+    }
+
+    /// Bind a parameter value at a preassigned slot, updating both hashmap scope and slot mapping.
+    #[cfg(feature = "slots")]
+    pub fn bind_param_at_slot(&mut self, name: String, index: u16, value: Val) {
+        // Write to lexical scope map
+        if let Some(current_scope) = self.scopes.last_mut() {
+            current_scope.insert(name.clone(), value.clone());
+        }
+        if let Some(frame) = &self.current_frame {
+            if let (Ok(mut locals), Ok(mut scopes), Ok(mut next)) =
+                (frame.locals.lock(), frame.slot_scopes.lock(), frame.next.lock())
+            {
+                // Ensure locals capacity
+                let idx = index as usize;
+                if idx < locals.len() {
+                    locals[idx] = value;
+                } else {
+                    while locals.len() < idx {
+                        locals.push(Val::Nil);
+                    }
+                    locals.push(value);
+                }
+                if let Some(top) = scopes.last_mut() {
+                    top.entry(name).or_insert(index);
+                }
+                // Keep next at or above index+1 so subsequent defines won't overwrite
+                if *next <= index {
+                    *next = index.saturating_add(1);
+                }
+            }
+        }
     }
 }
 
@@ -819,6 +978,8 @@ impl Stmt {
                     upvalues: Arc::new(Vec::new()),
                     #[cfg(feature = "vm")]
                     code: Arc::new(once_cell::sync::OnceCell::new()),
+                    #[cfg(feature = "slots")]
+                    layout: Arc::new(once_cell::sync::OnceCell::new()),
                 };
                 env.define(name.clone(), func_val);
                 Ok(ControlFlow::None)
@@ -1376,7 +1537,7 @@ fn create_iterator(val: &Val) -> Result<Vec<Val>> {
             // 返回 [key, value] 对的迭代器
             let pairs: Vec<Val> = map
                 .iter()
-                .map(|(k, v)| Val::List(vec![Val::Str(k.clone().into()), v.clone()].into()))
+                .map(|(k, v)| Val::List(vec![Val::Str(k.clone()), v.clone()].into()))
                 .collect();
             Ok(pairs)
         }

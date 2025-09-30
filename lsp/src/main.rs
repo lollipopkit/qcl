@@ -611,6 +611,33 @@ impl LanguageServer for QclLanguageServer {
                             }
                         }
                     }
+
+                    // Generic identifier/path completions based on current prefix
+                    // Extract a simple alnum/underscore/dot suffix from the current line prefix
+                    let prefix: String = {
+                        let mut collected: Vec<char> = Vec::new();
+                        for ch in line_prefix.chars().rev() {
+                            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' {
+                                collected.push(ch);
+                            } else {
+                                break;
+                            }
+                        }
+                        collected.reverse();
+                        collected.into_iter().collect()
+                    };
+                    if !prefix.is_empty() {
+                        let var_items = analyzer.get_var_completions(&prefix);
+                        if !var_items.is_empty() {
+                            let existing: std::collections::HashSet<String> =
+                                items.iter().map(|ci| ci.label.clone()).collect();
+                            for it in var_items {
+                                if !existing.contains(&it.label) {
+                                    items.push(it);
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -800,8 +827,46 @@ impl LanguageServer for QclLanguageServer {
         };
         // '@' context paths removed
 
-        // Gather all references in the same document
-        let locations = self.find_all_references(&content, &symbol_name, uri).await;
+        // Prefer precise scope-restricted references using resolver + spans
+        let locations = {
+            // Tokenize to compute function body line ranges
+            if let Ok((tokens, spans)) = qcl_core::token::Tokenizer::tokenize_enhanced_with_spans(&content) {
+                let _analyzer = crate::analyzer::QclAnalyzer::default();
+                // Try to find definition precisely to determine scope
+                if let Some(def_loc) = self.find_definition_precise(&content, &symbol_name, position, uri).await {
+                    let fbodies = crate::analyzer::QclAnalyzer::scan_function_blocks(&tokens, &spans);
+                    // Identify if this def is inside a function body by comparing lines (0-based)
+                    let def_line0 = def_loc.range.start.line;
+                    // Build line ranges for each function body
+                    let mut body_line_ranges: Vec<(u32, u32)> = Vec::new();
+                    for fb in &fbodies {
+                        let s_line = spans.get(fb.body_start_idx).map(|s| s.start.line).unwrap_or(1);
+                        let e_line = spans.get(fb.body_end_idx).map(|s| s.end.line).unwrap_or(s_line);
+                        body_line_ranges.push((s_line.saturating_sub(1), e_line.saturating_sub(1)));
+                    }
+                    // Determine selected scope range (line-based)
+                    let scope_range: Option<(u32, u32)> = body_line_ranges
+                        .iter()
+                        .find(|(s, e)| def_line0 >= *s && def_line0 <= *e)
+                        .cloned();
+                    let all = self.find_all_references(&content, &symbol_name, uri).await;
+                    if let Some((sline, eline)) = scope_range {
+                        // Keep only references within the function body
+                        all.into_iter()
+                            .filter(|loc| loc.range.start.line >= sline && loc.range.end.line <= eline)
+                            .collect()
+                    } else {
+                        // Top-level definition: include all references across the document
+                        all
+                    }
+                } else {
+                    // Fall back to full-document references
+                    self.find_all_references(&content, &symbol_name, uri).await
+                }
+            } else {
+                self.find_all_references(&content, &symbol_name, uri).await
+            }
+        };
         if locations.is_empty() {
             return Ok(None);
         }
@@ -1075,7 +1140,11 @@ impl LanguageServer for QclLanguageServer {
 
         // Find the symbol at the cursor position
         if let Some(symbol_name) = self.find_symbol_at_position(&content, position).await {
-            // Find the definition of this symbol in the document
+            // Prefer precise resolver-based decl spans
+            if let Some(definition_location) = self.find_definition_precise(&content, &symbol_name, position, uri).await {
+                return Ok(Some(GotoDefinitionResponse::Scalar(definition_location)));
+            }
+            // Fallback: heuristic text scan
             if let Some(definition_location) = self.find_definition(&content, &symbol_name, uri).await {
                 return Ok(Some(GotoDefinitionResponse::Scalar(definition_location)));
             }
@@ -1613,9 +1682,8 @@ impl QclLanguageServer {
                 // Find token at this offset
                 if let Some((_, token)) = find_token_at_offset(&spans, &tokens, absolute_offset) {
                     use qcl_core::token::Token;
-                    match token {
-                        Token::Id(name) => return Some(name),
-                        _ => {}
+                    if let Token::Id(name) = token {
+                        return Some(name);
                     }
                 }
             }
@@ -1657,7 +1725,7 @@ impl QclLanguageServer {
         let lines: Vec<&str> = content.lines().collect();
 
         {
-            // Handle regular identifiers (variables, functions, labels)
+            // Handle regular identifiers (variables, functions)
             for (line_idx, line) in lines.iter().enumerate() {
                 let mut start = 0;
                 while let Some(pos) = line[start..].find(symbol_name) {
@@ -1748,6 +1816,81 @@ impl QclLanguageServer {
             }
         }
 
+        None
+    }
+
+    /// More precise definition finder using slot resolver + scanned spans.
+    async fn find_definition_precise(&self, content: &str, symbol_name: &str, pos: Position, uri: &Url) -> Option<Location> {
+        // Tokenize with spans
+        let (tokens, spans) = match qcl_core::token::Tokenizer::tokenize_enhanced_with_spans(content) {
+            Ok(p) => p,
+            Err(_) => return None,
+        };
+        // Parse statements (we only need structure to drive resolver)
+        let mut parser = qcl_core::stmt::stmt_parser::StmtParser::new_with_spans(&tokens, &spans);
+        let program = parser.parse_program_with_enhanced_errors(content).ok()?;
+        // Resolve and enrich with spans
+        let mut resolver = qcl_core::resolve::slots::SlotResolver::new();
+        let resolution = resolver.resolve_program_slots(&program);
+        let analyzer = crate::analyzer::QclAnalyzer::default();
+        let enriched = analyzer.enrich_layout_spans(&resolution.root, &tokens, &spans);
+        // Find function blocks to locate the innermost function for position
+        let fblocks = crate::analyzer::QclAnalyzer::scan_function_blocks(&tokens, &spans);
+        // Compute an approximate offset based on line/column
+        let cursor_line = pos.line + 1;
+        let cursor_col = pos.character + 1;
+        // Attempt to pick the first span on the target line for offset estimation
+        let mut cursor_offset = 0usize;
+        for sp in &spans {
+            if sp.start.line == cursor_line {
+                cursor_offset = sp.start.offset + (cursor_col.saturating_sub(sp.start.column)) as usize;
+                break;
+            }
+        }
+        // Determine if inside a function body and pick that child layout
+        let mut candidate_spans: Vec<qcl_core::token::Span> = Vec::new();
+        let mut pick_child: Option<usize> = None;
+        for (i, fb) in fblocks.iter().enumerate() {
+            let s = spans.get(fb.body_start_idx)?.start.offset;
+            let e = spans.get(fb.body_end_idx)?.end.offset;
+            if cursor_offset >= s && cursor_offset <= e {
+                pick_child = Some(i);
+                break;
+            }
+        }
+        if let Some(ci) = pick_child {
+            if let Some(child) = enriched.children.get(ci) {
+                for d in &child.decls {
+                    if d.name == symbol_name {
+                        if let Some(sp) = &d.span {
+                            candidate_spans.push(sp.clone());
+                        }
+                    }
+                }
+            }
+            // Fallback to top-level decls if not found in child scope (e.g., function names)
+            if candidate_spans.is_empty() {
+                for d in &enriched.decls {
+                    if d.name == symbol_name {
+                        if let Some(sp) = &d.span {
+                            candidate_spans.push(sp.clone());
+                        }
+                    }
+                }
+            }
+        } else {
+            for d in &enriched.decls {
+                if d.name == symbol_name {
+                    if let Some(sp) = &d.span {
+                        candidate_spans.push(sp.clone());
+                    }
+                }
+            }
+        }
+        if let Some(sp) = candidate_spans.first() {
+            let range = Range::new(Position::new(sp.start.line - 1, sp.start.column - 1), Position::new(sp.end.line - 1, sp.end.column - 1));
+            return Some(Location::new(uri.clone(), range));
+        }
         None
     }
 }

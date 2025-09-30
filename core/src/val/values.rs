@@ -17,6 +17,9 @@ use crate::{
     stmt,
 };
 
+#[cfg(feature = "slots")]
+use crate::resolve::slots::{FunctionLayout, SlotResolver};
+
 /// Type for Rust functions that can be called from QCL
 /// Context has been fully removed; functions receive only args and env.
 pub type RustFunction = fn(args: &[Val], env: &stmt::Environment) -> Result<Val>;
@@ -44,6 +47,9 @@ pub enum Val {
         /// Cached compiled bytecode for VM fast-path
         #[cfg(feature = "vm")]
         code: Arc<once_cell::sync::OnceCell<crate::vm::Function>>,
+        /// Cached slot layout for this closure (parameters + local declarations)
+        #[cfg(feature = "slots")]
+        layout: Arc<once_cell::sync::OnceCell<FunctionLayout>>,
     },
     /// Rust function - contains a function pointer that can be called
     RustFunction(RustFunction),
@@ -84,6 +90,8 @@ impl Clone for Val {
                 upvalues,
                 #[cfg(feature = "vm")]
                 code,
+                #[cfg(feature = "slots")]
+                layout,
             } => Val::Closure {
                 params: params.clone(),
                 body: body.clone(),
@@ -91,6 +99,8 @@ impl Clone for Val {
                 upvalues: upvalues.clone(),
                 #[cfg(feature = "vm")]
                 code: code.clone(),
+                #[cfg(feature = "slots")]
+                layout: layout.clone(),
             },
             Val::RustFunction(f) => Val::RustFunction(*f),
             Val::Task { id, value } => {
@@ -543,6 +553,8 @@ impl Val {
                 env: _captured_env,
                 #[cfg(feature = "vm")]
                 code,
+                #[cfg(feature = "slots")]
+                layout,
                 ..
             } => {
                 // Check parameter count
@@ -562,10 +574,73 @@ impl Val {
                 // existing recursive and dynamic name resolution semantics.
                 let mut call_env = env.shallow_call_env(params.len());
 
-                // Establish a call frame (slots) for this invocation.
-                call_env.push_call_frame(params.len());
+                // Prepare slot layout (feature=slots). Falls back to param count.
+                #[cfg(feature = "slots")]
+                let total_locals: usize = {
+                    // Compute or fetch cached closure layout
+                    let lay = layout.get_or_init(|| {
+                        let mut resolver = SlotResolver::new();
+                        // Build a synthetic function program using this closure's params and body
+                        let func_stmt = stmt::Stmt::Function {
+                            name: "__anon".to_string(),
+                            params: (*params).to_vec(),
+                            param_types: Vec::new(),
+                            return_type: None,
+                            body: Box::new((**body).clone()),
+                        };
+                        let prog = stmt::Program::new(vec![Box::new(func_stmt)])
+                            .unwrap_or_else(|_| stmt::Program { statements: Vec::new() });
+                        let res = resolver.resolve_program_slots(&prog);
+                        res.root
+                            .children
+                            .first()
+                            .cloned()
+                            .unwrap_or(FunctionLayout {
+                                decls: Vec::new(),
+                                total_locals: params.len() as u16,
+                                uses: Vec::new(),
+                                children: Vec::new(),
+                            })
+                    });
+                    lay.total_locals as usize
+                };
 
-                // Bind parameters to arguments (name->value map retained for compatibility)
+                #[cfg(not(feature = "slots"))]
+                let total_locals: usize = params.len();
+
+                // Establish a call frame (slots) for this invocation.
+                call_env.push_call_frame(total_locals);
+
+                // Bind parameters to arguments using slot mapping when available
+                #[cfg(feature = "slots")]
+                {
+                    let lay = layout.get().expect("layout initialized above");
+                    // Map param name -> slot index
+                    let mut param_index: std::collections::HashMap<&str, u16> = std::collections::HashMap::new();
+                    for d in &lay.decls {
+                        if d.is_param {
+                            param_index.insert(d.name.as_str(), d.index);
+                        }
+                    }
+                    for (param, arg_val) in params.iter().zip(args.iter()) {
+                        if let Some(&idx) = param_index.get(param.as_str()) {
+                            call_env.bind_param_at_slot(param.clone(), idx, arg_val.clone());
+                        } else {
+                            // Fallback: define sequentially
+                            call_env.define(param.clone(), arg_val.clone());
+                        }
+                    }
+                    // Preload local mappings grouped by block depth (non-params)
+                    let locals: Vec<(String, u16, u16)> = lay
+                        .decls
+                        .iter()
+                        .filter(|d| !d.is_param)
+                        .map(|d| (d.name.clone(), d.index, d.block_depth))
+                        .collect();
+                    call_env.preload_slot_mappings_per_depth(&locals);
+                }
+
+                #[cfg(not(feature = "slots"))]
                 for (param, arg_val) in params.iter().zip(args.iter()) {
                     call_env.define(param.clone(), arg_val.clone());
                 }
@@ -584,16 +659,16 @@ impl Val {
                 #[cfg(feature = "vm")]
                 let ret: Result<Val> = {
                     thread_local! {
-                        static VM_POOL: std::cell::RefCell<Option<crate::vm::Vm>> = std::cell::RefCell::new(None);
+                        static VM_POOL: std::cell::RefCell<Option<crate::vm::Vm>> = const { std::cell::RefCell::new(None) };
                     }
                     let fun = code.get_or_init(|| {
                         let c = crate::vm::Compiler::new();
-                        c.compile_function(params, &*body)
+                        c.compile_function(params, body.as_ref())
                     });
                     // Acquire a VM from the thread-local pool if available
                     let mut vm = VM_POOL
                         .with(|cell| cell.borrow_mut().take())
-                        .unwrap_or_else(crate::vm::Vm::new);
+                        .unwrap_or_default();
                     // Execute
                     let res = vm.exec_with(fun, Some(&mut call_env), Some(args));
                     // Return VM to pool regardless of result

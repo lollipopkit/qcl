@@ -77,7 +77,8 @@ fn normalize_binary_signs(src: &str) -> String {
                 prev = Some(pj);
                 break;
             }
-            let prev_is_value_like = match prev {
+            let prev_is_value_like = matches!(
+                prev,
                 Some(ch)
                     if ch.is_ascii_alphanumeric()
                         || ch == '_'
@@ -85,12 +86,8 @@ fn normalize_binary_signs(src: &str) -> String {
                         || ch == ']'
                         || ch == '}'
                         || ch == '"'
-                        || ch == '\'' =>
-                {
-                    true
-                }
-                _ => false,
-            };
+                        || ch == '\''
+            );
 
             if prev_is_value_like {
                 // Insert a space after '+' or '-' to force binary tokenization

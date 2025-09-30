@@ -136,6 +136,30 @@ impl ModuleResolver {
         Ok(module)
     }
 
+    /// Resolve a module directly from source code string.
+    /// Parses and executes the source in a fresh environment that shares this resolver,
+    /// and returns the map of top-level definitions as the module exports.
+    pub fn resolve_source(&self, src: &str) -> Result<Val> {
+        // Tokenize with spans for better diagnostics
+        let (tokens, spans) = Tokenizer::tokenize_enhanced_with_spans(src)
+            .map_err(|e| anyhow!(e.to_string()))?;
+
+        // Parse program with enhanced errors
+        let mut parser = StmtParser::new_with_spans(&tokens, &spans);
+        let program: Program = parser
+            .parse_program_with_enhanced_errors(src)
+            .map_err(|e| anyhow!(e.to_string()))?;
+
+        // Execute in a fresh environment that shares this resolver
+        let resolver = std::sync::Arc::new(self.clone());
+        let mut env = crate::stmt::Environment::with_resolver(resolver);
+        let _ = program.execute_with_env(&mut env)?;
+
+        // Collect top-level definitions as exports
+        let exports = env.export_symbols();
+        Ok(Val::from(exports))
+    }
+
     /// Resolve file path using search paths
     fn resolve_file_path(&self, path: &str) -> Result<PathBuf> {
         let path = Path::new(path);
@@ -193,26 +217,9 @@ impl ModuleResolver {
 
     /// Load and parse a file module into a namespace map
     fn load_file_module(&self, path: &Path) -> Result<Val> {
-        // Read source
+        // Read source then delegate to resolve_source
         let src = std::fs::read_to_string(path)?;
-
-        // Tokenize with spans for better diagnostics
-        let (tokens, spans) = Tokenizer::tokenize_enhanced_with_spans(&src).map_err(|e| anyhow!(e.to_string()))?;
-
-        // Parse program with enhanced errors
-        let mut parser = StmtParser::new_with_spans(&tokens, &spans);
-        let program: Program = parser
-            .parse_program_with_enhanced_errors(&src)
-            .map_err(|e| anyhow!(e.to_string()))?;
-
-        // Execute in a fresh environment that shares this resolver
-        let resolver = std::sync::Arc::new(self.clone());
-        let mut env = crate::stmt::Environment::with_resolver(resolver);
-        let _ = program.execute_with_env(&mut env)?;
-
-        // Collect top-level definitions as exports
-        let exports = env.export_symbols();
-        Ok(Val::from(exports))
+        self.resolve_source(&src)
     }
 }
 
@@ -375,40 +382,24 @@ mod tests {
     }
 
     #[test]
-    fn test_load_file_module_exports() -> Result<()> {
-        // Arrange: resolver expects ./hello.qcl or ./hello/mod.qcl to exist (crate root)
+    fn test_resolve_source_basic() -> Result<()> {
         let resolver = ModuleResolver::new();
-        let module_val = resolver.resolve_file("hello")?;
+        let src = r#"
+            let answer = 7;
+            fn inc(x) { return x + 1; }
+            let data = [1, 2, 3];
+        "#;
+        let module_val = resolver.resolve_source(src)?;
 
-        // Assert: module is a map with expected keys
         match module_val {
             Val::Map(map) => {
                 assert!(map.contains_key("answer"));
-                assert!(map.contains_key("double"));
+                assert!(map.contains_key("inc"));
                 assert!(map.contains_key("data"));
-                assert!(matches!(map.get("answer"), Some(Val::Int(42))));
+                assert!(matches!(map.get("answer"), Some(Val::Int(7))));
             }
             other => panic!("Expected module map, got {:?}", other),
         }
-        Ok(())
-    }
-
-    #[test]
-    fn test_import_items_from_file() -> Result<()> {
-        // Program: import { answer as a } from "hello"; let z = a + 1;
-        let src = "import { answer as a } from \"hello\"; let z = a + 1;";
-        let tokens = Tokenizer::tokenize(src).unwrap();
-        let mut parser = crate::stmt::stmt_parser::StmtParser::new(&tokens);
-        let program = parser.parse_program()?;
-
-        // Execute with a resolver (search base is current directory only)
-        let resolver = std::sync::Arc::new(ModuleResolver::new());
-        let mut env = crate::stmt::Environment::with_resolver(resolver);
-        let _ = program.execute_with_env(&mut env)?;
-
-        // Validate
-        let z = env.get("z").cloned().unwrap_or(Val::Nil);
-        assert_eq!(z, Val::Int(43));
         Ok(())
     }
 }

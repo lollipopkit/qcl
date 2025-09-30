@@ -425,13 +425,11 @@ impl Expr {
         // This is a minimal integration to validate the VM scaffold end-to-end.
         #[cfg(feature = "vm")]
         {
-            if std::env::var("QCL_VM_LITE").is_ok() {
-                if matches!(self, Expr::Val(_)) {
-                    let c = crate::vm::Compiler::new();
-                    let f = c.compile_expr(self);
-                    let mut vm = crate::vm::Vm::new();
-                    return vm.exec(&f);
-                }
+            if std::env::var("QCL_VM_LITE").is_ok() && matches!(self, Expr::Val(_)) {
+                let c = crate::vm::Compiler::new();
+                let f = c.compile_expr(self);
+                let mut vm = crate::vm::Vm::new();
+                return vm.exec(&f);
             }
         }
         match self {
@@ -535,10 +533,8 @@ impl Expr {
             Expr::Paren(expr) => expr.eval_with_env(env),
             Expr::Var(name) => {
                 // Only resolve variables from the lexical environment. No implicit context lookup.
-                if let Some(env) = env {
-                    if let Some(val) = env.get_value(name) {
-                        return Ok(val);
-                    }
+                if let Some(env) = env && let Some(val) = env.get_value(name) {
+                    return Ok(val);
                 }
                 Err(anyhow!("Undefined variable: {}", name))
             }
@@ -674,17 +670,15 @@ impl Expr {
                                     i += st;
                                 }
                             }
+                        } else if *inclusive {
+                            while i >= e {
+                                out.push(Val::Int(i));
+                                i += st; // st is negative
+                            }
                         } else {
-                            if *inclusive {
-                                while i >= e {
-                                    out.push(Val::Int(i));
-                                    i += st; // st is negative
-                                }
-                            } else {
-                                while i > e {
-                                    out.push(Val::Int(i));
-                                    i += st;
-                                }
+                            while i > e {
+                                out.push(Val::Int(i));
+                                i += st;
                             }
                         }
                         Ok(Val::List(out.into()))
@@ -994,6 +988,8 @@ impl Expr {
                     upvalues: Arc::new(Vec::new()),
                     #[cfg(feature = "vm")]
                     code: Arc::new(once_cell::sync::OnceCell::new()),
+                    #[cfg(feature = "slots")]
+                    layout: Arc::new(once_cell::sync::OnceCell::new()),
                 })
             }
             Expr::Val(val) => Ok(val.clone()), // Clone necessary as eval returns owned Val

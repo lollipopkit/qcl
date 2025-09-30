@@ -7,6 +7,7 @@ use qcl_core::{
     typ::TypeChecker,
     val::Val,
 };
+use qcl_core::resolve::slots::{FunctionLayout, SlotResolver};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use tower_lsp::lsp_types::*;
@@ -788,6 +789,82 @@ impl QclAnalyzer {
                     Ok(program) => {
                         // Analyze statements for symbols and identifier roots
                         self.analyze_statements(&program.statements, &mut result);
+                        // Integrate slot-based symbols (parameters/locals) for richer outline
+                        let mut resolver = SlotResolver::new();
+                        let resolution = resolver.resolve_program_slots(&program);
+                        // Enrich slot layout with scanned source spans for precise symbol ranges
+                        let enriched = self.enrich_layout_spans(&resolution.root, &tokens, &spans);
+                        // Top-level variable declarations (outside functions), grouped
+                        let top_level_vars = Self::collect_decl_symbols(&enriched);
+                        if !top_level_vars.is_empty() {
+                            // Keep individual variables at top-level for backward compatibility
+                            result.symbols.extend(top_level_vars.clone());
+                            let (range_start, range_end) = (
+                                top_level_vars
+                                    .first()
+                                    .map(|s| s.range.start)
+                                    .unwrap_or(Position::new(0, 0)),
+                                top_level_vars
+                                    .last()
+                                    .map(|s| s.range.end)
+                                    .unwrap_or(Position::new(0, 0)),
+                            );
+                            let vars_container = DocumentSymbol {
+                                name: "Variables".to_string(),
+                                detail: None,
+                                kind: SymbolKind::NAMESPACE,
+                                tags: None,
+                                #[allow(deprecated)]
+                                deprecated: None,
+                                range: Range::new(range_start, range_end),
+                                selection_range: Range::new(range_start, range_start),
+                                children: Some(top_level_vars),
+                            };
+                            result.symbols.push(vars_container);
+                        }
+
+                        // Top-level imports grouped
+                        let import_syms = Self::collect_import_symbols_via_tokens(&tokens, &spans);
+                        if !import_syms.is_empty() {
+                            // Keep individual imports at top-level for backward compatibility
+                            result.symbols.extend(import_syms.clone());
+                            let (range_start, range_end) = (
+                                import_syms
+                                    .first()
+                                    .map(|s| s.range.start)
+                                    .unwrap_or(Position::new(0, 0)),
+                                import_syms
+                                    .last()
+                                    .map(|s| s.range.end)
+                                    .unwrap_or(Position::new(0, 0)),
+                            );
+                            let imports_container = DocumentSymbol {
+                                name: "Imports".to_string(),
+                                detail: None,
+                                kind: SymbolKind::NAMESPACE,
+                                tags: None,
+                                #[allow(deprecated)]
+                                deprecated: None,
+                                range: Range::new(range_start, range_end),
+                                selection_range: Range::new(range_start, range_start),
+                                children: Some(import_syms),
+                            };
+                            result.symbols.push(imports_container);
+                        }
+                        // Add function symbols (nested hierarchy) using scanned blocks + enriched layouts
+                        let fblocks = Self::scan_function_blocks(&tokens, &spans);
+                        let (parents, children) = Self::compute_fn_block_hierarchy(&fblocks);
+                        // Top-level functions in source order
+                        let mut top_indices: Vec<usize> = (0..fblocks.len()).filter(|&i| parents[i].is_none()).collect();
+                        // Preserve source order as in fblocks
+                        top_indices.sort();
+                        for (top_ord, i) in top_indices.iter().enumerate() {
+                            let layout_opt = enriched.children.get(top_ord);
+                            let sym = Self::build_function_symbol_tree(&fblocks, &children, *i, layout_opt, &tokens, &spans);
+                            result.symbols.push(sym);
+                        }
+
+                        // Labels syntax is not supported; no label symbols at top-level
                         // Add precise import diagnostics using tokens/spans
                         self.add_import_diagnostics(&tokens, &spans, &mut result);
                     }
@@ -902,6 +979,737 @@ impl QclAnalyzer {
 
         result
     }
+
+    /// Build a new FunctionLayout tree with decl spans populated by scanning tokens.
+    /// Heuristics: assigns spans in source order matching names to declarations in the resolver order.
+    pub(crate) fn enrich_layout_spans(
+        &self,
+        layout: &FunctionLayout,
+        tokens: &[qcl_core::token::Token],
+        spans: &[Span],
+    ) -> FunctionLayout {
+        // Scan function blocks (including nested) and correlate with layouts
+        let fblocks = Self::scan_function_blocks(tokens, spans);
+        let (parents, children_map) = Self::compute_fn_block_hierarchy(&fblocks);
+
+        // Top-level declarations outside function blocks + function names as top-level binds
+        let toplevel_decl_spans = Self::scan_toplevel_decl_spans(tokens, spans, &fblocks);
+
+        // Helper to assign spans to decls from a queue per name
+        fn assign_spans(mut decls: Vec<qcl_core::resolve::slots::Decl>, pool: &mut HashMap<String, Vec<Span>>) -> Vec<qcl_core::resolve::slots::Decl> {
+            for d in decls.iter_mut() {
+                if let Some(list) = pool.get_mut(&d.name) {
+                    if !list.is_empty() {
+                        d.span = Some(list.remove(0));
+                    }
+                }
+            }
+            decls
+        }
+
+        // Prepare a toplevel pool by name
+        let mut top_pool: HashMap<String, Vec<Span>> = HashMap::new();
+        for (name, sp) in toplevel_decl_spans {
+            top_pool.entry(name).or_default().push(sp);
+        }
+        let mut new_root = FunctionLayout {
+            decls: assign_spans(layout.decls.clone(), &mut top_pool),
+            total_locals: layout.total_locals,
+            uses: layout.uses.clone(),
+            children: Vec::new(),
+        };
+
+        // Signature helpers
+        fn layout_param_signature(layout: &FunctionLayout) -> Vec<String> {
+            let mut params: Vec<(usize, String)> = layout
+                .decls
+                .iter()
+                .filter(|d| d.is_param)
+                .map(|d| (d.index as usize, d.name.clone()))
+                .collect();
+            params.sort_by_key(|(i, _)| *i);
+            params.into_iter().map(|(_, n)| n).collect()
+        }
+        fn fblock_param_signature(fb: &FnBlockInfo) -> Vec<String> {
+            fb.param_spans.iter().map(|(n, _)| n.clone()).collect()
+        }
+        fn fb_locals_pool(tokens: &[qcl_core::token::Token], spans: &[Span], fb: &FnBlockInfo) -> HashMap<String, Vec<Span>> {
+            let mut pool: HashMap<String, Vec<Span>> = HashMap::new();
+            for (pname, pspan) in fb.param_spans.iter() {
+                pool.entry(pname.clone()).or_default().push(pspan.clone());
+            }
+            let locals = QclAnalyzer::scan_decl_spans_in_range(tokens, spans, fb.body_start_idx, fb.body_end_idx);
+            for (n, sp) in locals {
+                pool.entry(n).or_default().push(sp);
+            }
+            pool
+        }
+
+        // Align a list of child layouts to a set of function block indices in order
+        fn align_children(layouts: &[FunctionLayout], fb_indices: &[usize], fblocks: &[FnBlockInfo]) -> Vec<Option<usize>> {
+            let mut used = vec![false; layouts.len()];
+            let mut mapping: Vec<Option<usize>> = vec![None; fb_indices.len()];
+            for (pos, &fi) in fb_indices.iter().enumerate() {
+                let fb_sig = fblock_param_signature(&fblocks[fi]);
+                let mut best: Option<(usize, i32)> = None; // (layout_idx, score)
+                for (li, lay) in layouts.iter().enumerate() {
+                    if used[li] { continue; }
+                    let lsig = layout_param_signature(lay);
+                    let score = if lsig == fb_sig {
+                        1000 + lsig.len() as i32
+                    } else if lsig.len() == fb_sig.len() {
+                        100 + lsig.iter().zip(fb_sig.iter()).filter(|(a, b)| *a == *b).count() as i32
+                    } else {
+                        lsig.iter().filter(|n| fb_sig.contains(n)).count() as i32
+                    };
+                    if best.map(|(_, s)| score > s).unwrap_or(true) {
+                        best = Some((li, score));
+                    }
+                }
+                if let Some((li, _)) = best {
+                    used[li] = true;
+                    mapping[pos] = Some(li);
+                }
+            }
+            mapping
+        }
+
+        // Build top-level children in source order
+        let mut top_indices: Vec<usize> = (0..fblocks.len()).filter(|&i| parents[i].is_none()).collect();
+        top_indices.sort();
+        let top_mapping = align_children(&layout.children, &top_indices, &fblocks);
+
+        let mut built_children: Vec<FunctionLayout> = Vec::new();
+        for (ord, &maybe_li) in top_mapping.iter().enumerate() {
+            let fb_idx = top_indices[ord];
+            let fb = &fblocks[fb_idx];
+            let mut pool = fb_locals_pool(tokens, spans, fb);
+            let base = maybe_li.and_then(|li| layout.children.get(li)).cloned().unwrap_or_else(|| FunctionLayout { decls: Vec::new(), total_locals: 0, uses: Vec::new(), children: Vec::new() });
+            let mut enriched_child = FunctionLayout { decls: assign_spans(base.decls, &mut pool), total_locals: base.total_locals, uses: base.uses, children: Vec::new() };
+
+            // Nested children alignment
+            let child_fb_indices = children_map.get(fb_idx).cloned().unwrap_or_default();
+            let child_mapping = align_children(&base.children, &child_fb_indices, &fblocks);
+            let mut nested_children: Vec<FunctionLayout> = Vec::new();
+            for (cpos, &maybe_cli) in child_mapping.iter().enumerate() {
+                let cfi = child_fb_indices[cpos];
+                let cfb = &fblocks[cfi];
+                let mut cpool = fb_locals_pool(tokens, spans, cfb);
+                let cbase = maybe_cli.and_then(|li| base.children.get(li)).cloned().unwrap_or_else(|| FunctionLayout { decls: Vec::new(), total_locals: 0, uses: Vec::new(), children: Vec::new() });
+                let cenriched = FunctionLayout { decls: assign_spans(cbase.decls, &mut cpool), total_locals: cbase.total_locals, uses: cbase.uses, children: Vec::new() };
+                nested_children.push(cenriched);
+            }
+            enriched_child.children = nested_children;
+            built_children.push(enriched_child);
+        }
+        new_root.children = built_children;
+        new_root
+    }
+
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct FnBlockInfo {
+        name: String,
+        name_span: Span,
+        /// Token index of '{' starting the body
+    pub(crate) body_start_idx: usize,
+        /// Token index of the matching '}' ending the body
+    pub(crate) body_end_idx: usize,
+        /// Parameter identifier spans (name -> span)
+        param_spans: Vec<(String, Span)>,
+    }
+
+impl QclAnalyzer {
+    /// Scan function blocks in source order: name, name span, body token range, and param spans.
+    pub(crate) fn scan_function_blocks(
+        tokens: &[qcl_core::token::Token],
+        spans: &[Span],
+    ) -> Vec<FnBlockInfo> {
+        use qcl_core::token::Token as T;
+        let mut i = 0usize;
+        let mut out: Vec<FnBlockInfo> = Vec::new();
+        while i < tokens.len() {
+            if !matches!(tokens[i], T::Fn) {
+                i += 1;
+                continue;
+            }
+            // Expect function name
+            if i + 1 >= tokens.len() {
+                break;
+            }
+            let name = if let T::Id(ref n) = tokens[i + 1] {
+                n.clone()
+            } else {
+                i += 1;
+                continue;
+            };
+            let name_span = match spans.get(i + 1).cloned() {
+                Some(sp) => sp,
+                None => match spans.get(i).cloned() {
+                    Some(sp) => sp,
+                    None => continue,
+                },
+            };
+            // Find params region: '(' ... matching ')'
+            let mut j = i + 2;
+            if j >= tokens.len() || !matches!(tokens[j], T::LParen) {
+                i += 1;
+                continue;
+            }
+            let mut paren = 1i32;
+            let mut params: Vec<(String, Span)> = Vec::new();
+            j += 1;
+            while j < tokens.len() && paren > 0 {
+                match &tokens[j] {
+                    T::LParen => paren += 1,
+                    T::RParen => paren -= 1,
+                    T::Id(p) if paren == 1 => {
+                        if let Some(sp) = spans.get(j) {
+                            params.push((p.clone(), sp.clone()));
+                        }
+                    }
+                    _ => {}
+                }
+                j += 1;
+            }
+            // After params, optional '->' and type, then expect '{'
+            while j < tokens.len() && !matches!(tokens[j], T::LBrace) {
+                j += 1;
+            }
+            if j >= tokens.len() || !matches!(tokens[j], T::LBrace) {
+                i = j;
+                continue;
+            }
+            // Find matching '}' for body
+            let mut brace = 1i32;
+            let body_start = j; // points to '{'
+            j += 1;
+            while j < tokens.len() && brace > 0 {
+                match tokens[j] {
+                    T::LBrace => brace += 1,
+                    T::RBrace => brace -= 1,
+                    _ => {}
+                }
+                j += 1;
+            }
+            let body_end = j.saturating_sub(1); // index of '}'
+            out.push(FnBlockInfo {
+                name,
+                name_span,
+                body_start_idx: body_start,
+                body_end_idx: body_end,
+                param_spans: params,
+            });
+            // Do not skip over the entire body; continue scanning to discover nested functions too
+            i += 1;
+        }
+        out
+    }
+
+    /// Scan variable declaration spans within [start_idx, end_idx] token range: let-patterns and short defines.
+    fn scan_decl_spans_in_range(
+        tokens: &[qcl_core::token::Token],
+        spans: &[Span],
+        start_idx: usize,
+        end_idx: usize,
+    ) -> Vec<(String, Span)> {
+        use qcl_core::token::Token as T;
+        let mut out: Vec<(String, Span)> = Vec::new();
+        let mut i = start_idx;
+        while i <= end_idx && i < tokens.len() {
+            match &tokens[i] {
+                T::Let => {
+                    // Pattern region until top-level ':' or '='
+                    let mut j = i + 1;
+                    let mut paren = 0i32;
+                    let mut bracket = 0i32;
+                    let mut brace = 0i32;
+                    while j <= end_idx && j < tokens.len() {
+                        match tokens[j] {
+                            T::LParen => paren += 1,
+                            T::RParen => paren -= 1,
+                            T::LBracket => bracket += 1,
+                            T::RBracket => bracket -= 1,
+                            T::LBrace => brace += 1,
+                            T::RBrace => brace -= 1,
+                            T::Assign | T::Colon if paren == 0 && bracket == 0 && brace == 0 => break,
+                            _ => {}
+                        }
+                        j += 1;
+                    }
+                    // Within [i+1, j), collect identifier tokens as declarations
+                    let mut k = i + 1;
+                    while k < j && k <= end_idx {
+                        if let T::Id(ref n) = tokens[k] {
+                            if let Some(sp) = spans.get(k) {
+                                out.push((n.clone(), sp.clone()))
+                            }
+                        }
+                        k += 1;
+                    }
+                    i = j;
+                }
+                T::Id(name) => {
+                    // Short define: id := expr ;
+                    if i + 2 <= end_idx
+                        && matches!(tokens.get(i + 1), Some(T::Colon))
+                        && matches!(tokens.get(i + 2), Some(T::Assign))
+                    {
+                        if let Some(sp) = spans.get(i) {
+                            out.push((name.clone(), sp.clone()));
+                        }
+                        i += 3;
+                        continue;
+                    }
+                    i += 1;
+                }
+                _ => i += 1,
+            }
+        }
+        out
+    }
+
+    /// Collect top-level declaration spans and function names (outside any function block body).
+    fn scan_toplevel_decl_spans(
+        tokens: &[qcl_core::token::Token],
+        spans: &[Span],
+        fblocks: &Vec<FnBlockInfo>,
+    ) -> Vec<(String, Span)> {
+        use qcl_core::token::Token as T;
+        let mut out: Vec<(String, Span)> = Vec::new();
+        // Function names are top-level bindings
+        for fb in fblocks {
+            out.push((fb.name.clone(), fb.name_span.clone()));
+        }
+        // Scan all tokens skipping over function bodies
+        let mut skip_ranges: Vec<(usize, usize)> = fblocks.iter().map(|fb| (fb.body_start_idx, fb.body_end_idx)).collect();
+        skip_ranges.sort_by_key(|r| r.0);
+        let mut i = 0usize;
+        let mut ri = 0usize;
+        while i < tokens.len() {
+            if ri < skip_ranges.len() {
+                let (s, e) = skip_ranges[ri];
+                if i >= s && i <= e {
+                    i = e + 1;
+                    ri += 1;
+                    continue;
+                }
+            }
+            match &tokens[i] {
+                T::Let => {
+                    // As in range scan
+                    let mut j = i + 1;
+                    let mut paren = 0i32;
+                    let mut bracket = 0i32;
+                    let mut brace = 0i32;
+                    while j < tokens.len() {
+                        match tokens[j] {
+                            T::LParen => paren += 1,
+                            T::RParen => paren -= 1,
+                            T::LBracket => bracket += 1,
+                            T::RBracket => bracket -= 1,
+                            T::LBrace => brace += 1,
+                            T::RBrace => brace -= 1,
+                            T::Assign | T::Colon if paren == 0 && bracket == 0 && brace == 0 => break,
+                            _ => {}
+                        }
+                        j += 1;
+                    }
+                    let mut k = i + 1;
+                    while k < j {
+                        if let T::Id(ref n) = tokens[k] {
+                            if let Some(sp) = spans.get(k) {
+                                out.push((n.clone(), sp.clone()));
+                            }
+                        }
+                        k += 1;
+                    }
+                    i = j;
+                }
+                T::Id(name) => {
+                    if i + 2 < tokens.len()
+                        && matches!(tokens.get(i + 1), Some(T::Colon))
+                        && matches!(tokens.get(i + 2), Some(T::Assign))
+                    {
+                        if let Some(sp) = spans.get(i) {
+                            out.push((name.clone(), sp.clone()));
+                        }
+                        i += 3;
+                        continue;
+                    }
+                    i += 1;
+                }
+                _ => i += 1,
+            }
+        }
+        out
+    }
+
+    /// Collect variable symbols (params/locals) for a single function layout.
+    /// Does not recurse into nested children; returns symbols to be used as function.children.
+    fn collect_decl_symbols(layout: &FunctionLayout) -> Vec<DocumentSymbol> {
+        use tower_lsp::lsp_types::{DocumentSymbol, Position, Range, SymbolKind};
+        let mut out: Vec<DocumentSymbol> = Vec::new();
+        for decl in &layout.decls {
+            let detail = if decl.is_param { "Parameter" } else { "Local" };
+            let (range, selection_range) = if let Some(sp) = &decl.span {
+                let start = Position::new(sp.start.line - 1, sp.start.column.saturating_sub(1));
+                let end = Position::new(sp.end.line - 1, sp.end.column.saturating_sub(1));
+                (Range::new(start, end), Range::new(start, end))
+            } else {
+                (
+                    Range::new(Position::new(0, 0), Position::new(0, 0)),
+                    Range::new(Position::new(0, 0), Position::new(0, 0)),
+                )
+            };
+            out.push(DocumentSymbol {
+                name: decl.name.clone(),
+                detail: Some(format!("{} (slot #{})", detail, decl.index)),
+                kind: SymbolKind::VARIABLE,
+                tags: None,
+                #[allow(deprecated)]
+                deprecated: None,
+                range,
+                selection_range,
+                children: None,
+            });
+        }
+        out
+    }
+
+    /// Group params and locals into two container nodes under the function.
+    fn collect_decl_groups(layout: &FunctionLayout, func_range: Range) -> Vec<DocumentSymbol> {
+        use tower_lsp::lsp_types::{DocumentSymbol, SymbolKind};
+        let mut params: Vec<DocumentSymbol> = Vec::new();
+        let mut locals: Vec<DocumentSymbol> = Vec::new();
+        for sym in Self::collect_decl_symbols(layout) {
+            // classify by detail text prefix
+            if sym
+                .detail
+                .as_ref()
+                .map(|d| d.starts_with("Parameter"))
+                .unwrap_or(false)
+            {
+                params.push(sym);
+            } else {
+                locals.push(sym);
+            }
+        }
+        let mut groups: Vec<DocumentSymbol> = Vec::new();
+        if !params.is_empty() {
+            groups.push(DocumentSymbol {
+                name: "Parameters".to_string(),
+                detail: None,
+                kind: SymbolKind::NAMESPACE,
+                tags: None,
+                #[allow(deprecated)]
+                deprecated: None,
+                range: func_range,
+                selection_range: func_range,
+                children: Some(params),
+            });
+        }
+        if !locals.is_empty() {
+            groups.push(DocumentSymbol {
+                name: "Locals".to_string(),
+                detail: None,
+                kind: SymbolKind::NAMESPACE,
+                tags: None,
+                #[allow(deprecated)]
+                deprecated: None,
+                range: func_range,
+                selection_range: func_range,
+                children: Some(locals),
+            });
+        }
+        groups
+    }
+
+    /// Collect import symbols via token scanning and produce per-import DocumentSymbols.
+    fn collect_import_symbols_via_tokens(tokens: &[qcl_core::token::Token], spans: &[Span]) -> Vec<DocumentSymbol> {
+        use qcl_core::token::Token as T;
+        use tower_lsp::lsp_types::{DocumentSymbol, Position, Range, SymbolKind};
+        let mut out: Vec<DocumentSymbol> = Vec::new();
+        let mut i = 0usize;
+        while i < tokens.len() {
+            if !matches!(tokens[i], T::Import) {
+                i += 1;
+                continue;
+            }
+            let start_idx = i;
+            let mut j = i + 1;
+            let mut label = String::from("import");
+            // Derive a short label based on common forms
+            if let Some(tok) = tokens.get(j) {
+                match tok {
+                    T::Str(s) => {
+                        label = format!("import \"{}\"", s);
+                        j += 1;
+                    }
+                    T::LBrace => {
+                        // skip until 'from' then module id
+                        j += 1;
+                        while j < tokens.len() && !matches!(tokens[j], T::From) {
+                            j += 1;
+                        }
+                        if j + 1 < tokens.len() {
+                            if let T::Id(m) = &tokens[j + 1] {
+                                label = format!("import {{…}} from {}", m);
+                            } else {
+                                label = "import {…}".to_string();
+                            }
+                        }
+                    }
+                    T::Id(m) => {
+                        // maybe alias form later
+                        label = format!("import {}", m);
+                        // peek for 'as <alias>'
+                        let mut k = j + 1;
+                        if matches!(tokens.get(k), Some(T::As)) {
+                            k += 1;
+                            if let Some(T::Id(a)) = tokens.get(k) {
+                                label = format!("import {} as {}", m, a);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            // Find end at next ';'
+            while j < tokens.len() && !matches!(tokens[j], T::Semicolon) {
+                j += 1;
+            }
+            let end_idx = j.min(tokens.len().saturating_sub(1));
+            if let (Some(s0), Some(se)) = (spans.get(start_idx), spans.get(end_idx)) {
+                let range = Range::new(
+                    Position::new(s0.start.line - 1, s0.start.column.saturating_sub(1)),
+                    Position::new(se.end.line - 1, se.end.column.saturating_sub(1)),
+                );
+                out.push(DocumentSymbol {
+                    name: label,
+                    detail: Some("Import statement".to_string()),
+                    kind: SymbolKind::MODULE,
+                    tags: None,
+                    #[allow(deprecated)]
+                    deprecated: None,
+                    range,
+                    selection_range: range,
+                    children: None,
+                });
+            }
+            i = j + 1;
+        }
+        out
+    }
+
+    // Labels are not supported; no label collection helpers
+
+    /// Compute parent and children lists for function blocks based on body containment.
+    fn compute_fn_block_hierarchy(fblocks: &[FnBlockInfo]) -> (Vec<Option<usize>>, Vec<Vec<usize>>) {
+        let n = fblocks.len();
+        let mut parent: Vec<Option<usize>> = vec![None; n];
+        for (i, fi) in fblocks.iter().enumerate().take(n) {
+            let s_i = fi.body_start_idx;
+            let e_i = fi.body_end_idx;
+            let mut best: Option<(usize, usize)> = None; // (j, span_len)
+            for (j, fj) in fblocks.iter().enumerate().take(n) {
+                if i == j { continue; }
+                let s_j = fj.body_start_idx;
+                let e_j = fj.body_end_idx;
+                if s_j <= s_i && e_j >= e_i {
+                    let span_len = e_j.saturating_sub(s_j);
+                    if best.map(|(_, l)| span_len < l).unwrap_or(true) {
+                        best = Some((j, span_len));
+                    }
+                }
+            }
+            if let Some((pj, _)) = best { parent[i] = Some(pj); }
+        }
+        let mut children: Vec<Vec<usize>> = vec![Vec::new(); n];
+        for (i, pi) in parent.iter().enumerate().take(n) {
+            if let Some(p) = *pi { children[p].push(i); }
+        }
+        (parent, children)
+    }
+
+    /// Recursively build a function symbol with nested function children + var/param children.
+    fn build_function_symbol_tree(
+        fblocks: &[FnBlockInfo],
+        children_map: &[Vec<usize>],
+        idx: usize,
+        layout_opt: Option<&FunctionLayout>,
+        tokens: &[qcl_core::token::Token],
+        spans: &[Span],
+    ) -> DocumentSymbol {
+        use tower_lsp::lsp_types::{DocumentSymbol, Position, Range, SymbolKind};
+        let fb = &fblocks[idx];
+        let name_sp = fb.name_span.clone();
+        let body_end = spans.get(fb.body_end_idx).cloned().unwrap_or(name_sp.clone());
+        let range = Range::new(
+            Position::new(name_sp.start.line - 1, name_sp.start.column.saturating_sub(1)),
+            Position::new(body_end.end.line - 1, body_end.end.column.saturating_sub(1)),
+        );
+        let selection_range = Range::new(
+            Position::new(name_sp.start.line - 1, name_sp.start.column.saturating_sub(1)),
+            Position::new(name_sp.end.line - 1, name_sp.end.column.saturating_sub(1)),
+        );
+        let params_label = if fb.param_spans.is_empty() {
+            String::new()
+        } else {
+            let names: Vec<String> = fb.param_spans.iter().map(|(n, _)| n.clone()).collect();
+            names.join(", ")
+        };
+        let mut kids: Vec<DocumentSymbol> = Vec::new();
+        // Add variables/params declared in this function grouped
+        if let Some(layout) = layout_opt {
+            kids.extend(Self::collect_decl_groups(layout, range));
+        }
+        if kids.is_empty() {
+            // Fallback: build groups by scanning tokens (parameters + locals) when layout is unavailable
+            let mut params: Vec<DocumentSymbol> = Vec::new();
+            for (pname, pspan) in fb.param_spans.iter() {
+                let start = Position::new(pspan.start.line - 1, pspan.start.column.saturating_sub(1));
+                let end = Position::new(pspan.end.line - 1, pspan.end.column.saturating_sub(1));
+                params.push(DocumentSymbol {
+                    name: pname.clone(),
+                    detail: Some("Parameter".to_string()),
+                    kind: SymbolKind::VARIABLE,
+                    tags: None,
+                    #[allow(deprecated)]
+                    deprecated: None,
+                    range: Range::new(start, end),
+                    selection_range: Range::new(start, end),
+                    children: None,
+                });
+            }
+            if !params.is_empty() {
+                kids.push(DocumentSymbol {
+                    name: "Parameters".to_string(),
+                    detail: None,
+                    kind: SymbolKind::NAMESPACE,
+                    tags: None,
+                    #[allow(deprecated)]
+                    deprecated: None,
+                    range,
+                    selection_range: range,
+                    children: Some(params),
+                });
+            }
+            let locals = Self::scan_decl_spans_in_range(tokens, spans, fb.body_start_idx, fb.body_end_idx);
+            if !locals.is_empty() {
+                let mut local_syms: Vec<DocumentSymbol> = Vec::new();
+                for (lname, lspan) in locals {
+                    let start = Position::new(lspan.start.line - 1, lspan.start.column.saturating_sub(1));
+                    let end = Position::new(lspan.end.line - 1, lspan.end.column.saturating_sub(1));
+                    local_syms.push(DocumentSymbol {
+                        name: lname,
+                        detail: Some("Local".to_string()),
+                        kind: SymbolKind::VARIABLE,
+                        tags: None,
+                        #[allow(deprecated)]
+                        deprecated: None,
+                        range: Range::new(start, end),
+                        selection_range: Range::new(start, end),
+                        children: None,
+                    });
+                }
+                kids.push(DocumentSymbol {
+                    name: "Locals".to_string(),
+                    detail: None,
+                    kind: SymbolKind::NAMESPACE,
+                    tags: None,
+                    #[allow(deprecated)]
+                    deprecated: None,
+                    range,
+                    selection_range: range,
+                    children: Some(local_syms),
+                });
+            }
+        }
+        // Labels syntax is not supported; no function-local label grouping
+        // Add nested functions in source order within this function
+        let child_idxs = children_map.get(idx).cloned().unwrap_or_default();
+        for (ord, child_i) in child_idxs.iter().enumerate() {
+            let child_layout_opt = layout_opt.and_then(|l| l.children.get(ord));
+            let child_sym = Self::build_function_symbol_tree(fblocks, children_map, *child_i, child_layout_opt, tokens, spans);
+            kids.push(child_sym);
+        }
+        // Try to infer return type for function detail
+        let detail = if let Some(ret) = Self::infer_fn_return_type_for_block(tokens, fb) {
+            if params_label.is_empty() {
+                format!("fn() -> {}", ret)
+            } else {
+                format!("fn({}) -> {}", params_label, ret)
+            }
+        } else if params_label.is_empty() {
+            "Function".to_string()
+        } else {
+            format!("Function({})", params_label)
+        };
+        DocumentSymbol {
+            name: fb.name.clone(),
+            detail: Some(detail),
+            kind: SymbolKind::FUNCTION,
+            tags: None,
+            #[allow(deprecated)]
+            deprecated: None,
+            range,
+            selection_range,
+            children: if kids.is_empty() { None } else { Some(kids) },
+        }
+    }
+
+    /// Infer a function's return type by scanning return statements inside its body.
+    fn infer_fn_return_type_for_block(
+        tokens: &[qcl_core::token::Token],
+        fb: &FnBlockInfo,
+    ) -> Option<String> {
+        use qcl_core::token::Token as T;
+        let mut k = fb.body_start_idx + 1;
+        let body_end = fb.body_end_idx;
+        if body_end <= k { return None; }
+        let mut return_types: Vec<qcl_core::val::Type> = Vec::new();
+        while k < body_end {
+            if matches!(tokens[k], T::Return) {
+                let mut e = k + 1;
+                let mut expr_depth = 0i32;
+                let mut last = e;
+                while e < body_end {
+                    match &tokens[e] {
+                        T::LParen | T::LBracket | T::LBrace => expr_depth += 1,
+                        T::RParen | T::RBracket | T::RBrace => expr_depth -= 1,
+                        T::Semicolon if expr_depth == 0 => break,
+                        _ => {}
+                    }
+                    last = e;
+                    e += 1;
+                }
+                if last > k {
+                    let expr_tokens = &tokens[k + 1..=last];
+                    if !expr_tokens.is_empty() {
+                        if let Ok(expr) = qcl_core::ast::Parser::new(expr_tokens).parse() {
+                            let mut checker = qcl_core::typ::TypeChecker::new();
+                            if let Ok(ret_ty) = checker.infer_resolved_type(&expr) {
+                                return_types.push(ret_ty);
+                            }
+                        }
+                    }
+                }
+                k = e + 1;
+                continue;
+            }
+            k += 1;
+        }
+        if return_types.is_empty() { return None; }
+        use std::collections::BTreeMap;
+        let mut by_key: BTreeMap<String, qcl_core::val::Type> = BTreeMap::new();
+        for t in return_types { by_key.entry(t.display()).or_insert(t); }
+        let parts: Vec<String> = by_key.into_keys().collect();
+        Some(if parts.len() == 1 { parts[0].clone() } else { parts.join(" | ") })
+    }
+
+    
 
     /// List available stdlib module names
     pub fn list_stdlib_modules(&self) -> Vec<String> {
@@ -1401,52 +2209,14 @@ impl QclAnalyzer {
                         }
                     }
                 }
-                Stmt::Function { name, params, .. } => {
-                    result.symbols.push(DocumentSymbol {
-                        name: name.clone(),
-                        detail: Some(format!("Function({})", params.join(", "))),
-                        kind: SymbolKind::FUNCTION,
-                        tags: None,
-                        #[allow(deprecated)]
-                        deprecated: None,
-                        range: Range::new(Position::new(i as u32, 0), Position::new(i as u32, 100)),
-                        selection_range: Range::new(Position::new(i as u32, 0), Position::new(i as u32, 100)),
-                        children: None,
-                    });
-                }
-                Stmt::Import(import_stmt) => {
-                    let import_name = match import_stmt {
-                        ImportStmt::Module { module } => module.clone(),
-                        ImportStmt::File { path } => path.clone(),
-                        ImportStmt::Items { source, .. } => match source {
-                            qcl_core::stmt::ImportSource::Module(name) => name.clone(),
-                            qcl_core::stmt::ImportSource::File(path) => path.clone(),
-                        },
-                        ImportStmt::Namespace { source, .. } => match source {
-                            qcl_core::stmt::ImportSource::Module(name) => name.clone(),
-                            qcl_core::stmt::ImportSource::File(path) => path.clone(),
-                        },
-                        ImportStmt::ModuleAlias { module, .. } => module.clone(),
-                    };
-                    result.symbols.push(DocumentSymbol {
-                        name: format!("import {}", import_name),
-                        detail: Some("Import statement".to_string()),
-                        kind: SymbolKind::MODULE,
-                        tags: None,
-                        #[allow(deprecated)]
-                        deprecated: None,
-                        range: Range::new(Position::new(i as u32, 0), Position::new(i as u32, 100)),
-                        selection_range: Range::new(Position::new(i as u32, 0), Position::new(i as u32, 100)),
-                        children: None,
-                    });
-                }
+                Stmt::Function { .. } => {}
+                Stmt::Import(_import_stmt) => { /* imports are grouped via token scan later */ }
                 _ => {}
             }
         }
     }
 
     /// Get common variable completions for the given prefix
-    #[allow(dead_code)]
     pub fn get_var_completions(&mut self, prefix: &str) -> Vec<CompletionItem> {
         // Use cached completion items if available
         let all_items = if let Some(ref cached) = self.completion_cache {

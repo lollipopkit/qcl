@@ -6,6 +6,7 @@
 
 mod bytecode;
 mod compiler;
+#[allow(clippy::module_inception)]
 mod vm;
 
 pub use bytecode::*;

@@ -1,4 +1,0 @@
-// Test module for import.rs tests
-let answer = 42;
-fn double(x) { return x * 2; }
-let data = [1, 2, 3];

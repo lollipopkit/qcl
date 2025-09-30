@@ -154,7 +154,7 @@ fn main() -> anyhow::Result<()> {
         let resolver = Arc::new(ModuleResolver::with_registry(registry));
         let mut env = stmt::Environment::with_resolver(resolver);
 
-        let exec_result = if use_vm {
+        if use_vm {
             #[cfg(feature = "vm")]
             {
                 // Compile entire program block to bytecode and execute with VM
@@ -174,8 +174,7 @@ fn main() -> anyhow::Result<()> {
             }
         } else {
             program.execute_with_env(&mut env)
-        };
-        exec_result
+        }
     } else {
         // Expression mode
         if use_vm {

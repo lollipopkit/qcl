@@ -950,6 +950,11 @@ impl<'a> StmtParser<'a> {
     fn parse_import_stmt(&mut self) -> Result<Stmt> {
         self.expect_token(Token::Import)?;
 
+        // After 'import', ensure there is a specifier
+        if self.eof() {
+            return Err(anyhow!(self.err("Expected import specifier after 'import'")));
+        }
+
         // Check for different import patterns
         let import_stmt = match &self.tokens[self.pos] {
             // import "path";
@@ -1026,6 +1031,10 @@ impl<'a> StmtParser<'a> {
 
     /// Parse import source (module name or file path)
     fn parse_import_source(&mut self) -> Result<ImportSource> {
+        if self.eof() {
+            return Err(anyhow!(self.err("Expected module name or file path after 'from'")));
+        }
+
         match &self.tokens[self.pos] {
             Token::Str(path) => {
                 let path = path.clone();

@@ -7,7 +7,7 @@ A Language Server Protocol (LSP) implementation for the QCL (Query Check Languag
 - **Syntax Diagnostics**: Real-time error detection for QCL expressions and statement programs
 - **Hover Information**: Shows type information, identifier roots, and symbol counts
 - **Code Completion**: Auto-complete for QCL keywords, operators, common variables, and standard library functions
-- **Document Symbols**: Navigate through variables, functions, imports, and labels in QCL programs
+- **Document Symbols**: Navigate through variables, functions, and imports in QCL programs
 - **Identifier Analysis**: Detects and analyzes top-level identifier roots used (req, record, etc.)
 
 ## Architecture

@@ -65,6 +65,12 @@ impl Compiler {
     }
 }
 
+impl Default for Compiler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 struct FunctionBuilder {
     consts: Vec<Val>,
     code: Vec<Op>,

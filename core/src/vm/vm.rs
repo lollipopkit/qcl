@@ -30,14 +30,12 @@ impl Vm {
         regs.clear();
         regs.resize(f.n_regs as usize, Val::Nil);
         // Seed parameter registers directly from provided args, if any.
-        if let Some(a) = args {
-            if !f.param_regs.is_empty() {
-                // Defensive: only seed up to min(len)
-                let n = a.len().min(f.param_regs.len());
-                for i in 0..n {
-                    let r = f.param_regs[i] as usize;
-                    regs[r] = a[i].clone();
-                }
+        if let Some(a) = args && !f.param_regs.is_empty() {
+            // Defensive: only seed up to min(len)
+            let n = a.len().min(f.param_regs.len());
+            for (i, val) in a.iter().enumerate().take(n) {
+                let r = f.param_regs[i] as usize;
+                regs[r] = val.clone();
             }
         }
         // Locals share the same storage space as registers for this simple VM.
@@ -114,12 +112,11 @@ impl Vm {
                 Op::LoadGlobal(dst, name_k) => {
                     let name_val = &f.consts[*name_k as usize];
                     let mut out = Val::Nil;
-                    if let Val::Str(s) = name_val {
-                        if let Some(e) = env.as_ref() {
-                            if let Some(v) = e.get_value(s.as_ref()) {
-                                out = v;
-                            }
-                        }
+                    if let Val::Str(s) = name_val
+                        && let Some(e) = env.as_ref()
+                        && let Some(v) = e.get_value(s.as_ref())
+                    {
+                        out = v;
                     }
                     regs[*dst as usize] = out;
                     pc += 1;
@@ -297,8 +294,10 @@ impl Vm {
                     };
                     let cont = if st > 0 {
                         if *inclusive { i <= lim } else { i < lim }
+                    } else if *inclusive {
+                        i >= lim
                     } else {
-                        if *inclusive { i >= lim } else { i > lim }
+                        i > lim
                     };
                     if !cont {
                         pc = ((pc as isize) + (*ofs as isize)) as usize;
@@ -333,6 +332,8 @@ impl Vm {
                             upvalues: std::sync::Arc::new(Vec::new()),
                             #[cfg(feature = "vm")]
                             code: std::sync::Arc::new(once_cell::sync::OnceCell::new()),
+                            #[cfg(feature = "slots")]
+                            layout: std::sync::Arc::new(once_cell::sync::OnceCell::new()),
                         };
                         regs[*dst as usize] = clo;
                     } else {
@@ -422,5 +423,11 @@ impl Vm {
             _ => false,
         };
         regs[dst as usize] = Val::Bool(res);
+    }
+}
+
+impl Default for Vm {
+    fn default() -> Self {
+        Self::new()
     }
 }
