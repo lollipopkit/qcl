@@ -55,7 +55,7 @@ fn main() -> anyhow::Result<()> {
             .join("|");
 
         eprintln!(
-            "Usage: cat <{}> | {} [--repl] [{}] [--expr|--stmt] <expr|program|file>",
+            "Usage: cat <{}> | {} [--repl] [{}] [--expr|--stmt] [--vm] <expr|program|file>",
             format_str, args[0], flag_str
         );
         eprintln!("  Format is auto-detected unless {} is specified", flag_str);
@@ -73,6 +73,7 @@ fn main() -> anyhow::Result<()> {
     // Default to expression mode; fallback target is expr when not a file
     let mut is_statement_mode = false;
     let mut repl_mode = false;
+    let mut use_vm = std::env::var("QCL_VM").is_ok();
 
     while arg_idx < args.len() {
         match args[arg_idx].as_str() {
@@ -98,6 +99,10 @@ fn main() -> anyhow::Result<()> {
             }
             "--repl" => {
                 repl_mode = true;
+                arg_idx += 1;
+            }
+            "--vm" => {
+                use_vm = true;
                 arg_idx += 1;
             }
             _ => break,
@@ -195,20 +200,51 @@ fn main() -> anyhow::Result<()> {
                 std::process::exit(1);
             }
         };
-
-        // Create module registry and register stdlib modules and globals
+        // Prepare stdlib environment
         let mut registry = ModuleRegistry::new();
         qcl_stdlib::register_stdlib_globals(&mut registry);
         qcl_stdlib::register_stdlib_modules(&mut registry);
-
-        // Create environment with stdlib modules
         let resolver = Arc::new(ModuleResolver::with_registry(registry));
         let mut env = stmt::Environment::with_resolver(resolver);
 
+        if use_vm {
+            #[cfg(feature = "vm")]
+            {
+                // Compile entire program block to bytecode and execute with VM
+                let block = qcl_core::stmt::Stmt::Block { statements: program.statements.clone() };
+                let func = qcl_core::vm::Compiler::new().compile_stmt(&block);
+                let mut vm = qcl_core::vm::Vm::new();
+                return vm.exec_with(&func, Some(&mut env), &ctx);
+            }
+            #[cfg(not(feature = "vm"))]
+            {
+                eprintln!("Warning: --vm specified but this binary was built without 'vm' feature; falling back to interpreter.");
+            }
+        }
+
+        // Interpreter fallback
         program.execute_with_env(&ctx, &mut env)
     } else {
-        let expr = Expr::parse_cached_arc(&input)?;
-        expr.eval(&ctx)
+        // Expression mode
+        if use_vm {
+            #[cfg(feature = "vm")]
+            {
+                let expr = Expr::parse_cached_arc(&input)?;
+                let compiler = qcl_core::vm::Compiler::new();
+                let func = compiler.compile_expr(&expr);
+                let mut vm = qcl_core::vm::Vm::new();
+                vm.exec_with(&func, None, &ctx)
+            }
+            #[cfg(not(feature = "vm"))]
+            {
+                eprintln!("Warning: --vm specified (or QCL_VM set) but this binary was built without 'vm' feature; using interpreter.");
+                let expr = Expr::parse_cached_arc(&input)?;
+                expr.eval(&ctx)
+            }
+        } else {
+            let expr = Expr::parse_cached_arc(&input)?;
+            expr.eval(&ctx)
+        }
     };
 
     // Shutdown runtime after execution

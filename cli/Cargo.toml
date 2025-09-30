@@ -27,4 +27,5 @@ rustyline = "12"
 [features]
 default = ["all"]
 concurrency = ["qcl-core/concurrency", "qcl-stdlib/concurrency"]
+vm = ["qcl-core/vm"]
 all = ["qcl-stdlib/all", "concurrency"]

@@ -12,3 +12,5 @@ pub use bytecode::*;
 pub use compiler::*;
 pub use vm::*;
 
+#[cfg(test)]
+mod vm_test;

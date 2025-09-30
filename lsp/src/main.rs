@@ -151,16 +151,7 @@ impl QclLanguageServer {
             });
         }
 
-        // Context access
-        items.push(CompletionItem {
-            label: "@".to_string(),
-            kind: Some(CompletionItemKind::VARIABLE),
-            detail: Some("Context access".to_string()),
-            documentation: Some(Documentation::String(
-                "Access context variables (e.g., @req.user.role)".to_string(),
-            )),
-            ..Default::default()
-        });
+        // Context access via '@' removed
 
         // Standard library functions (if available)
         let stdlib_functions = [
@@ -308,7 +299,7 @@ impl LanguageServer for QclLanguageServer {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
-                    trigger_characters: Some(vec!["@".to_string(), ".".to_string()]),
+                    trigger_characters: Some(vec![".".to_string()]),
                     work_done_progress_options: Default::default(),
                     all_commit_characters: None,
                     completion_item: None,
@@ -494,11 +485,7 @@ impl LanguageServer for QclLanguageServer {
                 let line_prefix: String = line.chars().take(within_line).collect();
                 let line_suffix: String = line.chars().skip(within_line).collect();
 
-                // Provide '@' context completions
-                if let Ok(mut analyzer) = self.analyzer.lock() {
-                    let context_items = analyzer.get_context_completions("@");
-                    items.extend(context_items);
-                }
+                // '@' context completions removed
 
                 // Regexes for import/from and module dot access
                 let import_re = Regex::new(r"(?:^|\s)import\s+([A-Za-z_]\w*)?$").ok();
@@ -844,10 +831,7 @@ impl LanguageServer for QclLanguageServer {
         let Some(symbol_name) = self.find_symbol_at_position(&content, position).await else {
             return Ok(None);
         };
-        // Disallow renaming context paths (e.g., @req.user)
-        if symbol_name.starts_with('@') {
-            return Ok(None);
-        }
+        // '@' context paths removed
 
         // Gather all references in the same document
         let locations = self.find_all_references(&content, &symbol_name, uri).await;
@@ -892,7 +876,7 @@ impl LanguageServer for QclLanguageServer {
         let Some(symbol_name) = self.find_symbol_at_position(&content, position).await else {
             return Ok(None);
         };
-        if symbol_name.starts_with('@') || symbol_name.is_empty() {
+        if symbol_name.is_empty() {
             return Ok(None);
         }
 
@@ -1731,12 +1715,6 @@ impl QclLanguageServer {
                     use qcl_core::token::Token;
                     match token {
                         Token::Id(name) => return Some(name),
-                        Token::At => {
-                            // Handle context access - extract full path
-                            if let Some(path) = extract_context_path(&tokens, idx) {
-                                return Some(path);
-                            }
-                        }
                         _ => {}
                     }
                 }
@@ -1783,21 +1761,7 @@ impl QclLanguageServer {
         let mut locations = Vec::new();
         let lines: Vec<&str> = content.lines().collect();
 
-        // Handle context access patterns (like @req.user.role)
-        if symbol_name.starts_with('@') {
-            for (line_idx, line) in lines.iter().enumerate() {
-                let mut start = 0;
-                while let Some(pos) = line[start..].find(symbol_name) {
-                    let absolute_pos = start + pos;
-                    let range = Range::new(
-                        Position::new(line_idx as u32, absolute_pos as u32),
-                        Position::new(line_idx as u32, (absolute_pos + symbol_name.len()) as u32),
-                    );
-                    locations.push(Location::new(uri.clone(), range));
-                    start = absolute_pos + 1;
-                }
-            }
-        } else {
+        {
             // Handle regular identifiers (variables, functions, labels)
             for (line_idx, line) in lines.iter().enumerate() {
                 let mut start = 0;
@@ -1844,10 +1808,7 @@ impl QclLanguageServer {
     ) -> Option<Location> {
         let lines: Vec<&str> = content.lines().collect();
 
-        // For context access patterns (@req.user.role), there's no single definition - they're contextual
-        if symbol_name.starts_with('@') {
-            return None;
-        }
+        // '@' context access removed; proceed with regular identifiers
 
         // Look for symbol definitions in the document
         for (line_idx, line) in lines.iter().enumerate() {
@@ -2016,17 +1977,7 @@ fn describe_token_hover(tokens: &[CoreToken], _spans: &[CoreSpan], idx: usize) -
     let tok = &tokens[idx];
 
     // Attempt to extract full context path when hovering on @, identifiers or dot segments within it
-    if matches!(tok, T::At | T::Id(_) | T::Int(_)) {
-        if let Some(path) = extract_context_path(tokens, idx) {
-            // Root key is the first segment after '@'
-            let root = path.trim_start_matches('@').split('.').next().unwrap_or("");
-            return if root.is_empty() {
-                format!("Context path: {}", path)
-            } else {
-                format!("Context path: {}\nRoot key: {}", path, root)
-            };
-        }
-    }
+    // '@' context path hover removed
 
     match tok {
         T::Id(name) => {
@@ -2086,7 +2037,7 @@ fn describe_token_hover(tokens: &[CoreToken], _spans: &[CoreSpan], idx: usize) -
         T::Colon => "Symbol: :".to_string(),
         T::Comma => "Symbol: ,".to_string(),
         T::Semicolon => "Symbol: ;".to_string(),
-        T::At => "Context root: @".to_string(),
+        // '@' token removed from lexer
         T::LParen => "Symbol: (".to_string(),
         T::RParen => "Symbol: )".to_string(),
         T::LBrace => "Symbol: {".to_string(),
@@ -2682,59 +2633,7 @@ fn make_param_hint(param: &str, ofs: usize, line_starts: &[usize]) -> InlayHint 
 // replaced by multi-line aware helpers above
 
 // Given a token index that is part of an @context path, reconstruct the full path string
-fn extract_context_path(tokens: &[CoreToken], idx: usize) -> Option<String> {
-    use CoreToken as T;
-    // Find the nearest '@' to the left of or at idx
-    let mut at_pos: Option<usize> = None;
-    let mut j = idx as isize;
-    while j >= 0 {
-        match &tokens[j as usize] {
-            T::At => {
-                at_pos = Some(j as usize);
-                break;
-            }
-            T::Id(_) | T::Int(_) | T::Dot => {
-                j -= 1;
-                continue;
-            }
-            _ => break,
-        }
-    }
-    let start = at_pos?;
-    let mut s = String::from("@");
-    let mut k = start + 1;
-    // Optional first segment right after '@'
-    if let Some(seg) = tokens.get(k) {
-        match seg {
-            T::Id(name) => {
-                s.push_str(name);
-                k += 1;
-            }
-            T::Int(n) => {
-                s.push_str(&n.to_string());
-                k += 1;
-            }
-            _ => {}
-        }
-    }
-    // Then repeat (. segment)
-    loop {
-        match (tokens.get(k), tokens.get(k + 1)) {
-            (Some(T::Dot), Some(T::Id(name))) => {
-                s.push('.');
-                s.push_str(name);
-                k += 2;
-            }
-            (Some(T::Dot), Some(T::Int(n))) => {
-                s.push('.');
-                s.push_str(&n.to_string());
-                k += 2;
-            }
-            _ => break,
-        }
-    }
-    Some(s)
-}
+// '@' context path extraction removed
 
 #[tokio::main]
 async fn main() {

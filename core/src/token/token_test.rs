@@ -4,14 +4,13 @@ mod tests {
 
     #[test]
     fn basic() {
-        let t1 = Tokenizer::tokenize(r#"1.3+*/@ % ==  "str1" 'str2' true false nil "#);
+        let t1 = Tokenizer::tokenize(r#"1.3+*/ % ==  "str1" 'str2' true false nil "#);
         let e1 = vec![
             Token::Float(1.3),
             Token::Add,
             Token::Mul,
             Token::Div,
-            Token::At,
-            Token::Mod,
+                        Token::Mod,
             Token::Eq,
             Token::Str("str1".to_string()),
             Token::Str("str2".to_string()),
@@ -184,9 +183,9 @@ line2""#,
         let t = Tokenizer::tokenize("1.2.3");
         assert!(t.is_err());
 
-        // Consider `.` as Dot if starts with `@`, otherwise Float
+        // Consider `.` as Dot if starts with ``, otherwise Float
         // It's invalid in AST(The first path of At Expr must be Str), but valid in Tokenizer
-        let t = Tokenizer::tokenize("@1.2");
+        let t = Tokenizer::tokenize("1.2");
         assert!(t.is_ok());
 
         let t = Tokenizer::tokenize("-1.0 +1.2");
@@ -236,10 +235,9 @@ line2""#,
 
     #[test]
     fn at_query() {
-        let t = Tokenizer::tokenize("@req.user.age >= 18");
+        let t = Tokenizer::tokenize("req.user.age >= 18");
         let e = vec![
-            Token::At,
-            Token::Id("req".to_string()),
+                        Token::Id("req".to_string()),
             Token::Dot,
             Token::Id("user".to_string()),
             Token::Dot,
@@ -254,38 +252,34 @@ line2""#,
     fn real_query() {
         let query = r#"
         (
-            @req.user.id == @record.user.id && @record.time > 1700000
+            req.user.id == record.user.id && record.time > 1700000
         ) 
         ||
-        @req.user.role == 'admin'
+        req.user.role == 'admin'
         "#;
         let t = Tokenizer::tokenize(query);
         let e = vec![
             Token::LParen,
-            Token::At,
-            Token::Id("req".to_string()),
+                        Token::Id("req".to_string()),
             Token::Dot,
             Token::Id("user".to_string()),
             Token::Dot,
             Token::Id("id".to_string()),
             Token::Eq,
-            Token::At,
-            Token::Id("record".to_string()),
+                        Token::Id("record".to_string()),
             Token::Dot,
             Token::Id("user".to_string()),
             Token::Dot,
             Token::Id("id".to_string()),
             Token::And,
-            Token::At,
-            Token::Id("record".to_string()),
+                        Token::Id("record".to_string()),
             Token::Dot,
             Token::Id("time".to_string()),
             Token::Gt,
             Token::Int(1700000),
             Token::RParen,
             Token::Or,
-            Token::At,
-            Token::Id("req".to_string()),
+                        Token::Id("req".to_string()),
             Token::Dot,
             Token::Id("user".to_string()),
             Token::Dot,
@@ -298,19 +292,17 @@ line2""#,
 
     #[test]
     fn list_access() {
-        let t = Tokenizer::tokenize("@list.0");
+        let t = Tokenizer::tokenize("list.0");
         let e = vec![
-            Token::At,
-            Token::Id("list".to_string()),
+                        Token::Id("list".to_string()),
             Token::Dot,
             Token::Int(0),
         ];
         assert_eq!(t.unwrap(), e);
 
-        let t = Tokenizer::tokenize("@list.1.2");
+        let t = Tokenizer::tokenize("list.1.2");
         let e = vec![
-            Token::At,
-            Token::Id("list".to_string()),
+                        Token::Id("list".to_string()),
             Token::Dot,
             Token::Int(1),
             Token::Dot,
@@ -322,11 +314,10 @@ line2""#,
     // Issue #1
     #[test]
     fn t1() {
-        let t = Tokenizer::tokenize("(@settings.active)");
+        let t = Tokenizer::tokenize("(settings.active)");
         let e = vec![
             Token::LParen,
-            Token::At,
-            Token::Id("settings".to_string()),
+                        Token::Id("settings".to_string()),
             Token::Dot,
             Token::Id("active".to_string()),
             Token::RParen,
@@ -365,10 +356,9 @@ line2""#,
 
     #[test]
     fn whitespace_handling() {
-        let t = Tokenizer::tokenize("  @req.user  .  id  ==  'test'  ");
+        let t = Tokenizer::tokenize("  req.user  .  id  ==  'test'  ");
         let e = vec![
-            Token::At,
-            Token::Id("req".to_string()),
+                        Token::Id("req".to_string()),
             Token::Dot,
             Token::Id("user".to_string()),
             Token::Dot,
@@ -381,12 +371,11 @@ line2""#,
 
     #[test]
     fn nested_expressions() {
-        let t = Tokenizer::tokenize("((@req.id == 123) && (@req.role == 'admin'))");
+        let t = Tokenizer::tokenize("((req.id == 123) && (req.role == 'admin'))");
         let e = vec![
             Token::LParen,
             Token::LParen,
-            Token::At,
-            Token::Id("req".to_string()),
+                        Token::Id("req".to_string()),
             Token::Dot,
             Token::Id("id".to_string()),
             Token::Eq,
@@ -394,8 +383,7 @@ line2""#,
             Token::RParen,
             Token::And,
             Token::LParen,
-            Token::At,
-            Token::Id("req".to_string()),
+                        Token::Id("req".to_string()),
             Token::Dot,
             Token::Id("role".to_string()),
             Token::Eq,
@@ -425,16 +413,14 @@ line2""#,
 
     #[test]
     fn complex_path_access() {
-        let t = Tokenizer::tokenize("@users.0.name @items.1.tags.2");
+        let t = Tokenizer::tokenize("users.0.name items.1.tags.2");
         let e = vec![
-            Token::At,
-            Token::Id("users".to_string()),
+                        Token::Id("users".to_string()),
             Token::Dot,
             Token::Int(0),
             Token::Dot,
             Token::Id("name".to_string()),
-            Token::At,
-            Token::Id("items".to_string()),
+                        Token::Id("items".to_string()),
             Token::Dot,
             Token::Int(1),
             Token::Dot,
@@ -447,24 +433,20 @@ line2""#,
 
     #[test]
     fn logic_operations() {
-        let t = Tokenizer::tokenize("!(@a in @b) && (@c || !@d)");
+        let t = Tokenizer::tokenize("!(a in b) && (c || !d)");
         let e = vec![
             Token::Not,
             Token::LParen,
-            Token::At,
-            Token::Id("a".to_string()),
+                        Token::Id("a".to_string()),
             Token::In,
-            Token::At,
-            Token::Id("b".to_string()),
+                        Token::Id("b".to_string()),
             Token::RParen,
             Token::And,
             Token::LParen,
-            Token::At,
-            Token::Id("c".to_string()),
+                        Token::Id("c".to_string()),
             Token::Or,
             Token::Not,
-            Token::At,
-            Token::Id("d".to_string()),
+                        Token::Id("d".to_string()),
             Token::RParen,
         ];
         assert_eq!(t.unwrap(), e);
@@ -472,53 +454,44 @@ line2""#,
 
     #[test]
     fn nested_at() {
-        let t = Tokenizer::tokenize("@a.(@b.(@c))");
+        let t = Tokenizer::tokenize("a.(b.(c))");
         let e = vec![
-            Token::At,
-            Token::Id("a".to_string()),
+                        Token::Id("a".to_string()),
             Token::Dot,
             Token::LParen,
-            Token::At,
-            Token::Id("b".to_string()),
+                        Token::Id("b".to_string()),
             Token::Dot,
             Token::LParen,
-            Token::At,
-            Token::Id("c".to_string()),
+                        Token::Id("c".to_string()),
             Token::RParen,
             Token::RParen,
         ];
         assert_eq!(t.unwrap(), e);
 
-        let t = Tokenizer::tokenize("@a.(@b.(@c.(@d)))");
+        let t = Tokenizer::tokenize("a.(b.(c.(d)))");
         let e = vec![
-            Token::At,
-            Token::Id("a".to_string()),
+                        Token::Id("a".to_string()),
             Token::Dot,
             Token::LParen,
-            Token::At,
-            Token::Id("b".to_string()),
+                        Token::Id("b".to_string()),
             Token::Dot,
             Token::LParen,
-            Token::At,
-            Token::Id("c".to_string()),
+                        Token::Id("c".to_string()),
             Token::Dot,
             Token::LParen,
-            Token::At,
-            Token::Id("d".to_string()),
+                        Token::Id("d".to_string()),
             Token::RParen,
             Token::RParen,
             Token::RParen,
         ];
         assert_eq!(t.unwrap(), e);
 
-        let t = Tokenizer::tokenize("@a.(@b - 1))");
+        let t = Tokenizer::tokenize("a.(b - 1))");
         let e = vec![
-            Token::At,
-            Token::Id("a".to_string()),
+                        Token::Id("a".to_string()),
             Token::Dot,
             Token::LParen,
-            Token::At,
-            Token::Id("b".to_string()),
+                        Token::Id("b".to_string()),
             Token::Sub,
             Token::Int(1),
             Token::RParen,
@@ -733,15 +706,13 @@ line2""#,
 
     #[test]
     fn test_name_with_keywords() {
-        let t = Tokenizer::tokenize("@record.in_value + @record.return_value");
+        let t = Tokenizer::tokenize("record.in_value + record.return_value");
         let e = vec![
-            Token::At,
-            Token::Id("record".to_string()),
+                        Token::Id("record".to_string()),
             Token::Dot,
             Token::Id("in_value".to_string()),
             Token::Add,
-            Token::At,
-            Token::Id("record".to_string()),
+                        Token::Id("record".to_string()),
             Token::Dot,
             Token::Id("return_value".to_string()),
         ];
@@ -750,13 +721,12 @@ line2""#,
 
     #[test]
     fn test_name_with_keywords_stmt() {
-        let t = Tokenizer::tokenize("let a = @record.in_return; return a + '1';");
+        let t = Tokenizer::tokenize("let a = record.in_return; return a + '1';");
         let e = vec![
             Token::Let,
             Token::Id("a".to_string()),
             Token::Assign,
-            Token::At,
-            Token::Id("record".to_string()),
+                        Token::Id("record".to_string()),
             Token::Dot,
             Token::Id("in_return".to_string()),
             Token::Semicolon,
@@ -803,11 +773,10 @@ line2""#,
 
     #[test]
     fn test_optional_chaining_operator() {
-        let tokens = Tokenizer::tokenize("@req.user?.profile?.name").expect("Invalid tokens");
+        let tokens = Tokenizer::tokenize("req.user?.profile?.name").expect("Invalid tokens");
 
         let expected = vec![
-            Token::At,
-            Token::Id("req".to_string()),
+                        Token::Id("req".to_string()),
             Token::Dot,
             Token::Id("user".to_string()),
             Token::OptionalDot,
@@ -820,11 +789,10 @@ line2""#,
 
     #[test]
     fn test_optional_chaining_mixed_with_regular() {
-        let tokens = Tokenizer::tokenize("@req.user?.profile.name").expect("Invalid tokens");
+        let tokens = Tokenizer::tokenize("req.user?.profile.name").expect("Invalid tokens");
 
         let expected = vec![
-            Token::At,
-            Token::Id("req".to_string()),
+                        Token::Id("req".to_string()),
             Token::Dot,
             Token::Id("user".to_string()),
             Token::OptionalDot,
@@ -838,14 +806,13 @@ line2""#,
     #[test]
     fn test_question_mark_tokenization() {
         // Question mark should tokenize successfully as Token::Question
-        let result = Tokenizer::tokenize("@req?user");
+        let result = Tokenizer::tokenize("req?user");
         assert!(result.is_ok());
         let tokens = result.unwrap();
         assert_eq!(
             tokens,
             vec![
-                Token::At,
-                Token::Id("req".to_string()),
+                                Token::Id("req".to_string()),
                 Token::Question,
                 Token::Id("user".to_string()),
             ]

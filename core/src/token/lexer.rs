@@ -38,7 +38,6 @@ pub enum Token {
     Mul,         // *
     Div,         // /
     Mod,         // %
-    At,          // @
     // Statement keywords
     If,             // if
     Else,           // else
@@ -425,10 +424,7 @@ impl Tokenizer {
 
     // Note: backtick-delimited template strings are not supported anymore.
 
-    /// eg.:
-    /// - @a -> [At, Id("a")]
-    /// - @a.b -> [At, Id("a"), Dot, Id("b")]
-    /// - @a.0.1 -> [At, Id("a"), Dot, Int(0), Dot, Int(1)]
+    /// Note: legacy '@' context access has been removed.
     fn parse_num(&mut self) -> Result<()> {
         let mut num = String::new();
         let start_pos = self.current_position();
@@ -663,40 +659,7 @@ impl Tokenizer {
         self.parse_id()
     }
 
-    /// - `@a.(@b - 1)` -> [At, Id("a"), Dot, LParen, At, Id("b"), Sub, Int(1), RParen]
-    /// - `@a` -> [At, Id("a")]
-    fn parse_at_list(&mut self) -> Result<()> {
-        let at_start = self.current_position();
-        if self.expect("@") {
-            let end = self.current_position();
-            self.push_with_span(Token::At, at_start, end);
-        } else {
-            return Err(anyhow!(self.err("Expect '@'")));
-        }
-
-        while !self.eof() {
-            let c = self.chars[self.idx];
-            let is_field = c.is_alphanumeric() || c == '_' || c == '-';
-            let is_num = c.is_ascii_digit();
-            if is_field && !is_num {
-                self.parse_id()?;
-                continue;
-            }
-            if is_num {
-                self.parse_int()?;
-                continue;
-            }
-
-            let dot_start = self.current_position();
-            if self.expect(".") {
-                let end = self.current_position();
-                self.push_with_span(Token::Dot, dot_start, end);
-                continue;
-            }
-            break;
-        }
-        Ok(())
-    }
+    // legacy '@' list parser removed
 
     fn parse_int(&mut self) -> Result<()> {
         // Record span for integers parsed in contexts like @a.0 or .123
@@ -1001,7 +964,7 @@ impl Tokenizer {
                     Ok(())
                 }
             }
-            '@' => self.parse_at_list(),
+            // '@' legacy context access removed; treat as unknown punctuation
             '=' => {
                 let start = self.current_position();
                 if self.expect("==") {
@@ -1126,7 +1089,6 @@ impl Tokenizer {
                 | '*'
                 | '/'
                 | '%'
-                | '@'
                 | '='
                 | '!'
                 | '>'

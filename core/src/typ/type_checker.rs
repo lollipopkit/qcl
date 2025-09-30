@@ -95,18 +95,8 @@ impl TypeChecker {
             // Literals (via Val enum)
             Expr::Val(val) => self.check_literal(val),
 
-            // Variables and context access
+            // Variables
             Expr::Var(name) => self.check_identifier(name),
-            Expr::At(fields) => self.check_context_access(
-                &fields
-                    .iter()
-                    .map(|f| match f.as_ref() {
-                        Expr::Val(Val::Str(s)) => s.to_string(),
-                        Expr::Val(Val::Int(i)) => i.to_string(),
-                        _ => panic!("Field name must be string or int"),
-                    })
-                    .collect::<Vec<_>>(),
-            ),
 
             // Binary operations
             Expr::Bin(left, op, right) => self.check_binary_op(left, op, right),
@@ -260,12 +250,7 @@ impl TypeChecker {
         Ok(var_type)
     }
 
-    /// Check context access type (@req.user.name)
-    fn check_context_access(&mut self, _fields: &[String]) -> Result<Type> {
-        // Context access is dynamic, return Any for now
-        // TODO: Could be enhanced with context schema information
-        Ok(Type::Any)
-    }
+    // Legacy '@' context access removed
 
     /// Check binary operation types
     fn check_binary_op(

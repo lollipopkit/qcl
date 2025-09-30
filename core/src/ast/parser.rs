@@ -328,16 +328,7 @@ impl<'a> Parser<'a> {
                 }
 
                 let field = self.parse_field_name()?;
-
-                match expr {
-                    Expr::At(mut paths) => {
-                        paths.push(Box::new(field));
-                        expr = Expr::At(paths);
-                    }
-                    _ => {
-                        expr = Expr::Access(Box::new(expr), Box::new(field));
-                    }
-                }
+                expr = Expr::Access(Box::new(expr), Box::new(field));
             } else if !self.eof() && self.tokens[self.pos] == Token::OptionalDot {
                 // Optional dot access (?.)
                 self.pos += 1;
@@ -418,16 +409,8 @@ impl<'a> Parser<'a> {
                 }
                 self.pos += 1; // skip ']'
 
-                // If base is an @-path, extend its path; otherwise build Access
-                match expr {
-                    Expr::At(mut paths) => {
-                        paths.push(index_expr);
-                        expr = Expr::At(paths);
-                    }
-                    _ => {
-                        expr = Expr::Access(Box::new(expr), index_expr);
-                    }
-                }
+                // Build bracket Access
+                expr = Expr::Access(Box::new(expr), index_expr);
             } else {
                 break; // No more postfix operations
             }
@@ -474,7 +457,6 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
                 self.parse_template_string_content(content)
             }
-            Token::At => self.parse_at(),
             Token::LBracket => self.parse_list(),
             Token::LBrace => self.parse_map(),
             Token::Spawn => self.parse_spawn(),
@@ -1395,48 +1377,6 @@ impl<'a> Parser<'a> {
         Ok(Expr::Map(pairs))
     }
 
-    /// - `@user.name`
-    /// - `@user.emails.0.company`
-    /// - `@user.subscribers.(@record.sender).name`
-    /// - `@(1 + "1")`
-    fn parse_at(&mut self) -> Result<Expr> {
-        if self.tokens[self.pos] != Token::At {
-            let msg = format!("Expecting @, found {:?}", self.tokens[self.pos]);
-            return Err(anyhow!(self.err(&msg)));
-        }
-        self.pos += 1;
-
-        if self.eof() {
-            return Err(anyhow!(self.err("Expecting field after '@'")));
-        }
-
-        // Pre-allocate a reasonable size for the paths vector
-        let mut paths = Vec::with_capacity(4);
-
-        while !self.eof() {
-            // Check the first path must be Str
-            if paths.is_empty() {
-                let first = &self.tokens[self.pos];
-                match first {
-                    Token::Id(_) | Token::LParen | Token::Str(_) => {}
-                    _ => {
-                        let msg = format!("Expecting field name, found {:?}", first);
-                        return Err(anyhow!(self.err(&msg)));
-                    }
-                }
-            }
-
-            paths.push(Box::new(self.parse_at_field_accessor()?));
-
-            if self.eof() || self.tokens[self.pos] != Token::Dot {
-                break;
-            }
-            self.pos += 1;
-        }
-
-        Ok(Expr::At(paths))
-    }
-
     /// Parse field name for .field and ?.field access - treats IDs as string literals
     fn parse_field_name(&mut self) -> Result<Expr> {
         match &self.tokens[self.pos] {
@@ -1463,48 +1403,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse field accessor specifically for @ expressions - treats IDs as string literals
-    fn parse_at_field_accessor(&mut self) -> Result<Expr> {
-        match &self.tokens[self.pos] {
-            Token::Id(id) => {
-                // In @ context, treat identifiers as literal strings for context access
-                let expr = Expr::Val(Val::Str(Arc::from(id.as_str())));
-                self.pos += 1;
-                Ok(expr)
-            }
-            Token::Str(s) => {
-                let expr = Expr::Val(Val::Str(Arc::from(s.as_str())));
-                self.pos += 1;
-                Ok(expr)
-            }
-            Token::Int(i) => {
-                let expr = Expr::Val(Val::Int(*i));
-                self.pos += 1;
-                Ok(expr)
-            }
-            Token::LParen => {
-                self.pos += 1;
-                let expr = self.parse_expr()?;
-                if self.eof() || self.tokens[self.pos] != Token::RParen {
-                    let msg = format!(
-                        "Expecting ')', found {:?}",
-                        if self.eof() {
-                            &Token::Nil
-                        } else {
-                            &self.tokens[self.pos]
-                        }
-                    );
-                    return Err(anyhow!(self.err(&msg)));
-                }
-                self.pos += 1;
-                Ok(expr)
-            }
-            _ => {
-                let msg = format!("Invalid field accessor: {:?}", &self.tokens[self.pos]);
-                Err(anyhow!(self.err(&msg)))
-            }
-        }
-    }
+    // legacy '@' syntax fully removed; no parse_at/at-specific field access remain
 
     /// Check if the current token can start a valid expression
     fn is_valid_expr_start(&self) -> bool {
@@ -1520,7 +1419,6 @@ impl<'a> Parser<'a> {
                 | Token::Float(_)
                 | Token::Str(_)
                 | Token::Id(_)
-                | Token::At
                 | Token::LBracket
                 | Token::LBrace
                 | Token::LParen

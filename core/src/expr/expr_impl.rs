@@ -15,7 +15,7 @@ use crate::{
 };
 use once_cell::sync::Lazy;
 
-/// Grammar:
+/// Grammar (abridged):
 /// exp     ::= paren
 /// paren   ::= {'('} or {')'}
 /// or      ::= and {'||' and}
@@ -24,10 +24,10 @@ use once_cell::sync::Lazy;
 /// addsub  ::= muldiv {('+' | '-') muldiv}
 /// muldiv  ::= unary {('*' | '/' | '%') unary}
 /// unary   ::= {'!'} postfix
-/// postfix ::= primary {'.' field}
-/// primary ::= nil | false | true | int | float | string | at | list | map
-/// at      ::= '@' field {'.' field}
-/// field   ::= id | int
+/// postfix ::= primary { call | dot | opt_dot | opt_index | index }
+/// primary ::= nil | false | true | int | float | string | template | list | map | var | paren
+///            | closure | spawn | chan | send | recv | select | match
+/// field   ::= id | int | string
 /// list    ::= '[' [expr {',' expr}] ']'
 /// map     ::= '{' [expr ':' expr {',' expr ':' expr}] '}'
 ///
@@ -384,9 +384,6 @@ pub enum Expr {
     Or(Box<Expr>, Box<Expr>),
     /// expr ?? expr (nullish coalescing)
     NullishCoalescing(Box<Expr>, Box<Expr>),
-    /// @field.field...
-    /// field can be string or int
-    At(Vec<Box<Expr>>),
     /// expr.field
     Access(Box<Expr>, Box<Expr>),
     /// expr?.field (optional chaining)
@@ -517,20 +514,7 @@ impl Expr {
                     Ok(l)
                 }
             }
-            Expr::At(paths) => {
-                if paths.is_empty() {
-                    return Ok(Val::Nil);
-                }
-
-                let mut result = ctx.clone();
-                for path in paths {
-                    result = match result.access(&path.eval_with_env(ctx, env)?) {
-                        Some(v) => v,
-                        None => return Ok(Val::Nil),
-                    }
-                }
-                Ok(result)
-            }
+            // legacy '@' context access removed
             Expr::Access(expr, field) => {
                 let val = expr.eval_with_env(ctx, env)?;
                 let field_val = field.eval_with_env(ctx, env)?;
@@ -584,14 +568,16 @@ impl Expr {
             }
             Expr::Paren(expr) => expr.eval_with_env(ctx, env),
             Expr::Var(name) => {
+                // 1) Prefer lexical environment variable
                 if let Some(env) = env {
                     if let Some(val) = env.get_value(name) {
-                        Ok(val)
-                    } else {
-                        Err(anyhow!("Undefined variable: {}", name))
+                        return Ok(val);
                     }
-                } else {
-                    Err(anyhow!("Variable {} used without environment", name))
+                }
+                // 2) Fallback: treat identifier as top-level key in context map
+                match ctx {
+                    Val::Map(map) => Ok(map.get(name).cloned().unwrap_or(Val::Nil)),
+                    _ => Err(anyhow!("Undefined variable: {}", name)),
                 }
             }
             Expr::Call(func_name, args) => {
@@ -1050,27 +1036,7 @@ impl Expr {
                 t.collect_ctx_names(names);
                 e.collect_ctx_names(names);
             }
-            Expr::At(paths) => {
-                if !paths.is_empty() {
-                    // The first path element is the context name
-                    if let Expr::Val(Val::Str(name)) = &*paths[0] {
-                        names.insert(name.as_ref().to_string());
-                    } else {
-                        // If the first element is a complex expression, process it
-                        paths[0].collect_ctx_names(names);
-                    }
-
-                    // For other path elements, only process them if they might contain contexts
-                    for path in &paths[1..] {
-                        match &**path {
-                            // Skip [Val]s that are just field names
-                            Expr::Val(_) => {}
-                            // Process other values normally
-                            _ => path.collect_ctx_names(names),
-                        }
-                    }
-                }
-            }
+            // legacy '@' context access removed
             Expr::Access(expr, field) => {
                 expr.collect_ctx_names(names);
                 field.collect_ctx_names(names);
@@ -1104,8 +1070,10 @@ impl Expr {
             Expr::Paren(expr) => {
                 expr.collect_ctx_names(names);
             }
-            // Variables don't contribute context names
-            Expr::Var(_) => {}
+            // Variables contribute potential context roots
+            Expr::Var(name) => {
+                names.insert(name.clone());
+            }
             // Function calls - collect from arguments
             Expr::Call(_, args) => {
                 for arg in args {
@@ -1341,14 +1309,7 @@ impl Expr {
                 }
                 Expr::NullishCoalescing(Box::new(e1), Box::new(e2))
             }
-            Expr::At(paths) => {
-                // @path expressions depend on context, don't fold
-                let folded_paths = paths
-                    .into_iter()
-                    .map(|p| Box::new(p.fold_constants()))
-                    .collect();
-                Expr::At(folded_paths)
-            }
+            // legacy '@' context access removed
             Expr::Access(base_box, field_box) => {
                 let base = (*base_box).fold_constants();
                 let field = (*field_box).fold_constants();
@@ -1655,10 +1616,7 @@ impl Display for Expr {
             Expr::And(left, right) => write!(f, "{left} && {right}"),
             Expr::Or(left, right) => write!(f, "{left} || {right}"),
             Expr::NullishCoalescing(left, right) => write!(f, "{left} ?? {right}"),
-            Expr::At(paths) => {
-                let paths: Vec<String> = paths.iter().map(|p| p.to_string()).collect();
-                write!(f, "@{}", paths.join("."))
-            }
+            // legacy '@' context access removed
             Expr::Access(expr, field) => write!(f, "{}.{}", expr, field),
             Expr::OptionalAccess(expr, field) => write!(f, "{}?.{}", expr, field),
             Expr::List(exprs) => {

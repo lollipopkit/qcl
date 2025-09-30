@@ -1569,19 +1569,19 @@ impl QclAnalyzer {
         } else {
             let mut items = Vec::new();
 
-            // Common context patterns
+            // Common context patterns (without legacy '@')
             let common_contexts = [
-                ("@req", "Request object"),
-                ("@req.user", "User information"),
-                ("@req.user.id", "User ID"),
-                ("@req.user.role", "User role"),
-                ("@req.user.name", "User name"),
-                ("@record", "Record object"),
-                ("@record.id", "Record ID"),
-                ("@record.owner", "Record owner"),
-                ("@record.granted", "Granted users list"),
-                ("@env", "Environment variables"),
-                ("@time", "Current timestamp"),
+                ("req", "Request object"),
+                ("req.user", "User information"),
+                ("req.user.id", "User ID"),
+                ("req.user.role", "User role"),
+                ("req.user.name", "User name"),
+                ("record", "Record object"),
+                ("record.id", "Record ID"),
+                ("record.owner", "Record owner"),
+                ("record.granted", "Granted users list"),
+                ("env", "Environment variables"),
+                ("time", "Current timestamp"),
             ];
 
             for (context, desc) in common_contexts {
