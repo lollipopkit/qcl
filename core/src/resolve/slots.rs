@@ -143,10 +143,7 @@ impl FnCtx {
 
     /// Resolve a name in this function's block scopes, from innermost to outermost.
     fn resolve_local(&self, name: &str) -> Option<u16> {
-        self.scopes
-            .iter()
-            .rev()
-            .find_map(|scope| scope.get(name).copied())
+        self.scopes.iter().rev().find_map(|scope| scope.get(name).copied())
     }
 }
 
@@ -256,7 +253,11 @@ impl ResolverCore {
                 self.resolve_stmt(body, children_out);
                 self.current_fn().pop_block();
             }
-            Stmt::For { pattern, iterable, body } => {
+            Stmt::For {
+                pattern,
+                iterable,
+                body,
+            } => {
                 self.resolve_expr(iterable);
                 self.current_fn().push_block();
                 self.define_for_pattern(pattern);
@@ -285,12 +286,7 @@ impl ResolverCore {
                     self.resolve_expr(v);
                 }
             }
-            Stmt::Function {
-                name,
-                params,
-                body,
-                ..
-            } => {
+            Stmt::Function { name, params, body, .. } => {
                 // Define function name in current frame
                 self.current_fn().define(name.clone(), false);
 

@@ -1,11 +1,11 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use qcl_core::stmt::{stmt_parser::StmtParser, Stmt, Program};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use qcl_core::stmt::{Program, Stmt, stmt_parser::StmtParser};
 use qcl_core::val::Val;
 
 // Build a simple function with many params and locals to exercise slot prebinding
 fn build_program(n_params: usize, n_locals: usize) -> Program {
     // fn f(p0, p1, ..., pN) { let a0 = p0; let a1 = p1; ...; return p0; }
-    let mut params: Vec<String> = (0..n_params).map(|i| format!("p{}", i)).collect();
+    let params: Vec<String> = (0..n_params).map(|i| format!("p{}", i)).collect();
     let mut stmts: Vec<Box<Stmt>> = Vec::new();
     // Build local let statements
     for i in 0..n_locals {
@@ -25,7 +25,13 @@ fn build_program(n_params: usize, n_locals: usize) -> Program {
         stmts.push(Box::new(s));
     }
     let body = Stmt::Block { statements: stmts };
-    let fun = Stmt::Function { name: "f".into(), params: params.clone(), param_types: Vec::new(), return_type: None, body: Box::new(body) };
+    let fun = Stmt::Function {
+        name: "f".into(),
+        params: params.clone(),
+        param_types: Vec::new(),
+        return_type: None,
+        body: Box::new(body),
+    };
     Program::new(vec![Box::new(fun)]).unwrap()
 }
 
@@ -50,7 +56,7 @@ fn bench_call_slots(c: &mut Criterion) {
     // First-call benchmark (includes layout computation and preloading)
     c.bench_function("slots_first_call", |b| {
         b.iter(|| {
-            let mut e = env.clone();
+            let e = env.clone();
             call_once(&e);
             black_box(())
         })
@@ -67,4 +73,3 @@ fn bench_call_slots(c: &mut Criterion) {
 
 criterion_group!(benches, bench_call_slots);
 criterion_main!(benches);
-

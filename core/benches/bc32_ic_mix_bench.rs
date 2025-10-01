@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use qcl_core::{expr::Expr, stmt::Stmt, val::Val};
 
 fn make_ic_mix_function() -> qcl_core::vm::Function {
@@ -22,9 +22,18 @@ fn make_ic_mix_function() -> qcl_core::vm::Function {
 
     let program = Stmt::Block {
         statements: vec![
-            Box::new(Stmt::Define { name: "sum".into(), value: Box::new(Expr::Val(Val::Int(0))) }),
-            Box::new(Stmt::Define { name: "j".into(), value: Box::new(Expr::Val(Val::Int(0))) }),
-            Box::new(Stmt::Define { name: "i".into(), value: Box::new(Expr::Val(Val::Int(0))) }),
+            Box::new(Stmt::Define {
+                name: "sum".into(),
+                value: Box::new(Expr::Val(Val::Int(0))),
+            }),
+            Box::new(Stmt::Define {
+                name: "j".into(),
+                value: Box::new(Expr::Val(Val::Int(0))),
+            }),
+            Box::new(Stmt::Define {
+                name: "i".into(),
+                value: Box::new(Expr::Val(Val::Int(0))),
+            }),
             Box::new(Stmt::While {
                 condition: Box::new((*cond).clone()),
                 body: Box::new(Stmt::Block {
@@ -62,7 +71,9 @@ fn make_ic_mix_function() -> qcl_core::vm::Function {
                     ],
                 }),
             }),
-            Box::new(Stmt::Return { value: Some(Box::new(Expr::Var("sum".into()))) }),
+            Box::new(Stmt::Return {
+                value: Some(Box::new(Expr::Var("sum".into()))),
+            }),
         ],
     };
 
@@ -85,11 +96,16 @@ fn bc32_ic_mix_bench(c: &mut Criterion) {
     #[cfg(feature = "bc32")]
     let mut f_enum = f_bc32.clone();
     #[cfg(feature = "bc32")]
-    { f_enum.code32 = None; }
+    {
+        f_enum.code32 = None;
+    }
 
     // Prepare environment: define global 'g' and Rust function 'inc'
     fn inc(args: &[Val], _env: &qcl_core::stmt::Environment) -> anyhow::Result<Val> {
-        let x = match args.get(0) { Some(Val::Int(i)) => *i, _ => 0 };
+        let x = match args.get(0) {
+            Some(Val::Int(i)) => *i,
+            _ => 0,
+        };
         Ok(Val::Int(x + 1))
     }
 

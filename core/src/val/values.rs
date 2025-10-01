@@ -591,16 +591,12 @@ impl Val {
                         let prog = stmt::Program::new(vec![Box::new(func_stmt)])
                             .unwrap_or_else(|_| stmt::Program { statements: Vec::new() });
                         let res = resolver.resolve_program_slots(&prog);
-                        res.root
-                            .children
-                            .first()
-                            .cloned()
-                            .unwrap_or(FunctionLayout {
-                                decls: Vec::new(),
-                                total_locals: params.len() as u16,
-                                uses: Vec::new(),
-                                children: Vec::new(),
-                            })
+                        res.root.children.first().cloned().unwrap_or(FunctionLayout {
+                            decls: Vec::new(),
+                            total_locals: params.len() as u16,
+                            uses: Vec::new(),
+                            children: Vec::new(),
+                        })
                     });
                     lay.total_locals as usize
                 };
@@ -666,9 +662,7 @@ impl Val {
                         c.compile_function(params, body.as_ref())
                     });
                     // Acquire a VM from the thread-local pool if available
-                    let mut vm = VM_POOL
-                        .with(|cell| cell.borrow_mut().take())
-                        .unwrap_or_default();
+                    let mut vm = VM_POOL.with(|cell| cell.borrow_mut().take()).unwrap_or_default();
                     // Execute
                     let res = vm.exec_with(fun, Some(&mut call_env), Some(args));
                     // Return VM to pool regardless of result
@@ -712,8 +706,18 @@ impl Val {
                     return None;
                 }
                 let idx = *i as usize;
-                let ch = s.chars().nth(idx)?;
-                Some(Val::Str(ch.to_string().into()))
+                if s.is_ascii() {
+                    let bs = s.as_bytes();
+                    if idx < bs.len() {
+                        let ch = bs[idx] as char;
+                        Some(Val::Str(ch.to_string().into()))
+                    } else {
+                        None
+                    }
+                } else {
+                    let ch = s.chars().nth(idx)?;
+                    Some(Val::Str(ch.to_string().into()))
+                }
             }
             (Val::List(l), Val::Int(i)) => {
                 if *i < 0 {

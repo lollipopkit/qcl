@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use qcl_core::{expr::Expr, stmt::Stmt, val::Val};
 
 fn make_while_function(n: i64) -> qcl_core::vm::Function {
@@ -8,12 +8,24 @@ fn make_while_function(n: i64) -> qcl_core::vm::Function {
 
     let program = Stmt::Block {
         statements: vec![
-            Box::new(Stmt::Define { name: "i".into(), value: Box::new(Expr::Val(Val::Int(0))) }),
-            Box::new(Stmt::While { condition: Box::new((*cond).clone()), body: Box::new(Stmt::Block {
-                statements: vec![Box::new(Stmt::Assign { name: "i".into(), value: Box::new((*incr).clone()), span: None })]
-            })}),
-            Box::new(Stmt::Return { value: Some(Box::new(Expr::Var("i".into()))) }),
-        ]
+            Box::new(Stmt::Define {
+                name: "i".into(),
+                value: Box::new(Expr::Val(Val::Int(0))),
+            }),
+            Box::new(Stmt::While {
+                condition: Box::new((*cond).clone()),
+                body: Box::new(Stmt::Block {
+                    statements: vec![Box::new(Stmt::Assign {
+                        name: "i".into(),
+                        value: Box::new((*incr).clone()),
+                        span: None,
+                    })],
+                }),
+            }),
+            Box::new(Stmt::Return {
+                value: Some(Box::new(Expr::Var("i".into()))),
+            }),
+        ],
     };
     qcl_core::vm::Compiler::new().compile_stmt(&program)
 }
@@ -24,7 +36,9 @@ fn bc32_while_bench(c: &mut Criterion) {
     #[cfg(feature = "bc32")]
     let mut f_enum = f_bc32.clone();
     #[cfg(feature = "bc32")]
-    { f_enum.code32 = None; }
+    {
+        f_enum.code32 = None;
+    }
 
     c.bench_function("bc32_while_packed", |b| {
         b.iter(|| {
@@ -48,4 +62,3 @@ fn bc32_while_bench(c: &mut Criterion) {
 
 criterion_group!(benches, bc32_while_bench);
 criterion_main!(benches);
-

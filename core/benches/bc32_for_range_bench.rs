@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use qcl_core::{expr::Expr, stmt::Stmt, val::Val};
 
 fn make_for_range_function(n: i64, inclusive: bool) -> qcl_core::vm::Function {
@@ -11,13 +11,18 @@ fn make_for_range_function(n: i64, inclusive: bool) -> qcl_core::vm::Function {
     };
     let program = Stmt::Block {
         statements: vec![
-            Box::new(Stmt::Define { name: "sum".into(), value: Box::new(Expr::Val(Val::Int(0))) }),
+            Box::new(Stmt::Define {
+                name: "sum".into(),
+                value: Box::new(Expr::Val(Val::Int(0))),
+            }),
             Box::new(Stmt::For {
                 pattern: qcl_core::stmt::ForPattern::Ignore,
                 iterable: Box::new(for_iter),
                 body: Box::new(Stmt::Block { statements: vec![] }),
             }),
-            Box::new(Stmt::Return { value: Some(Box::new(Expr::Var("sum".into()))) }),
+            Box::new(Stmt::Return {
+                value: Some(Box::new(Expr::Var("sum".into()))),
+            }),
         ],
     };
     qcl_core::vm::Compiler::new().compile_stmt(&program)

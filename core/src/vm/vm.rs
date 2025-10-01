@@ -6,23 +6,75 @@ use crate::val::Val;
 
 use super::bytecode::{Function, Op};
 
-// Simple monomorphic inline cache for property/index access at the instruction site.
-// Keyed by container pointer and constant string key identity.
+// Small polymorphic inline caches (4-way) for property/index access per instruction site.
+// This reduces churn at megamorphic sites while staying allocation-free.
+#[derive(Clone)]
+struct MapStrEntry {
+    map_ptr: usize,
+    key_ptr: usize,
+    value: Val,
+}
+#[derive(Clone)]
+struct ObjectStrEntry {
+    obj_ptr: usize,
+    key: String,
+    value: Val,
+}
+
 #[derive(Clone)]
 enum AccessIc {
-    MapStr { map_ptr: usize, key_ptr: usize, value: Val },
-    ObjectStr { obj_ptr: usize, key: String, value: Val },
+    MapStr([Option<MapStrEntry>; 4]),
+    ObjectStr([Option<ObjectStrEntry>; 4]),
+}
+
+// Per-op inline cache entries reused across VM executions (to avoid reallocation).
+#[derive(Clone)]
+struct ListEntry {
+    base_ptr: usize,
+    idx: i64,
+    value: Val,
+}
+#[derive(Clone)]
+struct StrEntry {
+    base_ptr: usize,
+    idx: i64,
+    value: Val,
+}
+
+#[derive(Clone)]
+enum IndexIc {
+    List([Option<ListEntry>; 4]),
+    Str([Option<StrEntry>; 4]),
+}
+
+#[derive(Clone)]
+struct GlobalEntry(usize /*name_ptr*/, Val, u64 /*generation*/);
+
+#[derive(Clone, Copy)]
+enum CallIc {
+    Rust(crate::val::RustFunction, u8 /*argc*/),
 }
 
 /// Minimal VM loop that can execute the placeholder Function produced by the stub compiler.
 /// Reuses an internal register vector across executions to reduce allocations.
 pub struct Vm {
     regs: Vec<Val>,
+    // Reused instruction-site caches to minimize per-exec allocations
+    access_ic: Vec<Option<AccessIc>>,
+    index_ic: Vec<Option<IndexIc>>,
+    global_ic: Vec<Option<GlobalEntry>>,
+    call_ic: Vec<Option<CallIc>>,
 }
 
 impl Vm {
     pub fn new() -> Self {
-        Self { regs: Vec::new() }
+        Self {
+            regs: Vec::new(),
+            access_ic: Vec::new(),
+            index_ic: Vec::new(),
+            global_ic: Vec::new(),
+            call_ic: Vec::new(),
+        }
     }
 
     pub fn exec(&mut self, f: &Function) -> Result<Val> {
@@ -35,27 +87,28 @@ impl Vm {
         mut env: Option<&mut crate::stmt::Environment>,
         args: Option<&[Val]>,
     ) -> Result<Val> {
-        // Instruction-site caches (sizes decided per-path below)
-        // Access/AccessK IC (not used in bc32 subset, but defined for type consistency)
-        let mut access_ic: Vec<Option<AccessIc>>;
-        // Instruction-site cache for Index (dynamic int index)
-        #[derive(Clone)]
-        enum IndexIc { List { base_ptr: usize, idx: i64, value: Val }, Str { base_ptr: usize, idx: i64, value: Val } }
-        let mut index_ic: Vec<Option<IndexIc>>;
-        // Global load IC with generation validation
-        #[derive(Clone)]
-        struct GlobalEntry(usize /*name_ptr*/, Val, u64 /*generation*/);
-        let mut global_ic: Vec<Option<GlobalEntry>>;
-        // Basic call-site IC for Rust functions
-        #[derive(Clone, Copy)]
-        enum CallIc { Rust(crate::val::RustFunction, u8 /*argc*/) }
-        let mut call_ic: Vec<Option<CallIc>>;
-        // Ensure capacity and initialize registers to Nil without reallocating where possible.
+        // Aliases to reusable instruction-site caches
+        let access_ic = &mut self.access_ic;
+        let index_ic = &mut self.index_ic;
+        let global_ic = &mut self.global_ic;
+        let call_ic = &mut self.call_ic;
+        // Ensure capacity and initialize registers to Nil without unnecessary drops/reallocs.
         let regs = &mut self.regs;
-        regs.clear();
-        regs.resize(f.n_regs as usize, Val::Nil);
+        let needed = f.n_regs as usize;
+        if regs.len() >= needed {
+            // Overwrite the first N slots with Nil and logically shrink if longer
+            for slot in &mut regs[..needed] {
+                *slot = Val::Nil;
+            }
+            regs.truncate(needed);
+        } else {
+            // Grow to needed size, filling with Nil
+            regs.resize(needed, Val::Nil);
+        }
         // Seed parameter registers directly from provided args, if any.
-        if let Some(a) = args && !f.param_regs.is_empty() {
+        if let Some(a) = args
+            && !f.param_regs.is_empty()
+        {
             // Defensive: only seed up to min(len)
             let n = a.len().min(f.param_regs.len());
             for (i, val) in a.iter().enumerate().take(n) {
@@ -70,19 +123,30 @@ impl Vm {
         // Fast path: execute packed 32-bit bytecode directly when available (feature = bc32)
         #[cfg(feature = "bc32")]
         if let Some(code32) = f.code32.as_ref() {
-            access_ic = vec![None; code32.len()];
-            index_ic = vec![None; code32.len()];
-            global_ic = vec![None; code32.len()];
-            call_ic = vec![None; code32.len()];
+            // Persist instruction-site caches across executions; only grow when needed.
+            if access_ic.len() < code32.len() {
+                access_ic.resize(code32.len(), None);
+            }
+            if index_ic.len() < code32.len() {
+                index_ic.resize(code32.len(), None);
+            }
+            if global_ic.len() < code32.len() {
+                global_ic.resize(code32.len(), None);
+            }
+            if call_ic.len() < code32.len() {
+                call_ic.resize(code32.len(), None);
+            }
             while pc < code32.len() {
                 // Handle multi-word ForRange* specially using tag peek
                 let tag = crate::vm::bc32::tag_of(code32[pc]);
                 if tag == crate::vm::bc32::TAG_FOR_RANGE_PREP {
                     let w = code32[pc];
                     let a = ((w >> 16) & 0xFF) as u16; // idx
-                    let b = ((w >> 8) & 0xFF) as u16;  // limit
-                    let c = (w & 0xFF) as u16;         // step
-                    let w2 = code32.get(pc + 1).ok_or_else(|| anyhow!("bc32: missing Ext for ForRangePrep"))?;
+                    let b = ((w >> 8) & 0xFF) as u16; // limit
+                    let c = (w & 0xFF) as u16; // step
+                    let w2 = code32
+                        .get(pc + 1)
+                        .ok_or_else(|| anyhow!("bc32: missing Ext for ForRangePrep"))?;
                     let flags = ((w2 >> 16) & 0xFF) as u8;
                     let inclusive = (flags & 1) != 0;
                     let explicit = (flags & 2) != 0;
@@ -107,9 +171,11 @@ impl Vm {
                 } else if tag == crate::vm::bc32::TAG_FOR_RANGE_GUARD {
                     let w = code32[pc];
                     let a = ((w >> 16) & 0xFF) as u16; // idx
-                    let b = ((w >> 8) & 0xFF) as u16;  // limit
-                    let c = (w & 0xFF) as u16;         // step
-                    let w2 = code32.get(pc + 1).ok_or_else(|| anyhow!("bc32: missing Ext for ForRangeGuard"))?;
+                    let b = ((w >> 8) & 0xFF) as u16; // limit
+                    let c = (w & 0xFF) as u16; // step
+                    let w2 = code32
+                        .get(pc + 1)
+                        .ok_or_else(|| anyhow!("bc32: missing Ext for ForRangeGuard"))?;
                     let flags = ((w2 >> 16) & 0xFF) as u8;
                     let ofs = (((((w2 >> 8) & 0xFF) as u16) << 8) | ((w2 & 0xFF) as u16)) as i16;
                     let inclusive = (flags & 1) != 0;
@@ -117,14 +183,26 @@ impl Vm {
                         (Val::Int(i), Val::Int(l), Val::Int(s)) => (*i, *l, *s),
                         _ => return Err(anyhow!("For-range guard expects Int registers")),
                     };
-                    let cont = if st > 0 { if inclusive { i <= lim } else { i < lim } } else if inclusive { i >= lim } else { i > lim };
-                    if !cont { pc = ((pc as isize) + (ofs as isize)) as usize; } else { pc += 2; }
+                    let cont = if st > 0 {
+                        if inclusive { i <= lim } else { i < lim }
+                    } else if inclusive {
+                        i >= lim
+                    } else {
+                        i > lim
+                    };
+                    if !cont {
+                        pc = ((pc as isize) + (ofs as isize)) as usize;
+                    } else {
+                        pc += 2;
+                    }
                     continue;
                 } else if tag == crate::vm::bc32::TAG_FOR_RANGE_STEP {
                     let w = code32[pc];
                     let a = ((w >> 16) & 0xFF) as u16; // idx
-                    let b = ((w >> 8) & 0xFF) as u16;  // step
-                    let w2 = code32.get(pc + 1).ok_or_else(|| anyhow!("bc32: missing Ext for ForRangeStep"))?;
+                    let b = ((w >> 8) & 0xFF) as u16; // step
+                    let w2 = code32
+                        .get(pc + 1)
+                        .ok_or_else(|| anyhow!("bc32: missing Ext for ForRangeStep"))?;
                     let back_ofs = (((((w2 >> 8) & 0xFF) as u16) << 8) | ((w2 & 0xFF) as u16)) as i16;
                     let (i, st) = match (&regs[a as usize], &regs[b as usize]) {
                         (Val::Int(i), Val::Int(s)) => (*i, *s),
@@ -136,26 +214,42 @@ impl Vm {
                 } else if tag == crate::vm::bc32::TAG_JMP_FALSE_SET_X {
                     let w = code32[pc];
                     let a = ((w >> 16) & 0xFF) as u16; // r
-                    let b = ((w >> 8) & 0xFF) as u16;  // dst
-                    let w2 = code32.get(pc + 1).ok_or_else(|| anyhow!("bc32: missing Ext for JmpFalseSetX"))?;
+                    let b = ((w >> 8) & 0xFF) as u16; // dst
+                    let w2 = code32
+                        .get(pc + 1)
+                        .ok_or_else(|| anyhow!("bc32: missing Ext for JmpFalseSetX"))?;
                     let ofs = (((((w2 >> 8) & 0xFF) as u16) << 8) | ((w2 & 0xFF) as u16)) as i16;
                     let cond_falsey = matches!(regs[a as usize], Val::Nil | Val::Bool(false));
-                    if cond_falsey { regs[b as usize] = Val::Bool(false); pc = ((pc as isize) + (ofs as isize)) as usize; } else { pc += 2; }
+                    if cond_falsey {
+                        regs[b as usize] = Val::Bool(false);
+                        pc = ((pc as isize) + (ofs as isize)) as usize;
+                    } else {
+                        pc += 2;
+                    }
                     continue;
                 } else if tag == crate::vm::bc32::TAG_JMP_TRUE_SET_X {
                     let w = code32[pc];
                     let a = ((w >> 16) & 0xFF) as u16; // r
-                    let b = ((w >> 8) & 0xFF) as u16;  // dst
-                    let w2 = code32.get(pc + 1).ok_or_else(|| anyhow!("bc32: missing Ext for JmpTrueSetX"))?;
+                    let b = ((w >> 8) & 0xFF) as u16; // dst
+                    let w2 = code32
+                        .get(pc + 1)
+                        .ok_or_else(|| anyhow!("bc32: missing Ext for JmpTrueSetX"))?;
                     let ofs = (((((w2 >> 8) & 0xFF) as u16) << 8) | ((w2 & 0xFF) as u16)) as i16;
                     let cond_truthy = !matches!(regs[a as usize], Val::Nil | Val::Bool(false));
-                    if cond_truthy { regs[b as usize] = Val::Bool(true); pc = ((pc as isize) + (ofs as isize)) as usize; } else { pc += 2; }
+                    if cond_truthy {
+                        regs[b as usize] = Val::Bool(true);
+                        pc = ((pc as isize) + (ofs as isize)) as usize;
+                    } else {
+                        pc += 2;
+                    }
                     continue;
                 } else if tag == crate::vm::bc32::TAG_NULLISH_PICK_X {
                     let w = code32[pc];
                     let a = ((w >> 16) & 0xFF) as u16; // l
-                    let b = ((w >> 8) & 0xFF) as u16;  // dst
-                    let w2 = code32.get(pc + 1).ok_or_else(|| anyhow!("bc32: missing Ext for NullishPickX"))?;
+                    let b = ((w >> 8) & 0xFF) as u16; // dst
+                    let w2 = code32
+                        .get(pc + 1)
+                        .ok_or_else(|| anyhow!("bc32: missing Ext for NullishPickX"))?;
                     let ofs = (((((w2 >> 8) & 0xFF) as u16) << 8) | ((w2 & 0xFF) as u16)) as i16;
                     if !matches!(regs[a as usize], Val::Nil) {
                         let v = regs[a as usize].clone();
@@ -214,8 +308,14 @@ impl Vm {
                         }
                         pc += 1;
                     }
-                    Op::CmpEq(dst, a, b) => { regs[dst as usize] = Val::Bool(regs[a as usize] == regs[b as usize]); pc += 1; }
-                    Op::CmpNe(dst, a, b) => { regs[dst as usize] = Val::Bool(regs[a as usize] != regs[b as usize]); pc += 1; }
+                    Op::CmpEq(dst, a, b) => {
+                        regs[dst as usize] = Val::Bool(regs[a as usize] == regs[b as usize]);
+                        pc += 1;
+                    }
+                    Op::CmpNe(dst, a, b) => {
+                        regs[dst as usize] = Val::Bool(regs[a as usize] != regs[b as usize]);
+                        pc += 1;
+                    }
                     Op::CmpLt(dst, a, b) => {
                         if !Self::cmp2_try_numeric(regs, dst, a, b, |x, y| x < y, |x, y| x < y) {
                             let res = crate::op::BinOp::Lt.cmp(&regs[a as usize], &regs[b as usize])?;
@@ -258,25 +358,106 @@ impl Vm {
                     Op::Index { dst, base, idx } => {
                         let res = match (&regs[base as usize], &regs[idx as usize]) {
                             (Val::List(l), Val::Int(i)) => {
-                                if *i < 0 { Val::Nil } else {
+                                if *i < 0 {
+                                    Val::Nil
+                                } else {
                                     let lptr = Arc::as_ptr(l) as *const Val as usize;
-                                    if let Some(IndexIc::List { base_ptr, idx, value }) = &index_ic[pc]
-                                        && *base_ptr == lptr && *idx == *i { value.clone() }
-                                    else {
+                                    let hit = if let Some(IndexIc::List(slots)) = &index_ic[pc] {
+                                        let mut out: Option<Val> = None;
+                                        for e in slots.iter().flatten() {
+                                            if e.base_ptr == lptr && e.idx == *i {
+                                                out = Some(e.value.clone());
+                                                break;
+                                            }
+                                        }
+                                        out
+                                    } else { None };
+                                    if let Some(v) = hit {
+                                        v
+                                    } else {
                                         let v = l.get(*i as usize).cloned().unwrap_or(Val::Nil);
-                                        index_ic[pc] = Some(IndexIc::List { base_ptr: lptr, idx: *i, value: v.clone() });
+                                        // update slots
+                                        match index_ic[pc].as_mut() {
+                                            Some(IndexIc::List(slots)) => {
+                                                let newe = ListEntry {
+                                                    base_ptr: lptr,
+                                                    idx: *i,
+                                                    value: v.clone(),
+                                                };
+                                                if slots[0].as_ref().is_some_and(|e| e.base_ptr == lptr && e.idx == *i) {
+                                                    slots[0] = Some(newe);
+                                                } else if slots[1].as_ref().is_some_and(|e| e.base_ptr == lptr && e.idx == *i) {
+                                                    slots[1] = Some(newe);
+                                                } else {
+                                                    slots[3] = slots[2].clone();
+                                                    slots[2] = slots[1].clone();
+                                                    slots[1] = slots[0].clone();
+                                                    slots[0] = Some(newe);
+                                                }
+                                            }
+                                            _ => {
+                                                index_ic[pc] = Some(IndexIc::List([Some(ListEntry { base_ptr: lptr, idx: *i, value: v.clone() }), None, None, None]));
+                                            }
+                                        }
                                         v
                                     }
                                 }
                             }
                             (Val::Str(s), Val::Int(i)) => {
-                                if *i < 0 { Val::Nil } else {
+                                if *i < 0 {
+                                    Val::Nil
+                                } else {
                                     let sptr = s.as_ref().as_ptr() as usize;
-                                    if let Some(IndexIc::Str { base_ptr, idx, value }) = &index_ic[pc]
-                                        && *base_ptr == sptr && *idx == *i { value.clone() }
-                                    else {
-                                        let v = s.chars().nth(*i as usize).map(|c| Val::Str(c.to_string().into())).unwrap_or(Val::Nil);
-                                        index_ic[pc] = Some(IndexIc::Str { base_ptr: sptr, idx: *i, value: v.clone() });
+                                    let hit = if let Some(IndexIc::Str(slots)) = &index_ic[pc] {
+                                        let mut out: Option<Val> = None;
+                                        for e in slots.iter().flatten() {
+                                            if e.base_ptr == sptr && e.idx == *i {
+                                                out = Some(e.value.clone());
+                                                break;
+                                            }
+                                        }
+                                        out
+                                    } else { None };
+                                    if let Some(v) = hit {
+                                        v
+                                    } else {
+                                        let v = if s.is_ascii() {
+                                            let bi = *i as usize;
+                                            let bs = s.as_bytes();
+                                            if bi < bs.len() {
+                                                let ch = bs[bi] as char;
+                                                Val::Str(ch.to_string().into())
+                                            } else {
+                                                Val::Nil
+                                            }
+                                        } else {
+                                            s.chars()
+                                                .nth(*i as usize)
+                                                .map(|c| Val::Str(c.to_string().into()))
+                                                .unwrap_or(Val::Nil)
+                                        };
+                                        match index_ic[pc].as_mut() {
+                                            Some(IndexIc::Str(slots)) => {
+                                                let newe = StrEntry {
+                                                    base_ptr: sptr,
+                                                    idx: *i,
+                                                    value: v.clone(),
+                                                };
+                                                if slots[0].as_ref().is_some_and(|e| e.base_ptr == sptr && e.idx == *i) {
+                                                    slots[0] = Some(newe);
+                                                } else if slots[1].as_ref().is_some_and(|e| e.base_ptr == sptr && e.idx == *i) {
+                                                    slots[1] = Some(newe);
+                                                } else {
+                                                    slots[3] = slots[2].clone();
+                                                    slots[2] = slots[1].clone();
+                                                    slots[1] = slots[0].clone();
+                                                    slots[0] = Some(newe);
+                                                }
+                                            }
+                                            _ => {
+                                                index_ic[pc] = Some(IndexIc::Str([Some(StrEntry { base_ptr: sptr, idx: *i, value: v.clone() }), None, None, None]));
+                                            }
+                                        }
                                         v
                                     }
                                 }
@@ -286,20 +467,57 @@ impl Vm {
                         regs[dst as usize] = res;
                         pc += 1;
                     }
-                    Op::Jmp(ofs) => { pc = ((pc as isize) + (ofs as isize)) as usize; }
+                    Op::Jmp(ofs) => {
+                        pc = ((pc as isize) + (ofs as isize)) as usize;
+                    }
                     Op::JmpFalse(r, ofs) => {
                         let cond_falsey = matches!(regs[r as usize], Val::Nil | Val::Bool(false));
-                        if cond_falsey { pc = ((pc as isize) + (ofs as isize)) as usize; } else { pc += 1; }
+                        if cond_falsey {
+                            pc = ((pc as isize) + (ofs as isize)) as usize;
+                        } else {
+                            pc += 1;
+                        }
                     }
-                    Op::JmpIfNil(r, ofs) => { if matches!(regs[r as usize], Val::Nil) { pc = ((pc as isize) + (ofs as isize)) as usize; } else { pc += 1; } }
-                    Op::JmpIfNotNil(r, ofs) => { if !matches!(regs[r as usize], Val::Nil) { pc = ((pc as isize) + (ofs as isize)) as usize; } else { pc += 1; } }
-                    Op::ToBool(dst, src) => { let truthy = !matches!(regs[src as usize], Val::Nil | Val::Bool(false)); regs[dst as usize] = Val::Bool(truthy); pc += 1; }
-                    Op::Not(dst, src) => { match &regs[src as usize] { Val::Bool(b) => regs[dst as usize] = Val::Bool(!b), other => return Err(anyhow!("Invalid operand: !{:?}", other)), } pc += 1; }
+                    Op::JmpIfNil(r, ofs) => {
+                        if matches!(regs[r as usize], Val::Nil) {
+                            pc = ((pc as isize) + (ofs as isize)) as usize;
+                        } else {
+                            pc += 1;
+                        }
+                    }
+                    Op::JmpIfNotNil(r, ofs) => {
+                        if !matches!(regs[r as usize], Val::Nil) {
+                            pc = ((pc as isize) + (ofs as isize)) as usize;
+                        } else {
+                            pc += 1;
+                        }
+                    }
+                    Op::ToBool(dst, src) => {
+                        let truthy = !matches!(regs[src as usize], Val::Nil | Val::Bool(false));
+                        regs[dst as usize] = Val::Bool(truthy);
+                        pc += 1;
+                    }
+                    Op::Not(dst, src) => {
+                        match &regs[src as usize] {
+                            Val::Bool(b) => regs[dst as usize] = Val::Bool(!b),
+                            other => return Err(anyhow!("Invalid operand: !{:?}", other)),
+                        }
+                        pc += 1;
+                    }
                     Op::NullishPick { l, dst, ofs } => {
-                        if !matches!(regs[l as usize], Val::Nil) { regs[dst as usize] = regs[l as usize].clone(); pc = ((pc as isize) + (ofs as isize)) as usize; } else { pc += 1; }
+                        if !matches!(regs[l as usize], Val::Nil) {
+                            regs[dst as usize] = regs[l as usize].clone();
+                            pc = ((pc as isize) + (ofs as isize)) as usize;
+                        } else {
+                            pc += 1;
+                        }
                     }
                     Op::Ret { base, retc } => {
-                        let ret = if retc > 0 { regs[base as usize].clone() } else { Val::Nil };
+                        let ret = if retc > 0 {
+                            regs[base as usize].clone()
+                        } else {
+                            Val::Nil
+                        };
                         return Ok(ret);
                     }
                     Op::LoadGlobal(dst, name_k) => {
@@ -308,20 +526,18 @@ impl Vm {
                         if let Val::Str(s) = name_val {
                             let key_ptr = s.as_ref().as_ptr() as usize;
                             let cur_gen = if let Some(e) = env.as_ref() { e.generation() } else { 0 };
-                            if let Some(GlobalEntry(ptr, v, generation)) = &global_ic[pc] {
-                                if *ptr == key_ptr && *generation == cur_gen {
-                                    out = v.clone();
-                                }
+                            if let Some(GlobalEntry(ptr, v, generation)) = &global_ic[pc]
+                                && *ptr == key_ptr && *generation == cur_gen
+                            {
+                                out = v.clone();
                             }
                             if matches!(out, Val::Nil) {
-                                if let Some(e) = env.as_ref() {
-                                    if let Some(v) = e.get_value(s.as_ref()) { out = v.clone(); }
+                                if let Some(e) = env.as_ref() && let Some(v) = e.get_value(s.as_ref()) {
+                                    out = v.clone();
                                 }
                                 global_ic[pc] = Some(GlobalEntry(key_ptr, out.clone(), cur_gen));
                             }
-                        } else if let Some(e) = env.as_ref() {
-                            if let Some(v) = e.get_value(&format!("{}", name_val)) { out = v; }
-                        }
+                        } else if let Some(e) = env.as_ref() && let Some(v) = e.get_value(&format!("{}", name_val)) { out = v; }
                         regs[dst as usize] = out;
                         pc += 1;
                     }
@@ -335,30 +551,114 @@ impl Vm {
                         pc += 1;
                     }
                     Op::Access(dst, base, field) => {
-                        let (hit_val, update) = match (&regs[base as usize], &regs[field as usize]) {
+                        let hit_val = match (&regs[base as usize], &regs[field as usize]) {
                             (Val::Map(m), Val::Str(s)) => {
                                 let mp = std::sync::Arc::as_ptr(m) as usize;
                                 let kp = s.as_ref().as_ptr() as usize;
-                                if let Some(AccessIc::MapStr { map_ptr, key_ptr, value }) = &access_ic[pc] {
-                                    if *map_ptr == mp && *key_ptr == kp { (Some(value.clone()), false) } else { (None, true) }
-                                } else { (None, true) }
+                                if let Some(AccessIc::MapStr(slots)) = &access_ic[pc] {
+                                    let mut out: Option<Val> = None;
+                                    for e in slots.iter().flatten() {
+                                        if e.map_ptr == mp && e.key_ptr == kp {
+                                            out = Some(e.value.clone());
+                                            break;
+                                        }
+                                    }
+                                    out
+                                } else {
+                                    None
+                                }
                             }
                             (Val::Object { fields, .. }, Val::Str(s)) => {
                                 let optr = std::sync::Arc::as_ptr(fields) as usize;
-                                if let Some(AccessIc::ObjectStr { obj_ptr, key, value }) = &access_ic[pc] {
-                                    if *obj_ptr == optr && key.as_str() == s.as_ref() { (Some(value.clone()), false) } else { (None, true) }
-                                } else { (None, true) }
+                                let kstr = s.as_ref();
+                                if let Some(AccessIc::ObjectStr(slots)) = &access_ic[pc] {
+                                    let mut out: Option<Val> = None;
+                                    for e in slots.iter().flatten() {
+                                        if e.obj_ptr == optr && e.key.as_str() == kstr {
+                                            out = Some(e.value.clone());
+                                            break;
+                                        }
+                                    }
+                                    out
+                                } else { None }
                             }
-                            _ => (None, false),
+                            _ => None,
                         };
-                        let res = if let Some(v) = hit_val { v } else {
+                        let res = if let Some(v) = hit_val {
+                            v
+                        } else {
                             let v = regs[base as usize].access(&regs[field as usize]).unwrap_or(Val::Nil);
-                            if update {
-                                match (&regs[base as usize], &regs[field as usize]) {
-                                    (Val::Map(m), Val::Str(s)) => access_ic[pc] = Some(AccessIc::MapStr { map_ptr: std::sync::Arc::as_ptr(m) as usize, key_ptr: s.as_ref().as_ptr() as usize, value: v.clone() }),
-                                    (Val::Object { fields, .. }, Val::Str(s)) => access_ic[pc] = Some(AccessIc::ObjectStr { obj_ptr: std::sync::Arc::as_ptr(fields) as usize, key: s.as_ref().to_string(), value: v.clone() }),
-                                    _ => {}
+                            match (&regs[base as usize], &regs[field as usize]) {
+                                (Val::Map(m), Val::Str(s)) => {
+                                    let mp = std::sync::Arc::as_ptr(m) as usize;
+                                    let kp = s.as_ref().as_ptr() as usize;
+                                    match access_ic[pc].as_mut() {
+                                        Some(AccessIc::MapStr(slots)) => {
+                                            let newe = MapStrEntry {
+                                                map_ptr: mp,
+                                                key_ptr: kp,
+                                                value: v.clone(),
+                                            };
+                                            if slots[0].as_ref().is_some_and(|e| e.map_ptr == mp && e.key_ptr == kp) {
+                                                slots[0] = Some(newe);
+                                            } else if slots[1].as_ref().is_some_and(|e| e.map_ptr == mp && e.key_ptr == kp) {
+                                                slots[1] = Some(newe);
+                                            } else {
+                                                slots[3] = slots[2].clone();
+                                                slots[2] = slots[1].clone();
+                                                slots[1] = slots[0].clone();
+                                                slots[0] = Some(newe);
+                                            }
+                                        }
+                                        _ => {
+                                            access_ic[pc] = Some(AccessIc::MapStr([
+                                                Some(MapStrEntry {
+                                                    map_ptr: mp,
+                                                    key_ptr: kp,
+                                                    value: v.clone(),
+                                                }),
+                                                None,
+                                                None,
+                                                None,
+                                            ]));
+                                        }
+                                    }
                                 }
+                                (Val::Object { fields, .. }, Val::Str(s)) => {
+                                    let optr = std::sync::Arc::as_ptr(fields) as usize;
+                                    match access_ic[pc].as_mut() {
+                                        Some(AccessIc::ObjectStr(slots)) => {
+                                            let newe = ObjectStrEntry {
+                                                obj_ptr: optr,
+                                                key: s.as_ref().to_string(),
+                                                value: v.clone(),
+                                            };
+                                            if slots[0].as_ref().is_some_and(|e| e.obj_ptr == optr && e.key.as_str() == s.as_ref()) {
+                                                slots[0] = Some(newe);
+                                            } else if slots[1].as_ref().is_some_and(|e| e.obj_ptr == optr && e.key.as_str() == s.as_ref()) {
+                                                slots[1] = Some(newe);
+                                            } else {
+                                                slots[3] = slots[2].clone();
+                                                slots[2] = slots[1].clone();
+                                                slots[1] = slots[0].clone();
+                                                slots[0] = Some(newe);
+                                            }
+                                        }
+                                        _ => {
+                                            access_ic[pc] = Some(AccessIc::ObjectStr([
+                                                Some(ObjectStrEntry {
+                                                    obj_ptr: optr,
+                                                    key: s.as_ref().to_string(),
+                                                    value: v.clone(),
+                                                }),
+                                                None,
+                                                None,
+                                                None,
+                                            ]));
+                                        }
+                                    }
+                                }
+                                _ => {}
                             }
                             v
                         };
@@ -368,26 +668,97 @@ impl Vm {
                     Op::AccessK(dst, base, kidx) => {
                         let key = &f.consts[kidx as usize];
                         let res = if let Val::Str(s) = key {
-                            let (hit_val, update) = match &regs[base as usize] {
+                            let (hit_val, mp, kp, obj) = match &regs[base as usize] {
                                 Val::Map(m) => {
                                     let mp = std::sync::Arc::as_ptr(m) as usize;
                                     let kp = s.as_ref().as_ptr() as usize;
-                                    if let Some(AccessIc::MapStr { map_ptr, key_ptr, value }) = &access_ic[pc] {
-                                        if *map_ptr == mp && *key_ptr == kp { (Some(value.clone()), false) } else { (None, true) }
-                                    } else { (None, true) }
+                                    if let Some(AccessIc::MapStr(slots)) = &access_ic[pc] {
+                                        let mut out: Option<Val> = None;
+                                        for e in slots.iter().flatten() {
+                                            if e.map_ptr == mp && e.key_ptr == kp {
+                                                out = Some(e.value.clone());
+                                                break;
+                                            }
+                                        }
+                                        (out, Some(mp), Some(kp), false)
+                                    } else {
+                                        (None, Some(mp), Some(kp), false)
+                                    }
                                 }
-                                _ => (None, false),
+                                Val::Object { fields, .. } => {
+                                    let optr = std::sync::Arc::as_ptr(fields) as usize;
+                                    if let Some(AccessIc::ObjectStr(slots)) = &access_ic[pc] {
+                                        let mut out: Option<Val> = None;
+                                        for e in slots.iter().flatten() {
+                                            if e.obj_ptr == optr && e.key.as_str() == s.as_ref() { out = Some(e.value.clone()); break; }
+                                        }
+                                        (out, None, None, true)
+                                    } else { (None, None, None, true) }
+                                }
+                                _ => (None, None, None, false),
                             };
-                            if let Some(v) = hit_val { v } else {
+                            if let Some(v) = hit_val {
+                                v
+                            } else {
                                 let v = regs[base as usize].access(key).unwrap_or(Val::Nil);
-                                if update {
-                                    if let Val::Map(m) = &regs[base as usize] {
-                                        access_ic[pc] = Some(AccessIc::MapStr { map_ptr: std::sync::Arc::as_ptr(m) as usize, key_ptr: s.as_ref().as_ptr() as usize, value: v.clone() });
+                                if let (Some(mp), Some(kp)) = (mp, kp) {
+                                    match access_ic[pc].as_mut() {
+                                        Some(AccessIc::MapStr(slots)) => {
+                                            let newe = MapStrEntry {
+                                                map_ptr: mp,
+                                                key_ptr: kp,
+                                                value: v.clone(),
+                                            };
+                                            if slots[0].as_ref().is_some_and(|e| e.map_ptr == mp && e.key_ptr == kp) {
+                                                slots[0] = Some(newe);
+                                            } else if slots[1].as_ref().is_some_and(|e| e.map_ptr == mp && e.key_ptr == kp) {
+                                                slots[1] = Some(newe);
+                                            } else {
+                                                slots[3] = slots[2].clone();
+                                                slots[2] = slots[1].clone();
+                                                slots[1] = slots[0].clone();
+                                                slots[0] = Some(newe);
+                                            }
+                                        }
+                                        _ => {
+                                            access_ic[pc] = Some(AccessIc::MapStr([
+                                                Some(MapStrEntry {
+                                                    map_ptr: mp,
+                                                    key_ptr: kp,
+                                                    value: v.clone(),
+                                                }),
+                                                None,
+                                                None,
+                                                None,
+                                            ]));
+                                        }
+                                    }
+                                } else if obj {
+                                    match access_ic[pc].as_mut() {
+                                        Some(AccessIc::ObjectStr(slots)) => {
+                                            let newe = ObjectStrEntry { obj_ptr: std::sync::Arc::as_ptr(match &regs[base as usize] { Val::Object{fields,..}=>fields, _=> unreachable!() }) as usize, key: s.as_ref().to_string(), value: v.clone() };
+                                            if slots[0].as_ref().is_some_and(|e| e.obj_ptr == newe.obj_ptr && e.key.as_str() == s.as_ref()) {
+                                                slots[0] = Some(newe);
+                                            } else if slots[1].as_ref().is_some_and(|e| e.obj_ptr == newe.obj_ptr && e.key.as_str() == s.as_ref()) {
+                                                slots[1] = Some(newe);
+                                            } else {
+                                                slots[3] = slots[2].clone();
+                                                slots[2] = slots[1].clone();
+                                                slots[1] = slots[0].clone();
+                                                slots[0] = Some(newe);
+                                            }
+                                        }
+                                        _ => {
+                                            let optr = std::sync::Arc::as_ptr(match &regs[base as usize] { Val::Object{fields,..}=>fields, _=> unreachable!() }) as usize;
+                                            access_ic[pc] = Some(AccessIc::ObjectStr([Some(ObjectStrEntry { obj_ptr: optr, key: s.as_ref().to_string(), value: v.clone() }), None, None, None]));
+                                        }
                                     }
                                 }
                                 v
                             }
-                        } else { Val::Nil };
+                        } else {
+                            Val::Nil
+                        };
                         regs[dst as usize] = res;
                         pc += 1;
                     }
@@ -395,11 +766,37 @@ impl Vm {
                         let key = &f.consts[kidx as usize];
                         let res = if let Val::Int(i) = key {
                             match &regs[base as usize] {
-                                Val::List(l) => { if *i < 0 { Val::Nil } else { l.get(*i as usize).cloned().unwrap_or(Val::Nil) } }
-                                Val::Str(s) => { if *i < 0 { Val::Nil } else { s.chars().nth(*i as usize).map(|c| Val::Str(c.to_string().into())).unwrap_or(Val::Nil) } }
+                                Val::List(l) => {
+                                    if *i < 0 {
+                                        Val::Nil
+                                    } else {
+                                        l.get(*i as usize).cloned().unwrap_or(Val::Nil)
+                                    }
+                                }
+                                Val::Str(s) => {
+                                    if *i < 0 {
+                                        Val::Nil
+                                    } else if s.is_ascii() {
+                                        let bi = *i as usize;
+                                        let bs = s.as_bytes();
+                                        if bi < bs.len() {
+                                            let ch = bs[bi] as char;
+                                            Val::Str(ch.to_string().into())
+                                        } else {
+                                            Val::Nil
+                                        }
+                                    } else {
+                                        s.chars()
+                                            .nth(*i as usize)
+                                            .map(|c| Val::Str(c.to_string().into()))
+                                            .unwrap_or(Val::Nil)
+                                    }
+                                }
                                 _ => Val::Nil,
                             }
-                        } else { Val::Nil };
+                        } else {
+                            Val::Nil
+                        };
                         regs[dst as usize] = res;
                         pc += 1;
                     }
@@ -407,31 +804,39 @@ impl Vm {
                         let start = base as usize;
                         let n = len as usize;
                         let mut v = Vec::with_capacity(n);
-                        for i in 0..n { v.push(regs[start + i].clone()); }
+                        for i in 0..n {
+                            v.push(regs[start + i].clone());
+                        }
                         regs[dst as usize] = Val::List(v.into());
                         pc += 1;
                     }
                     Op::BuildMap { dst, base, len } => {
                         let start = base as usize;
                         let n = len as usize;
-                        let mut map: std::collections::HashMap<String, Val> = std::collections::HashMap::with_capacity(n);
+                        let mut map: std::collections::HashMap<Arc<str>, Val> =
+                            std::collections::HashMap::with_capacity(n);
                         for i in 0..n {
                             let k = &regs[start + 2 * i];
                             let v = regs[start + 2 * i + 1].clone();
-                            let key_str = match k {
-                                Val::Str(s) => s.as_ref().to_string(),
-                                Val::Int(i) => i.to_string(),
-                                Val::Float(f) => f.to_string(),
-                                Val::Bool(b) => b.to_string(),
-                                _ => { return Err(anyhow!("Map key must be a primitive type, got: {:?}", k)); }
+                            let key_arc: Arc<str> = match k {
+                                Val::Str(s) => s.clone(),
+                                Val::Int(i) => Arc::from(i.to_string()),
+                                Val::Float(f) => Arc::from(f.to_string()),
+                                Val::Bool(b) => Arc::from(b.to_string()),
+                                _ => {
+                                    return Err(anyhow!("Map key must be a primitive type, got: {:?}", k));
+                                }
                             };
-                            map.insert(key_str, v);
+                            map.insert(key_arc, v);
                         }
-                        regs[dst as usize] = Val::from(map);
+                        regs[dst as usize] = Val::Map(Arc::new(map));
                         pc += 1;
                     }
                     Op::MakeClosure { dst, proto } => {
-                        let p = f.protos.get(proto as usize).ok_or_else(|| anyhow!("closure proto out of range"))?;
+                        let p = f
+                            .protos
+                            .get(proto as usize)
+                            .ok_or_else(|| anyhow!("closure proto out of range"))?;
                         if let Some(e) = env.as_ref() {
                             let clo = Val::Closure {
                                 params: std::sync::Arc::new(p.params.clone()),
@@ -449,34 +854,69 @@ impl Vm {
                         }
                         pc += 1;
                     }
-                    Op::LoadLocal(dst, idx) => { regs[dst as usize] = regs[idx as usize].clone(); pc += 1; }
-                    Op::StoreLocal(idx, src) => { let v = regs[src as usize].clone(); regs[idx as usize] = v; pc += 1; }
-                    Op::Call { f: rf, base, argc, retc } => {
+                    Op::LoadLocal(dst, idx) => {
+                        regs[dst as usize] = regs[idx as usize].clone();
+                        pc += 1;
+                    }
+                    Op::StoreLocal(idx, src) => {
+                        let v = regs[src as usize].clone();
+                        regs[idx as usize] = v;
+                        pc += 1;
+                    }
+                    Op::Call {
+                        f: rf,
+                        base,
+                        argc,
+                        retc,
+                    } => {
                         let func = regs[rf as usize].clone();
                         let start = base as usize;
                         let n = argc as usize;
                         let args_slice: &[Val] = &regs[start..start + n];
                         let result = if let Some(e) = env.as_ref() {
-                            if let Some(CallIc::Rust(fp, cached_argc)) = call_ic[pc] && argc == cached_argc && matches!(func, Val::RustFunction(_)) {
+                            if let Some(CallIc::Rust(fp, cached_argc)) = call_ic[pc]
+                                && argc == cached_argc
+                                && matches!(func, Val::RustFunction(_))
+                            {
                                 fp(args_slice, e)
                             } else {
                                 match &func {
-                                    Val::RustFunction(fptr) => { call_ic[pc] = Some(CallIc::Rust(*fptr, argc)); fptr(args_slice, e) }
+                                    Val::RustFunction(fptr) => {
+                                        call_ic[pc] = Some(CallIc::Rust(*fptr, argc));
+                                        fptr(args_slice, e)
+                                    }
                                     _ => func.call(args_slice, e),
                                 }
                             }
-                        } else { Err(anyhow!("Function call requires environment")) }?;
-                        if retc > 0 { regs[base as usize] = result; }
+                        } else {
+                            Err(anyhow!("Function call requires environment"))
+                        }?;
+                        if retc > 0 {
+                            regs[base as usize] = result;
+                        }
                         pc += 1;
                     }
-                    Op::LoadCtx(dst) => { regs[dst as usize] = Val::Nil; pc += 1; }
+                    Op::LoadCtx(dst) => {
+                        regs[dst as usize] = Val::Nil;
+                        pc += 1;
+                    }
                     Op::JmpFalseSet { r, dst, ofs } => {
                         let cond_falsey = matches!(regs[r as usize], Val::Nil | Val::Bool(false));
-                        if cond_falsey { regs[dst as usize] = Val::Bool(false); pc = ((pc as isize) + (ofs as isize)) as usize; } else { pc += 1; }
+                        if cond_falsey {
+                            regs[dst as usize] = Val::Bool(false);
+                            pc = ((pc as isize) + (ofs as isize)) as usize;
+                        } else {
+                            pc += 1;
+                        }
                     }
                     Op::JmpTrueSet { r, dst, ofs } => {
                         let cond_truthy = !matches!(regs[r as usize], Val::Nil | Val::Bool(false));
-                        if cond_truthy { regs[dst as usize] = Val::Bool(true); pc = ((pc as isize) + (ofs as isize)) as usize; } else { pc += 1; }
+                        if cond_truthy {
+                            regs[dst as usize] = Val::Bool(true);
+                            pc = ((pc as isize) + (ofs as isize)) as usize;
+                        } else {
+                            pc += 1;
+                        }
                     }
                     Op::ListSlice { dst, src, start } => {
                         let (list, start_idx) = match (&regs[src as usize], &regs[start as usize]) {
@@ -505,10 +945,19 @@ impl Vm {
         }
 
         // Default path: execute Op enum bytecode
-        access_ic = vec![None; f.code.len()];
-        index_ic = vec![None; f.code.len()];
-        global_ic = vec![None; f.code.len()];
-        call_ic = vec![None; f.code.len()];
+        // Persist instruction-site caches across executions; only grow when needed.
+        if access_ic.len() < f.code.len() {
+            access_ic.resize(f.code.len(), None);
+        }
+        if index_ic.len() < f.code.len() {
+            index_ic.resize(f.code.len(), None);
+        }
+        if global_ic.len() < f.code.len() {
+            global_ic.resize(f.code.len(), None);
+        }
+        if call_ic.len() < f.code.len() {
+            call_ic.resize(f.code.len(), None);
+        }
         while pc < f.code.len() {
             match &f.code[pc] {
                 Op::LoadK(dst, k) => {
@@ -520,38 +969,30 @@ impl Vm {
                     pc += 1;
                 }
                 Op::Add(dst, a, b) => {
-                    if !Self::arith2_try_numeric(regs, *dst, *a, *b, |x, y| x + y, |x, y| x + y)
-                    {
+                    if !Self::arith2_try_numeric(regs, *dst, *a, *b, |x, y| x + y, |x, y| x + y) {
                         // Fallback to high-level semantics (strings, lists, maps under features)
-                        let out = crate::op::BinOp::Add
-                            .eval_vals(&regs[*a as usize], &regs[*b as usize])?;
+                        let out = crate::op::BinOp::Add.eval_vals(&regs[*a as usize], &regs[*b as usize])?;
                         regs[*dst as usize] = out;
                     }
                     pc += 1;
                 }
                 Op::Sub(dst, a, b) => {
-                    if !Self::arith2_try_numeric(regs, *dst, *a, *b, |x, y| x - y, |x, y| x - y)
-                    {
-                        let out = crate::op::BinOp::Sub
-                            .eval_vals(&regs[*a as usize], &regs[*b as usize])?;
+                    if !Self::arith2_try_numeric(regs, *dst, *a, *b, |x, y| x - y, |x, y| x - y) {
+                        let out = crate::op::BinOp::Sub.eval_vals(&regs[*a as usize], &regs[*b as usize])?;
                         regs[*dst as usize] = out;
                     }
                     pc += 1;
                 }
                 Op::Mul(dst, a, b) => {
-                    if !Self::arith2_try_numeric(regs, *dst, *a, *b, |x, y| x * y, |x, y| x * y)
-                    {
-                        let out = crate::op::BinOp::Mul
-                            .eval_vals(&regs[*a as usize], &regs[*b as usize])?;
+                    if !Self::arith2_try_numeric(regs, *dst, *a, *b, |x, y| x * y, |x, y| x * y) {
+                        let out = crate::op::BinOp::Mul.eval_vals(&regs[*a as usize], &regs[*b as usize])?;
                         regs[*dst as usize] = out;
                     }
                     pc += 1;
                 }
                 Op::Div(dst, a, b) => {
-                    if !Self::arith2_try_numeric(regs, *dst, *a, *b, |x, y| x / y, |x, y| x / y)
-                    {
-                        let out = crate::op::BinOp::Div
-                            .eval_vals(&regs[*a as usize], &regs[*b as usize])?;
+                    if !Self::arith2_try_numeric(regs, *dst, *a, *b, |x, y| x / y, |x, y| x / y) {
+                        let out = crate::op::BinOp::Div.eval_vals(&regs[*a as usize], &regs[*b as usize])?;
                         regs[*dst as usize] = out;
                     }
                     pc += 1;
@@ -560,8 +1001,7 @@ impl Vm {
                     match (&regs[*a as usize], &regs[*b as usize]) {
                         (Val::Int(x), Val::Int(y)) => regs[*dst as usize] = Val::Int(x % y),
                         _ => {
-                            let out = crate::op::BinOp::Mod
-                                .eval_vals(&regs[*a as usize], &regs[*b as usize])?;
+                            let out = crate::op::BinOp::Mod.eval_vals(&regs[*a as usize], &regs[*b as usize])?;
                             regs[*dst as usize] = out;
                         }
                     }
@@ -579,39 +1019,34 @@ impl Vm {
                 }
                 Op::CmpLt(dst, a, b) => {
                     if !Self::cmp2_try_numeric(regs, *dst, *a, *b, |x, y| x < y, |x, y| x < y) {
-                        let res = crate::op::BinOp::Lt
-                            .cmp(&regs[*a as usize], &regs[*b as usize])?;
+                        let res = crate::op::BinOp::Lt.cmp(&regs[*a as usize], &regs[*b as usize])?;
                         regs[*dst as usize] = Val::Bool(res);
                     }
                     pc += 1;
                 }
                 Op::CmpLe(dst, a, b) => {
                     if !Self::cmp2_try_numeric(regs, *dst, *a, *b, |x, y| x <= y, |x, y| x <= y) {
-                        let res = crate::op::BinOp::Le
-                            .cmp(&regs[*a as usize], &regs[*b as usize])?;
+                        let res = crate::op::BinOp::Le.cmp(&regs[*a as usize], &regs[*b as usize])?;
                         regs[*dst as usize] = Val::Bool(res);
                     }
                     pc += 1;
                 }
                 Op::CmpGt(dst, a, b) => {
                     if !Self::cmp2_try_numeric(regs, *dst, *a, *b, |x, y| x > y, |x, y| x > y) {
-                        let res = crate::op::BinOp::Gt
-                            .cmp(&regs[*a as usize], &regs[*b as usize])?;
+                        let res = crate::op::BinOp::Gt.cmp(&regs[*a as usize], &regs[*b as usize])?;
                         regs[*dst as usize] = Val::Bool(res);
                     }
                     pc += 1;
                 }
                 Op::CmpGe(dst, a, b) => {
                     if !Self::cmp2_try_numeric(regs, *dst, *a, *b, |x, y| x >= y, |x, y| x >= y) {
-                        let res = crate::op::BinOp::Ge
-                            .cmp(&regs[*a as usize], &regs[*b as usize])?;
+                        let res = crate::op::BinOp::Ge.cmp(&regs[*a as usize], &regs[*b as usize])?;
                         regs[*dst as usize] = Val::Bool(res);
                     }
                     pc += 1;
                 }
                 Op::In(dst, a, b) => {
-                    let res = crate::op::BinOp::In
-                        .cmp(&regs[*a as usize], &regs[*b as usize])?;
+                    let res = crate::op::BinOp::In.cmp(&regs[*a as usize], &regs[*b as usize])?;
                     regs[*dst as usize] = Val::Bool(res);
                     pc += 1;
                 }
@@ -630,16 +1065,14 @@ impl Vm {
                     if let Val::Str(s) = name_val {
                         let key_ptr = s.as_ref().as_ptr() as usize;
                         let cur_gen = if let Some(e) = env.as_ref() { e.generation() } else { 0 };
-                        if let Some(GlobalEntry(ptr, v, generation)) = &global_ic[pc] {
-                            if *ptr == key_ptr && *generation == cur_gen {
-                                out = v.clone();
-                            }
+                        if let Some(GlobalEntry(ptr, v, generation)) = &global_ic[pc]
+                            && *ptr == key_ptr && *generation == cur_gen
+                        {
+                            out = v.clone();
                         }
                         if matches!(out, Val::Nil) {
-                            if let Some(e) = env.as_ref() {
-                                if let Some(v) = e.get_value(s.as_ref()) {
-                                    out = v.clone();
-                                }
+                            if let Some(e) = env.as_ref() && let Some(v) = e.get_value(s.as_ref()) {
+                                out = v.clone();
                             }
                             global_ic[pc] = Some(GlobalEntry(key_ptr, out.clone(), cur_gen));
                         }
@@ -668,59 +1101,112 @@ impl Vm {
                     pc += 1;
                 }
                 Op::Access(dst, base, field) => {
-                    // Try IC for Map[String] and Object[String]
-                    let (hit_val, update) = match (&regs[*base as usize], &regs[*field as usize]) {
+                    // Polymorphic 2-way IC for Map[String] and Object[String]
+                    let hit_val = match (&regs[*base as usize], &regs[*field as usize]) {
                         (Val::Map(m), Val::Str(s)) => {
                             let mp = Arc::as_ptr(m) as usize;
                             let kp = s.as_ref().as_ptr() as usize;
-                            if let Some(AccessIc::MapStr { map_ptr, key_ptr, value }) = &access_ic[pc] {
-                                if *map_ptr == mp && *key_ptr == kp {
-                                    (Some(value.clone()), false)
-                                } else {
-                                    (None, true)
+                            if let Some(AccessIc::MapStr(slots)) = &access_ic[pc] {
+                                let mut out: Option<Val> = None;
+                                for e in slots.iter().flatten() {
+                                    if e.map_ptr == mp && e.key_ptr == kp {
+                                        out = Some(e.value.clone());
+                                        break;
+                                    }
                                 }
-                            } else {
-                                (None, true)
-                            }
+                                out
+                            } else { None }
                         }
                         (Val::Object { fields, .. }, Val::Str(s)) => {
                             let optr = Arc::as_ptr(fields) as usize;
-                            if let Some(AccessIc::ObjectStr { obj_ptr, key, value }) = &access_ic[pc] {
-                                if *obj_ptr == optr && key.as_str() == s.as_ref() {
-                                    (Some(value.clone()), false)
-                                } else {
-                                    (None, true)
+                            if let Some(AccessIc::ObjectStr(slots)) = &access_ic[pc] {
+                                let mut out: Option<Val> = None;
+                                for e in slots.iter().flatten() {
+                                    if e.obj_ptr == optr && e.key.as_str() == s.as_ref() {
+                                        out = Some(e.value.clone());
+                                        break;
+                                    }
                                 }
-                            } else {
-                                (None, true)
-                            }
+                                out
+                            } else { None }
                         }
-                        _ => (None, false),
+                        _ => None,
                     };
                     let res = if let Some(v) = hit_val {
                         v
                     } else {
-                        let v = regs[*base as usize]
-                            .access(&regs[*field as usize])
-                            .unwrap_or(Val::Nil);
-                        if update {
-                            match (&regs[*base as usize], &regs[*field as usize]) {
-                                (Val::Map(m), Val::Str(s)) => {
-                                    access_ic[pc] = Some(AccessIc::MapStr {
-                                        map_ptr: Arc::as_ptr(m) as usize,
-                                        key_ptr: s.as_ref().as_ptr() as usize,
-                                        value: v.clone(),
-                                    });
+                        let v = regs[*base as usize].access(&regs[*field as usize]).unwrap_or(Val::Nil);
+                        match (&regs[*base as usize], &regs[*field as usize]) {
+                            (Val::Map(m), Val::Str(s)) => {
+                                let mp = Arc::as_ptr(m) as usize;
+                                let kp = s.as_ref().as_ptr() as usize;
+                                match access_ic[pc].as_mut() {
+                                    Some(AccessIc::MapStr(slots)) => {
+                                        let newe = MapStrEntry {
+                                            map_ptr: mp,
+                                            key_ptr: kp,
+                                            value: v.clone(),
+                                        };
+                                        if slots[0].as_ref().is_some_and(|e| e.map_ptr == mp && e.key_ptr == kp) {
+                                            slots[0] = Some(newe);
+                                        } else if slots[1].as_ref().is_some_and(|e| e.map_ptr == mp && e.key_ptr == kp) {
+                                            slots[1] = Some(newe);
+                                        } else {
+                                            slots[3] = slots[2].clone();
+                                            slots[2] = slots[1].clone();
+                                            slots[1] = slots[0].clone();
+                                            slots[0] = Some(newe);
+                                        }
+                                    }
+                                    _ => {
+                                        access_ic[pc] = Some(AccessIc::MapStr([
+                                            Some(MapStrEntry {
+                                                map_ptr: mp,
+                                                key_ptr: kp,
+                                                value: v.clone(),
+                                            }),
+                                            None,
+                                            None,
+                                            None,
+                                        ]));
+                                    }
                                 }
-                                (Val::Object { fields, .. }, Val::Str(s)) => {
-                                    access_ic[pc] = Some(AccessIc::ObjectStr {
-                                        obj_ptr: Arc::as_ptr(fields) as usize,
-                                        key: s.as_ref().to_string(),
-                                        value: v.clone(),
-                                    });
-                                }
-                                _ => {}
                             }
+                            (Val::Object { fields, .. }, Val::Str(s)) => {
+                                let optr = Arc::as_ptr(fields) as usize;
+                                match access_ic[pc].as_mut() {
+                                    Some(AccessIc::ObjectStr(slots)) => {
+                                        let newe = ObjectStrEntry {
+                                            obj_ptr: optr,
+                                            key: s.as_ref().to_string(),
+                                            value: v.clone(),
+                                        };
+                                        if slots[0].as_ref().is_some_and(|e| e.obj_ptr == optr && e.key.as_str() == s.as_ref()) {
+                                            slots[0] = Some(newe);
+                                        } else if slots[1].as_ref().is_some_and(|e| e.obj_ptr == optr && e.key.as_str() == s.as_ref()) {
+                                            slots[1] = Some(newe);
+                                        } else {
+                                            slots[3] = slots[2].clone();
+                                            slots[2] = slots[1].clone();
+                                            slots[1] = slots[0].clone();
+                                            slots[0] = Some(newe);
+                                        }
+                                    }
+                                    _ => {
+                                        access_ic[pc] = Some(AccessIc::ObjectStr([
+                                            Some(ObjectStrEntry {
+                                                obj_ptr: optr,
+                                                key: s.as_ref().to_string(),
+                                                value: v.clone(),
+                                            }),
+                                            None,
+                                            None,
+                                            None,
+                                        ]));
+                                    }
+                                }
+                            }
+                            _ => {}
                         }
                         v
                     };
@@ -731,34 +1217,89 @@ impl Vm {
                     let key = &f.consts[*kidx as usize];
                     // Only valid for string constants; otherwise yield Nil
                     let res = if let Val::Str(s) = key {
-                        // IC for Map[String] with constant key
-                        let (hit_val, update) = match &regs[*base as usize] {
+                        let (hit_val, mp, kp, obj) = match &regs[*base as usize] {
                             Val::Map(m) => {
                                 let mp = Arc::as_ptr(m) as usize;
                                 let kp = s.as_ref().as_ptr() as usize;
-                                if let Some(AccessIc::MapStr { map_ptr, key_ptr, value }) = &access_ic[pc] {
-                                    if *map_ptr == mp && *key_ptr == kp {
-                                        (Some(value.clone()), false)
-                                    } else {
-                                        (None, true)
+                                if let Some(AccessIc::MapStr(slots)) = &access_ic[pc] {
+                                    let mut out: Option<Val> = None;
+                                    for e in slots.iter().flatten() {
+                                        if e.map_ptr == mp && e.key_ptr == kp { out = Some(e.value.clone()); break; }
                                     }
+                                    (out, Some(mp), Some(kp), false)
                                 } else {
-                                    (None, true)
+                                    (None, Some(mp), Some(kp), false)
                                 }
                             }
-                            _ => (None, false),
+                            Val::Object { fields, .. } => {
+                                let optr = Arc::as_ptr(fields) as usize;
+                                if let Some(AccessIc::ObjectStr(slots)) = &access_ic[pc] {
+                                    let mut out: Option<Val> = None;
+                                    for e in slots.iter().flatten() {
+                                        if e.obj_ptr == optr && e.key.as_str() == s.as_ref() { out = Some(e.value.clone()); break; }
+                                    }
+                                    (out, None, None, true)
+                                } else {
+                                    (None, None, None, true)
+                                }
+                            }
+                            _ => (None, None, None, false),
                         };
                         if let Some(v) = hit_val {
                             v
                         } else {
                             let v = regs[*base as usize].access(key).unwrap_or(Val::Nil);
-                            if update {
-                                if let Val::Map(m) = &regs[*base as usize] {
-                                    access_ic[pc] = Some(AccessIc::MapStr {
-                                        map_ptr: Arc::as_ptr(m) as usize,
-                                        key_ptr: s.as_ref().as_ptr() as usize,
-                                        value: v.clone(),
-                                    });
+                            if let (Some(mp), Some(kp)) = (mp, kp) {
+                                match access_ic[pc].as_mut() {
+                                    Some(AccessIc::MapStr(slots)) => {
+                                        let newe = MapStrEntry {
+                                            map_ptr: mp,
+                                            key_ptr: kp,
+                                            value: v.clone(),
+                                        };
+                                        if slots[0].as_ref().is_some_and(|e| e.map_ptr == mp && e.key_ptr == kp) {
+                                            slots[0] = Some(newe);
+                                        } else if slots[1].as_ref().is_some_and(|e| e.map_ptr == mp && e.key_ptr == kp) {
+                                            slots[1] = Some(newe);
+                                        } else {
+                                            slots[3] = slots[2].clone();
+                                            slots[2] = slots[1].clone();
+                                            slots[1] = slots[0].clone();
+                                            slots[0] = Some(newe);
+                                        }
+                                    }
+                                    _ => {
+                                        access_ic[pc] = Some(AccessIc::MapStr([
+                                            Some(MapStrEntry {
+                                                map_ptr: mp,
+                                                key_ptr: kp,
+                                                value: v.clone(),
+                                            }),
+                                            None,
+                                            None,
+                                            None,
+                                        ]));
+                                    }
+                                }
+                            } else if obj {
+                                match access_ic[pc].as_mut() {
+                                    Some(AccessIc::ObjectStr(slots)) => {
+                                        let newe = ObjectStrEntry { obj_ptr: Arc::as_ptr(match &regs[*base as usize] { Val::Object{fields,..}=>fields, _=> unreachable!() }) as usize, key: s.as_ref().to_string(), value: v.clone() };
+                                        if slots[0].as_ref().is_some_and(|e| e.obj_ptr == newe.obj_ptr && e.key.as_str() == s.as_ref()) {
+                                            slots[0] = Some(newe);
+                                        } else if slots[1].as_ref().is_some_and(|e| e.obj_ptr == newe.obj_ptr && e.key.as_str() == s.as_ref()) {
+                                            slots[1] = Some(newe);
+                                        } else {
+                                            slots[3] = slots[2].clone();
+                                            slots[2] = slots[1].clone();
+                                            slots[1] = slots[0].clone();
+                                            slots[0] = Some(newe);
+                                        }
+                                    }
+                                    _ => {
+                                        let optr = Arc::as_ptr(match &regs[*base as usize] { Val::Object{fields,..}=>fields, _=> unreachable!() }) as usize;
+                                        access_ic[pc] = Some(AccessIc::ObjectStr([Some(ObjectStrEntry { obj_ptr: optr, key: s.as_ref().to_string(), value: v.clone() }), None, None, None]));
+                                    }
                                 }
                             }
                             v
@@ -787,13 +1328,42 @@ impl Vm {
                                 Val::Nil
                             } else {
                                 let lptr = Arc::as_ptr(l) as *const Val as usize;
-                                if let Some(IndexIc::List { base_ptr, idx, value }) = &index_ic[pc]
-                                    && *base_ptr == lptr && *idx == *i
-                                {
-                                    value.clone()
+                                let hit = if let Some(IndexIc::List(slots)) = &index_ic[pc] {
+                                    let mut out: Option<Val> = None;
+                                    for e in slots.iter().flatten() {
+                                        if e.base_ptr == lptr && e.idx == *i {
+                                            out = Some(e.value.clone());
+                                            break;
+                                        }
+                                    }
+                                    out
+                                } else { None };
+                                if let Some(v) = hit {
+                                    v
                                 } else {
                                     let v = l.get(*i as usize).cloned().unwrap_or(Val::Nil);
-                                    index_ic[pc] = Some(IndexIc::List { base_ptr: lptr, idx: *i, value: v.clone() });
+                                    match index_ic[pc].as_mut() {
+                                        Some(IndexIc::List(slots)) => {
+                                            let newe = ListEntry {
+                                                base_ptr: lptr,
+                                                idx: *i,
+                                                value: v.clone(),
+                                            };
+                                            if slots[0].as_ref().is_some_and(|e| e.base_ptr == lptr && e.idx == *i) {
+                                                slots[0] = Some(newe);
+                                            } else if slots[1].as_ref().is_some_and(|e| e.base_ptr == lptr && e.idx == *i) {
+                                                slots[1] = Some(newe);
+                                            } else {
+                                                slots[3] = slots[2].clone();
+                                                slots[2] = slots[1].clone();
+                                                slots[1] = slots[0].clone();
+                                                slots[0] = Some(newe);
+                                            }
+                                        }
+                                        _ => {
+                                            index_ic[pc] = Some(IndexIc::List([Some(ListEntry { base_ptr: lptr, idx: *i, value: v.clone() }), None, None, None]));
+                                        }
+                                    }
                                     v
                                 }
                             }
@@ -803,17 +1373,46 @@ impl Vm {
                                 Val::Nil
                             } else {
                                 let sptr = s.as_ref().as_ptr() as usize;
-                                if let Some(IndexIc::Str { base_ptr, idx, value }) = &index_ic[pc]
-                                    && *base_ptr == sptr && *idx == *i
-                                {
-                                    value.clone()
+                                let hit = if let Some(IndexIc::Str(slots)) = &index_ic[pc] {
+                                    let mut out: Option<Val> = None;
+                                    for e in slots.iter().flatten() {
+                                        if e.base_ptr == sptr && e.idx == *i {
+                                            out = Some(e.value.clone());
+                                            break;
+                                        }
+                                    }
+                                    out
+                                } else { None };
+                                if let Some(v) = hit {
+                                    v
                                 } else {
                                     let v = s
                                         .chars()
                                         .nth(*i as usize)
                                         .map(|c| Val::Str(c.to_string().into()))
                                         .unwrap_or(Val::Nil);
-                                    index_ic[pc] = Some(IndexIc::Str { base_ptr: sptr, idx: *i, value: v.clone() });
+                                    match index_ic[pc].as_mut() {
+                                        Some(IndexIc::Str(slots)) => {
+                                            let newe = StrEntry {
+                                                base_ptr: sptr,
+                                                idx: *i,
+                                                value: v.clone(),
+                                            };
+                                            if slots[0].as_ref().is_some_and(|e| e.base_ptr == sptr && e.idx == *i) {
+                                                slots[0] = Some(newe);
+                                            } else if slots[1].as_ref().is_some_and(|e| e.base_ptr == sptr && e.idx == *i) {
+                                                slots[1] = Some(newe);
+                                            } else {
+                                                slots[3] = slots[2].clone();
+                                                slots[2] = slots[1].clone();
+                                                slots[1] = slots[0].clone();
+                                                slots[0] = Some(newe);
+                                            }
+                                        }
+                                        _ => {
+                                            index_ic[pc] = Some(IndexIc::Str([Some(StrEntry { base_ptr: sptr, idx: *i, value: v.clone() }), None, None, None]));
+                                        }
+                                    }
                                     v
                                 }
                             }
@@ -828,14 +1427,36 @@ impl Vm {
                     let res = if let Val::Int(i) = key {
                         match &regs[*base as usize] {
                             Val::List(l) => {
-                                if *i < 0 { Val::Nil } else { l.get(*i as usize).cloned().unwrap_or(Val::Nil) }
+                                if *i < 0 {
+                                    Val::Nil
+                                } else {
+                                    l.get(*i as usize).cloned().unwrap_or(Val::Nil)
+                                }
                             }
                             Val::Str(s) => {
-                                if *i < 0 { Val::Nil } else { s.chars().nth(*i as usize).map(|c| Val::Str(c.to_string().into())).unwrap_or(Val::Nil) }
+                                if *i < 0 {
+                                    Val::Nil
+                                } else if s.is_ascii() {
+                                    let bi = *i as usize;
+                                    let bs = s.as_bytes();
+                                    if bi < bs.len() {
+                                        let ch = bs[bi] as char;
+                                        Val::Str(ch.to_string().into())
+                                    } else {
+                                        Val::Nil
+                                    }
+                                } else {
+                                    s.chars()
+                                        .nth(*i as usize)
+                                        .map(|c| Val::Str(c.to_string().into()))
+                                        .unwrap_or(Val::Nil)
+                                }
                             }
                             _ => Val::Nil,
                         }
-                    } else { Val::Nil };
+                    } else {
+                        Val::Nil
+                    };
                     regs[*dst as usize] = res;
                     pc += 1;
                 }
@@ -872,22 +1493,22 @@ impl Vm {
                 Op::BuildMap { dst, base, len } => {
                     let start = *base as usize;
                     let n = *len as usize;
-                    let mut map: std::collections::HashMap<String, Val> = std::collections::HashMap::with_capacity(n);
+                    let mut map: std::collections::HashMap<Arc<str>, Val> = std::collections::HashMap::with_capacity(n);
                     for i in 0..n {
                         let k = &regs[start + 2 * i];
                         let v = regs[start + 2 * i + 1].clone();
-                        let key_str = match k {
-                            Val::Str(s) => s.as_ref().to_string(),
-                            Val::Int(i) => i.to_string(),
-                            Val::Float(f) => f.to_string(),
-                            Val::Bool(b) => b.to_string(),
+                        let key_arc: Arc<str> = match k {
+                            Val::Str(s) => s.clone(),
+                            Val::Int(i) => Arc::from(i.to_string()),
+                            Val::Float(f) => Arc::from(f.to_string()),
+                            Val::Bool(b) => Arc::from(b.to_string()),
                             _ => {
                                 return Err(anyhow!("Map key must be a primitive type, got: {:?}", k));
                             }
                         };
-                        map.insert(key_str, v);
+                        map.insert(key_arc, v);
                     }
-                    regs[*dst as usize] = Val::from(map);
+                    regs[*dst as usize] = Val::Map(Arc::new(map));
                     pc += 1;
                 }
                 Op::ListSlice { dst, src, start } => {
@@ -1118,6 +1739,7 @@ impl Vm {
         Ok(Val::Nil)
     }
 
+    #[inline(always)]
     fn arith2_try_numeric(
         regs: &mut [Val],
         dst: u16,
@@ -1148,6 +1770,7 @@ impl Vm {
         }
     }
 
+    #[inline(always)]
     fn cmp2_try_numeric(
         regs: &mut [Val],
         dst: u16,

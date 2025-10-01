@@ -141,8 +141,7 @@ impl ModuleResolver {
     /// and returns the map of top-level definitions as the module exports.
     pub fn resolve_source(&self, src: &str) -> Result<Val> {
         // Tokenize with spans for better diagnostics
-        let (tokens, spans) = Tokenizer::tokenize_enhanced_with_spans(src)
-            .map_err(|e| anyhow!(e.to_string()))?;
+        let (tokens, spans) = Tokenizer::tokenize_enhanced_with_spans(src).map_err(|e| anyhow!(e.to_string()))?;
 
         // Parse program with enhanced errors
         let mut parser = StmtParser::new_with_spans(&tokens, &spans);

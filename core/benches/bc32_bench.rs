@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use qcl_core::{expr::Expr, stmt::Stmt, val::Val};
 
 fn make_packable_function() -> qcl_core::vm::Function {
@@ -34,9 +34,7 @@ fn bc32_bench(c: &mut Criterion) {
         b.iter(|| {
             let mut vm = qcl_core::vm::Vm::new();
             let mut env = qcl_core::stmt::Environment::new();
-            let out = vm
-                .exec_with(&f_bc32, Some(&mut env), Some(&args))
-                .unwrap();
+            let out = vm.exec_with(&f_bc32, Some(&mut env), Some(&args)).unwrap();
             black_box(out);
         })
     });

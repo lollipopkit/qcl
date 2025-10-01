@@ -1,3 +1,4 @@
+use qcl_core::resolve::slots::{FunctionLayout, SlotResolver};
 use qcl_core::{
     ast::Parser as ExprParser,
     expr::Expr,
@@ -7,7 +8,6 @@ use qcl_core::{
     typ::TypeChecker,
     val::Val,
 };
-use qcl_core::resolve::slots::{FunctionLayout, SlotResolver};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use tower_lsp::lsp_types::*;
@@ -833,10 +833,7 @@ impl QclAnalyzer {
                                     .first()
                                     .map(|s| s.range.start)
                                     .unwrap_or(Position::new(0, 0)),
-                                import_syms
-                                    .last()
-                                    .map(|s| s.range.end)
-                                    .unwrap_or(Position::new(0, 0)),
+                                import_syms.last().map(|s| s.range.end).unwrap_or(Position::new(0, 0)),
                             );
                             let imports_container = DocumentSymbol {
                                 name: "Imports".to_string(),
@@ -855,12 +852,14 @@ impl QclAnalyzer {
                         let fblocks = Self::scan_function_blocks(&tokens, &spans);
                         let (parents, children) = Self::compute_fn_block_hierarchy(&fblocks);
                         // Top-level functions in source order
-                        let mut top_indices: Vec<usize> = (0..fblocks.len()).filter(|&i| parents[i].is_none()).collect();
+                        let mut top_indices: Vec<usize> =
+                            (0..fblocks.len()).filter(|&i| parents[i].is_none()).collect();
                         // Preserve source order as in fblocks
                         top_indices.sort();
                         for (top_ord, i) in top_indices.iter().enumerate() {
                             let layout_opt = enriched.children.get(top_ord);
-                            let sym = Self::build_function_symbol_tree(&fblocks, &children, *i, layout_opt, &tokens, &spans);
+                            let sym =
+                                Self::build_function_symbol_tree(&fblocks, &children, *i, layout_opt, &tokens, &spans);
                             result.symbols.push(sym);
                         }
 
@@ -996,7 +995,10 @@ impl QclAnalyzer {
         let toplevel_decl_spans = Self::scan_toplevel_decl_spans(tokens, spans, &fblocks);
 
         // Helper to assign spans to decls from a queue per name
-        fn assign_spans(mut decls: Vec<qcl_core::resolve::slots::Decl>, pool: &mut HashMap<String, Vec<Span>>) -> Vec<qcl_core::resolve::slots::Decl> {
+        fn assign_spans(
+            mut decls: Vec<qcl_core::resolve::slots::Decl>,
+            pool: &mut HashMap<String, Vec<Span>>,
+        ) -> Vec<qcl_core::resolve::slots::Decl> {
             for d in decls.iter_mut() {
                 if let Some(list) = pool.get_mut(&d.name) {
                     if !list.is_empty() {
@@ -1033,7 +1035,11 @@ impl QclAnalyzer {
         fn fblock_param_signature(fb: &FnBlockInfo) -> Vec<String> {
             fb.param_spans.iter().map(|(n, _)| n.clone()).collect()
         }
-        fn fb_locals_pool(tokens: &[qcl_core::token::Token], spans: &[Span], fb: &FnBlockInfo) -> HashMap<String, Vec<Span>> {
+        fn fb_locals_pool(
+            tokens: &[qcl_core::token::Token],
+            spans: &[Span],
+            fb: &FnBlockInfo,
+        ) -> HashMap<String, Vec<Span>> {
             let mut pool: HashMap<String, Vec<Span>> = HashMap::new();
             for (pname, pspan) in fb.param_spans.iter() {
                 pool.entry(pname.clone()).or_default().push(pspan.clone());
@@ -1046,14 +1052,20 @@ impl QclAnalyzer {
         }
 
         // Align a list of child layouts to a set of function block indices in order
-        fn align_children(layouts: &[FunctionLayout], fb_indices: &[usize], fblocks: &[FnBlockInfo]) -> Vec<Option<usize>> {
+        fn align_children(
+            layouts: &[FunctionLayout],
+            fb_indices: &[usize],
+            fblocks: &[FnBlockInfo],
+        ) -> Vec<Option<usize>> {
             let mut used = vec![false; layouts.len()];
             let mut mapping: Vec<Option<usize>> = vec![None; fb_indices.len()];
             for (pos, &fi) in fb_indices.iter().enumerate() {
                 let fb_sig = fblock_param_signature(&fblocks[fi]);
                 let mut best: Option<(usize, i32)> = None; // (layout_idx, score)
                 for (li, lay) in layouts.iter().enumerate() {
-                    if used[li] { continue; }
+                    if used[li] {
+                        continue;
+                    }
                     let lsig = layout_param_signature(lay);
                     let score = if lsig == fb_sig {
                         1000 + lsig.len() as i32
@@ -1084,8 +1096,21 @@ impl QclAnalyzer {
             let fb_idx = top_indices[ord];
             let fb = &fblocks[fb_idx];
             let mut pool = fb_locals_pool(tokens, spans, fb);
-            let base = maybe_li.and_then(|li| layout.children.get(li)).cloned().unwrap_or_else(|| FunctionLayout { decls: Vec::new(), total_locals: 0, uses: Vec::new(), children: Vec::new() });
-            let mut enriched_child = FunctionLayout { decls: assign_spans(base.decls, &mut pool), total_locals: base.total_locals, uses: base.uses, children: Vec::new() };
+            let base = maybe_li
+                .and_then(|li| layout.children.get(li))
+                .cloned()
+                .unwrap_or_else(|| FunctionLayout {
+                    decls: Vec::new(),
+                    total_locals: 0,
+                    uses: Vec::new(),
+                    children: Vec::new(),
+                });
+            let mut enriched_child = FunctionLayout {
+                decls: assign_spans(base.decls, &mut pool),
+                total_locals: base.total_locals,
+                uses: base.uses,
+                children: Vec::new(),
+            };
 
             // Nested children alignment
             let child_fb_indices = children_map.get(fb_idx).cloned().unwrap_or_default();
@@ -1095,8 +1120,21 @@ impl QclAnalyzer {
                 let cfi = child_fb_indices[cpos];
                 let cfb = &fblocks[cfi];
                 let mut cpool = fb_locals_pool(tokens, spans, cfb);
-                let cbase = maybe_cli.and_then(|li| base.children.get(li)).cloned().unwrap_or_else(|| FunctionLayout { decls: Vec::new(), total_locals: 0, uses: Vec::new(), children: Vec::new() });
-                let cenriched = FunctionLayout { decls: assign_spans(cbase.decls, &mut cpool), total_locals: cbase.total_locals, uses: cbase.uses, children: Vec::new() };
+                let cbase = maybe_cli
+                    .and_then(|li| base.children.get(li))
+                    .cloned()
+                    .unwrap_or_else(|| FunctionLayout {
+                        decls: Vec::new(),
+                        total_locals: 0,
+                        uses: Vec::new(),
+                        children: Vec::new(),
+                    });
+                let cenriched = FunctionLayout {
+                    decls: assign_spans(cbase.decls, &mut cpool),
+                    total_locals: cbase.total_locals,
+                    uses: cbase.uses,
+                    children: Vec::new(),
+                };
                 nested_children.push(cenriched);
             }
             enriched_child.children = nested_children;
@@ -1105,27 +1143,23 @@ impl QclAnalyzer {
         new_root.children = built_children;
         new_root
     }
-
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct FnBlockInfo {
-        name: String,
-        name_span: Span,
-        /// Token index of '{' starting the body
+    name: String,
+    name_span: Span,
+    /// Token index of '{' starting the body
     pub(crate) body_start_idx: usize,
-        /// Token index of the matching '}' ending the body
+    /// Token index of the matching '}' ending the body
     pub(crate) body_end_idx: usize,
-        /// Parameter identifier spans (name -> span)
-        param_spans: Vec<(String, Span)>,
-    }
+    /// Parameter identifier spans (name -> span)
+    param_spans: Vec<(String, Span)>,
+}
 
 impl QclAnalyzer {
     /// Scan function blocks in source order: name, name span, body token range, and param spans.
-    pub(crate) fn scan_function_blocks(
-        tokens: &[qcl_core::token::Token],
-        spans: &[Span],
-    ) -> Vec<FnBlockInfo> {
+    pub(crate) fn scan_function_blocks(tokens: &[qcl_core::token::Token], spans: &[Span]) -> Vec<FnBlockInfo> {
         use qcl_core::token::Token as T;
         let mut i = 0usize;
         let mut out: Vec<FnBlockInfo> = Vec::new();
@@ -1283,7 +1317,8 @@ impl QclAnalyzer {
             out.push((fb.name.clone(), fb.name_span.clone()));
         }
         // Scan all tokens skipping over function bodies
-        let mut skip_ranges: Vec<(usize, usize)> = fblocks.iter().map(|fb| (fb.body_start_idx, fb.body_end_idx)).collect();
+        let mut skip_ranges: Vec<(usize, usize)> =
+            fblocks.iter().map(|fb| (fb.body_start_idx, fb.body_end_idx)).collect();
         skip_ranges.sort_by_key(|r| r.0);
         let mut i = 0usize;
         let mut ri = 0usize;
@@ -1385,12 +1420,7 @@ impl QclAnalyzer {
         let mut locals: Vec<DocumentSymbol> = Vec::new();
         for sym in Self::collect_decl_symbols(layout) {
             // classify by detail text prefix
-            if sym
-                .detail
-                .as_ref()
-                .map(|d| d.starts_with("Parameter"))
-                .unwrap_or(false)
-            {
+            if sym.detail.as_ref().map(|d| d.starts_with("Parameter")).unwrap_or(false) {
                 params.push(sym);
             } else {
                 locals.push(sym);
@@ -1514,7 +1544,9 @@ impl QclAnalyzer {
             let e_i = fi.body_end_idx;
             let mut best: Option<(usize, usize)> = None; // (j, span_len)
             for (j, fj) in fblocks.iter().enumerate().take(n) {
-                if i == j { continue; }
+                if i == j {
+                    continue;
+                }
                 let s_j = fj.body_start_idx;
                 let e_j = fj.body_end_idx;
                 if s_j <= s_i && e_j >= e_i {
@@ -1524,11 +1556,15 @@ impl QclAnalyzer {
                     }
                 }
             }
-            if let Some((pj, _)) = best { parent[i] = Some(pj); }
+            if let Some((pj, _)) = best {
+                parent[i] = Some(pj);
+            }
         }
         let mut children: Vec<Vec<usize>> = vec![Vec::new(); n];
         for (i, pi) in parent.iter().enumerate().take(n) {
-            if let Some(p) = *pi { children[p].push(i); }
+            if let Some(p) = *pi {
+                children[p].push(i);
+            }
         }
         (parent, children)
     }
@@ -1632,7 +1668,8 @@ impl QclAnalyzer {
         let child_idxs = children_map.get(idx).cloned().unwrap_or_default();
         for (ord, child_i) in child_idxs.iter().enumerate() {
             let child_layout_opt = layout_opt.and_then(|l| l.children.get(ord));
-            let child_sym = Self::build_function_symbol_tree(fblocks, children_map, *child_i, child_layout_opt, tokens, spans);
+            let child_sym =
+                Self::build_function_symbol_tree(fblocks, children_map, *child_i, child_layout_opt, tokens, spans);
             kids.push(child_sym);
         }
         // Try to infer return type for function detail
@@ -1661,14 +1698,13 @@ impl QclAnalyzer {
     }
 
     /// Infer a function's return type by scanning return statements inside its body.
-    fn infer_fn_return_type_for_block(
-        tokens: &[qcl_core::token::Token],
-        fb: &FnBlockInfo,
-    ) -> Option<String> {
+    fn infer_fn_return_type_for_block(tokens: &[qcl_core::token::Token], fb: &FnBlockInfo) -> Option<String> {
         use qcl_core::token::Token as T;
         let mut k = fb.body_start_idx + 1;
         let body_end = fb.body_end_idx;
-        if body_end <= k { return None; }
+        if body_end <= k {
+            return None;
+        }
         let mut return_types: Vec<qcl_core::val::Type> = Vec::new();
         while k < body_end {
             if matches!(tokens[k], T::Return) {
@@ -1701,15 +1737,21 @@ impl QclAnalyzer {
             }
             k += 1;
         }
-        if return_types.is_empty() { return None; }
+        if return_types.is_empty() {
+            return None;
+        }
         use std::collections::BTreeMap;
         let mut by_key: BTreeMap<String, qcl_core::val::Type> = BTreeMap::new();
-        for t in return_types { by_key.entry(t.display()).or_insert(t); }
+        for t in return_types {
+            by_key.entry(t.display()).or_insert(t);
+        }
         let parts: Vec<String> = by_key.into_keys().collect();
-        Some(if parts.len() == 1 { parts[0].clone() } else { parts.join(" | ") })
+        Some(if parts.len() == 1 {
+            parts[0].clone()
+        } else {
+            parts.join(" | ")
+        })
     }
-
-    
 
     /// List available stdlib module names
     pub fn list_stdlib_modules(&self) -> Vec<String> {

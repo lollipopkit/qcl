@@ -35,12 +35,24 @@ pub enum Op {
     JmpIfNil(u16 /*r*/, i16 /*ofs*/),
     JmpIfNotNil(u16 /*r*/, i16 /*ofs*/),
     // Nullish coalescing fused branch: if l != nil { dst = l; jmp ofs } else fallthrough
-    NullishPick { l: u16, dst: u16, ofs: i16 },
+    NullishPick {
+        l: u16,
+        dst: u16,
+        ofs: i16,
+    },
     // Boolean short-circuit helpers that also set a boolean result register
     // If r is falsey: set dst=false and jump by ofs; else fallthrough
-    JmpFalseSet { r: u16, dst: u16, ofs: i16 },
+    JmpFalseSet {
+        r: u16,
+        dst: u16,
+        ofs: i16,
+    },
     // If r is truthy: set dst=true and jump by ofs; else fallthrough
-    JmpTrueSet { r: u16, dst: u16, ofs: i16 },
+    JmpTrueSet {
+        r: u16,
+        dst: u16,
+        ofs: i16,
+    },
     // Arithmetic
     Add(u16 /*dst*/, u16 /*a*/, u16 /*b*/),
     Sub(u16, u16, u16),

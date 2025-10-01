@@ -1,5 +1,6 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use qcl_core::expr::Expr;
+use qcl_core::stmt::Environment;
 use qcl_core::val::Val;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -55,10 +56,14 @@ fn bench_evaluation(c: &mut Criterion) {
         })
     });
 
-    // Evaluate non-folded expression
+    // Evaluate non-folded expression in an environment with x bound
+    let mut env = Environment::new();
+    env.define("x".to_string(), Val::Int(1));
     c.bench_function("eval_not_folded", |b| {
+        // Reuse the same environment reference across iterations
+        let env_ref = &env;
         b.iter(|| {
-            black_box(expr_nonconstant.eval().unwrap());
+            black_box(expr_nonconstant.eval_with_env(Some(env_ref)).unwrap());
         })
     });
 }
@@ -71,31 +76,53 @@ fn bench_in_operator(c: &mut Criterion) {
     let expr_in_map = Expr::parse_cached_arc("key in bigmap").unwrap();
     let expr_in_str = Expr::parse_cached_arc("\"z\" in bigstr").unwrap();
 
+    // Prepare environment for variables used in expressions
+    let mut env = Environment::new();
+    // small list (100 items) and a present value
+    let small: Vec<Val> = (0..100).map(Val::Int).collect();
+    env.define("smalllist".to_string(), Val::List(Arc::from(small)));
+    env.define("val_small".to_string(), Val::Int(42));
+    // big list (100_000 items) and a present value
+    let big: Vec<Val> = (0..100_000).map(Val::Int).collect();
+    env.define("biglist".to_string(), Val::List(Arc::from(big)));
+    env.define("val_large".to_string(), Val::Int(99_999));
+    // big map with string keys
+    let mut m = std::collections::HashMap::new();
+    for i in 0..10_000 {
+        m.insert(format!("k{}", i), Val::Int(i as i64));
+    }
+    env.define("bigmap".to_string(), Val::from(m));
+    env.define("key".to_string(), Val::Str(Arc::from("k5000")));
+    // big string for substring test
+    let bigs = "abcdefghijklmnopqrstuvwxyz".repeat(10_000);
+    env.define("bigstr".to_string(), Val::Str(Arc::from(bigs)));
+    let env_ref = &env;
+
     // Small list membership
     c.bench_function("in_list_small", |b| {
         b.iter(|| {
-            black_box(expr_in_list_small.eval().unwrap());
+            black_box(expr_in_list_small.eval_with_env(Some(env_ref)).unwrap());
         })
     });
 
     // Large list membership
     c.bench_function("in_list_large", |b| {
         b.iter(|| {
-            black_box(expr_in_list_large.eval().unwrap());
+            black_box(expr_in_list_large.eval_with_env(Some(env_ref)).unwrap());
         })
     });
 
     // Map key lookup
     c.bench_function("in_map_keys", |b| {
         b.iter(|| {
-            black_box(expr_in_map.eval().unwrap());
+            black_box(expr_in_map.eval_with_env(Some(env_ref)).unwrap());
         })
     });
 
     // String substring lookup
     c.bench_function("in_string", |b| {
         b.iter(|| {
-            black_box(expr_in_str.eval().unwrap());
+            black_box(expr_in_str.eval_with_env(Some(env_ref)).unwrap());
         })
     });
 }
@@ -288,6 +315,13 @@ fn bench_complex_arithmetic(c: &mut Criterion) {
     ctx_map.insert("map1".to_string(), Val::from(map1));
     ctx_map.insert("map2".to_string(), Val::from(map2));
 
+    // Build an evaluation environment from ctx_map
+    let mut env = Environment::new();
+    for (k, v) in ctx_map.into_iter() {
+        env.define(k, v);
+    }
+    let env_ref = &env;
+
     // Complex arithmetic operations that trigger multiple clones
     let expr_list_ops = Expr::parse_cached_arc("list1 + list2 - [75, 76, 77]").unwrap();
     let expr_map_ops = Expr::parse_cached_arc("map1 + map2 - \"key25\"").unwrap();
@@ -295,21 +329,21 @@ fn bench_complex_arithmetic(c: &mut Criterion) {
 
     c.bench_function("complex_list_arithmetic", |b| {
         b.iter(|| {
-            let result = expr_list_ops.eval().unwrap();
+            let result = expr_list_ops.eval_with_env(Some(env_ref)).unwrap();
             black_box(result);
         })
     });
 
     c.bench_function("complex_map_arithmetic", |b| {
         b.iter(|| {
-            let result = expr_map_ops.eval().unwrap();
+            let result = expr_map_ops.eval_with_env(Some(env_ref)).unwrap();
             black_box(result);
         })
     });
 
     c.bench_function("complex_mixed_arithmetic", |b| {
         b.iter(|| {
-            let result = expr_mixed.eval().unwrap();
+            let result = expr_mixed.eval_with_env(Some(env_ref)).unwrap();
             black_box(result);
         })
     });

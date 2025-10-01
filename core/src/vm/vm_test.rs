@@ -32,13 +32,33 @@ mod tests {
         // Program: x=0; for _ in 0..3 { x = x + 1 } return x
         let program = Stmt::Block {
             statements: vec![
-                Box::new(Stmt::Define { name: "x".into(), value: Box::new(Expr::Val(Val::Int(0))) }),
+                Box::new(Stmt::Define {
+                    name: "x".into(),
+                    value: Box::new(Expr::Val(Val::Int(0))),
+                }),
                 Box::new(Stmt::For {
                     pattern: ForPattern::Ignore,
-                    iterable: Box::new(Expr::Range { start: Some(Box::new(Expr::Val(Val::Int(0)))), end: Some(Box::new(Expr::Val(Val::Int(3)))), inclusive: false, step: None }),
-                    body: Box::new(Stmt::Block { statements: vec![ Box::new(Stmt::Assign { name: "x".into(), value: Box::new(Expr::Bin(Box::new(Expr::Var("x".into())), crate::op::BinOp::Add, Box::new(Expr::Val(Val::Int(1))))), span: None }) ] }),
+                    iterable: Box::new(Expr::Range {
+                        start: Some(Box::new(Expr::Val(Val::Int(0)))),
+                        end: Some(Box::new(Expr::Val(Val::Int(3)))),
+                        inclusive: false,
+                        step: None,
+                    }),
+                    body: Box::new(Stmt::Block {
+                        statements: vec![Box::new(Stmt::Assign {
+                            name: "x".into(),
+                            value: Box::new(Expr::Bin(
+                                Box::new(Expr::Var("x".into())),
+                                crate::op::BinOp::Add,
+                                Box::new(Expr::Val(Val::Int(1))),
+                            )),
+                            span: None,
+                        })],
+                    }),
                 }),
-                Box::new(Stmt::Return { value: Some(Box::new(Expr::Var("x".into()))) }),
+                Box::new(Stmt::Return {
+                    value: Some(Box::new(Expr::Var("x".into()))),
+                }),
             ],
         };
         let fun = crate::vm::Compiler::new().compile_stmt(&program);
@@ -51,11 +71,20 @@ mod tests {
             let mut seen_step = 0;
             for &w in code32.iter() {
                 let tag = crate::vm::tag_of(w);
-                if tag == crate::vm::TAG_FOR_RANGE_PREP { seen_prep += 1; }
-                if tag == crate::vm::TAG_FOR_RANGE_GUARD { seen_guard += 1; }
-                if tag == crate::vm::TAG_FOR_RANGE_STEP { seen_step += 1; }
+                if tag == crate::vm::TAG_FOR_RANGE_PREP {
+                    seen_prep += 1;
+                }
+                if tag == crate::vm::TAG_FOR_RANGE_GUARD {
+                    seen_guard += 1;
+                }
+                if tag == crate::vm::TAG_FOR_RANGE_STEP {
+                    seen_step += 1;
+                }
             }
-            assert!(seen_prep >= 1 && seen_guard >= 1 && seen_step >= 1, "expected ForRange* tags present in bc32 stream");
+            assert!(
+                seen_prep >= 1 && seen_guard >= 1 && seen_step >= 1,
+                "expected ForRange* tags present in bc32 stream"
+            );
         }
         let out = crate::vm::Vm::new().exec(&fun).unwrap();
         assert_eq!(out, Val::Int(3));
@@ -67,13 +96,33 @@ mod tests {
         // Program: x=0; for _ in 5..=1 step -2 { x = x + 1 } return x
         let program = Stmt::Block {
             statements: vec![
-                Box::new(Stmt::Define { name: "x".into(), value: Box::new(Expr::Val(Val::Int(0))) }),
+                Box::new(Stmt::Define {
+                    name: "x".into(),
+                    value: Box::new(Expr::Val(Val::Int(0))),
+                }),
                 Box::new(Stmt::For {
                     pattern: ForPattern::Ignore,
-                    iterable: Box::new(Expr::Range { start: Some(Box::new(Expr::Val(Val::Int(5)))), end: Some(Box::new(Expr::Val(Val::Int(1)))), inclusive: true, step: Some(Box::new(Expr::Val(Val::Int(-2)))) }),
-                    body: Box::new(Stmt::Block { statements: vec![ Box::new(Stmt::Assign { name: "x".into(), value: Box::new(Expr::Bin(Box::new(Expr::Var("x".into())), crate::op::BinOp::Add, Box::new(Expr::Val(Val::Int(1))))), span: None }) ] }),
+                    iterable: Box::new(Expr::Range {
+                        start: Some(Box::new(Expr::Val(Val::Int(5)))),
+                        end: Some(Box::new(Expr::Val(Val::Int(1)))),
+                        inclusive: true,
+                        step: Some(Box::new(Expr::Val(Val::Int(-2)))),
+                    }),
+                    body: Box::new(Stmt::Block {
+                        statements: vec![Box::new(Stmt::Assign {
+                            name: "x".into(),
+                            value: Box::new(Expr::Bin(
+                                Box::new(Expr::Var("x".into())),
+                                crate::op::BinOp::Add,
+                                Box::new(Expr::Val(Val::Int(1))),
+                            )),
+                            span: None,
+                        })],
+                    }),
                 }),
-                Box::new(Stmt::Return { value: Some(Box::new(Expr::Var("x".into()))) }),
+                Box::new(Stmt::Return {
+                    value: Some(Box::new(Expr::Var("x".into()))),
+                }),
             ],
         };
         let fun = crate::vm::Compiler::new().compile_stmt(&program);
@@ -90,13 +139,33 @@ mod tests {
         // Program: x=0; for _ in 0..=10 step 2 { x = x + 1 } return x
         let program = Stmt::Block {
             statements: vec![
-                Box::new(Stmt::Define { name: "x".into(), value: Box::new(Expr::Val(Val::Int(0))) }),
+                Box::new(Stmt::Define {
+                    name: "x".into(),
+                    value: Box::new(Expr::Val(Val::Int(0))),
+                }),
                 Box::new(Stmt::For {
                     pattern: ForPattern::Ignore,
-                    iterable: Box::new(Expr::Range { start: Some(Box::new(Expr::Val(Val::Int(0)))), end: Some(Box::new(Expr::Val(Val::Int(10)))), inclusive: true, step: Some(Box::new(Expr::Val(Val::Int(2)))) }),
-                    body: Box::new(Stmt::Block { statements: vec![ Box::new(Stmt::Assign { name: "x".into(), value: Box::new(Expr::Bin(Box::new(Expr::Var("x".into())), crate::op::BinOp::Add, Box::new(Expr::Val(Val::Int(1))))), span: None }) ] }),
+                    iterable: Box::new(Expr::Range {
+                        start: Some(Box::new(Expr::Val(Val::Int(0)))),
+                        end: Some(Box::new(Expr::Val(Val::Int(10)))),
+                        inclusive: true,
+                        step: Some(Box::new(Expr::Val(Val::Int(2)))),
+                    }),
+                    body: Box::new(Stmt::Block {
+                        statements: vec![Box::new(Stmt::Assign {
+                            name: "x".into(),
+                            value: Box::new(Expr::Bin(
+                                Box::new(Expr::Var("x".into())),
+                                crate::op::BinOp::Add,
+                                Box::new(Expr::Val(Val::Int(1))),
+                            )),
+                            span: None,
+                        })],
+                    }),
                 }),
-                Box::new(Stmt::Return { value: Some(Box::new(Expr::Var("x".into()))) }),
+                Box::new(Stmt::Return {
+                    value: Some(Box::new(Expr::Var("x".into()))),
+                }),
             ],
         };
         let fun = crate::vm::Compiler::new().compile_stmt(&program);
@@ -127,7 +196,10 @@ mod tests {
             let mut found_ext = false;
             for &w in code32.iter() {
                 let tag = crate::vm::tag_of(w);
-                if tag == crate::vm::TAG_JMP_TRUE_SET_X { found_ext = true; break; }
+                if tag == crate::vm::TAG_JMP_TRUE_SET_X {
+                    found_ext = true;
+                    break;
+                }
             }
             assert!(found_ext, "expected extended JmpTrueSetX to be present for long OR");
         }
@@ -156,7 +228,10 @@ mod tests {
             let mut found_ext = false;
             for &w in code32.iter() {
                 let tag = crate::vm::tag_of(w);
-                if tag == crate::vm::TAG_JMP_FALSE_SET_X { found_ext = true; break; }
+                if tag == crate::vm::TAG_JMP_FALSE_SET_X {
+                    found_ext = true;
+                    break;
+                }
             }
             assert!(found_ext, "expected extended JmpFalseSetX to be present for long AND");
         }
@@ -187,9 +262,15 @@ mod tests {
             let mut found_ext = false;
             for &w in code32.iter() {
                 let tag = crate::vm::tag_of(w);
-                if tag == crate::vm::TAG_NULLISH_PICK_X { found_ext = true; break; }
+                if tag == crate::vm::TAG_NULLISH_PICK_X {
+                    found_ext = true;
+                    break;
+                }
             }
-            assert!(found_ext, "expected extended NullishPickX to be present for long nullish coalescing");
+            assert!(
+                found_ext,
+                "expected extended NullishPickX to be present for long nullish coalescing"
+            );
         }
         // Execution: define x so rhs evaluates cleanly; u is undefined -> nil so rhs taken
         let mut env = crate::stmt::Environment::new();
@@ -207,12 +288,23 @@ mod tests {
         //   x = 1; _ = x; x = 2; _ = x; x = 3; return x
         let program = Stmt::Block {
             statements: vec![
-                Box::new(Stmt::Define { name: "x".into(), value: Box::new(Expr::Val(Val::Int(1))) }),
+                Box::new(Stmt::Define {
+                    name: "x".into(),
+                    value: Box::new(Expr::Val(Val::Int(1))),
+                }),
                 Box::new(Stmt::Expr(Box::new(Expr::Var("x".into())))),
-                Box::new(Stmt::Define { name: "x".into(), value: Box::new(Expr::Val(Val::Int(2))) }),
+                Box::new(Stmt::Define {
+                    name: "x".into(),
+                    value: Box::new(Expr::Val(Val::Int(2))),
+                }),
                 Box::new(Stmt::Expr(Box::new(Expr::Var("x".into())))),
-                Box::new(Stmt::Define { name: "x".into(), value: Box::new(Expr::Val(Val::Int(3))) }),
-                Box::new(Stmt::Return { value: Some(Box::new(Expr::Var("x".into()))) }),
+                Box::new(Stmt::Define {
+                    name: "x".into(),
+                    value: Box::new(Expr::Val(Val::Int(3))),
+                }),
+                Box::new(Stmt::Return {
+                    value: Some(Box::new(Expr::Var("x".into()))),
+                }),
             ],
         };
         let fun = Compiler::new().compile_stmt(&program);
@@ -809,19 +901,13 @@ mod tests {
         use crate::vm::Compiler;
 
         // false ?? 5 -> false (do not coalesce)
-        let expr = Expr::NullishCoalescing(
-            Box::new(Expr::Val(Val::Bool(false))),
-            Box::new(Expr::Val(Val::Int(5))),
-        );
+        let expr = Expr::NullishCoalescing(Box::new(Expr::Val(Val::Bool(false))), Box::new(Expr::Val(Val::Int(5))));
         let fun = Compiler::new().compile_expr(&expr);
         let out = crate::vm::Vm::new().exec(&fun).unwrap();
         assert_eq!(out, Val::Bool(false));
 
         // 0 ?? 5 -> 0
-        let expr = Expr::NullishCoalescing(
-            Box::new(Expr::Val(Val::Int(0))),
-            Box::new(Expr::Val(Val::Int(5))),
-        );
+        let expr = Expr::NullishCoalescing(Box::new(Expr::Val(Val::Int(0))), Box::new(Expr::Val(Val::Int(5))));
         let fun = Compiler::new().compile_expr(&expr);
         let out = crate::vm::Vm::new().exec(&fun).unwrap();
         assert_eq!(out, Val::Int(0));
@@ -886,13 +972,23 @@ mod tests {
         // l = [1,2]; i = -1; return l[i] -> nil
         let program = Stmt::Block {
             statements: vec![
-                Box::new(Stmt::Define { name: "l".into(), value: Box::new(Expr::List(vec![
-                    Box::new(Expr::Val(Val::Int(1))), Box::new(Expr::Val(Val::Int(2)))
-                ])) }),
-                Box::new(Stmt::Define { name: "i".into(), value: Box::new(Expr::Val(Val::Int(-1))) }),
-                Box::new(Stmt::Return { value: Some(Box::new(Expr::Access(
-                    Box::new(Expr::Var("l".into())), Box::new(Expr::Var("i".into()))
-                ))) }),
+                Box::new(Stmt::Define {
+                    name: "l".into(),
+                    value: Box::new(Expr::List(vec![
+                        Box::new(Expr::Val(Val::Int(1))),
+                        Box::new(Expr::Val(Val::Int(2))),
+                    ])),
+                }),
+                Box::new(Stmt::Define {
+                    name: "i".into(),
+                    value: Box::new(Expr::Val(Val::Int(-1))),
+                }),
+                Box::new(Stmt::Return {
+                    value: Some(Box::new(Expr::Access(
+                        Box::new(Expr::Var("l".into())),
+                        Box::new(Expr::Var("i".into())),
+                    ))),
+                }),
             ],
         };
         let fun = crate::vm::Compiler::new().compile_stmt(&program);
@@ -902,13 +998,23 @@ mod tests {
         // i = 5 (overflow) -> nil
         let program2 = Stmt::Block {
             statements: vec![
-                Box::new(Stmt::Define { name: "l".into(), value: Box::new(Expr::List(vec![
-                    Box::new(Expr::Val(Val::Int(1))), Box::new(Expr::Val(Val::Int(2)))
-                ])) }),
-                Box::new(Stmt::Define { name: "i".into(), value: Box::new(Expr::Val(Val::Int(5))) }),
-                Box::new(Stmt::Return { value: Some(Box::new(Expr::Access(
-                    Box::new(Expr::Var("l".into())), Box::new(Expr::Var("i".into()))
-                ))) }),
+                Box::new(Stmt::Define {
+                    name: "l".into(),
+                    value: Box::new(Expr::List(vec![
+                        Box::new(Expr::Val(Val::Int(1))),
+                        Box::new(Expr::Val(Val::Int(2))),
+                    ])),
+                }),
+                Box::new(Stmt::Define {
+                    name: "i".into(),
+                    value: Box::new(Expr::Val(Val::Int(5))),
+                }),
+                Box::new(Stmt::Return {
+                    value: Some(Box::new(Expr::Access(
+                        Box::new(Expr::Var("l".into())),
+                        Box::new(Expr::Var("i".into())),
+                    ))),
+                }),
             ],
         };
         let fun2 = crate::vm::Compiler::new().compile_stmt(&program2);
@@ -922,11 +1028,20 @@ mod tests {
         // s = "ab"; i = -1; return s[i] -> nil
         let program = Stmt::Block {
             statements: vec![
-                Box::new(Stmt::Define { name: "s".into(), value: Box::new(Expr::Val(Val::Str("ab".into()))) }),
-                Box::new(Stmt::Define { name: "i".into(), value: Box::new(Expr::Val(Val::Int(-1))) }),
-                Box::new(Stmt::Return { value: Some(Box::new(Expr::Access(
-                    Box::new(Expr::Var("s".into())), Box::new(Expr::Var("i".into()))
-                ))) }),
+                Box::new(Stmt::Define {
+                    name: "s".into(),
+                    value: Box::new(Expr::Val(Val::Str("ab".into()))),
+                }),
+                Box::new(Stmt::Define {
+                    name: "i".into(),
+                    value: Box::new(Expr::Val(Val::Int(-1))),
+                }),
+                Box::new(Stmt::Return {
+                    value: Some(Box::new(Expr::Access(
+                        Box::new(Expr::Var("s".into())),
+                        Box::new(Expr::Var("i".into())),
+                    ))),
+                }),
             ],
         };
         let fun = crate::vm::Compiler::new().compile_stmt(&program);
@@ -936,11 +1051,20 @@ mod tests {
         // i = 5 (overflow) -> nil
         let program2 = Stmt::Block {
             statements: vec![
-                Box::new(Stmt::Define { name: "s".into(), value: Box::new(Expr::Val(Val::Str("ab".into()))) }),
-                Box::new(Stmt::Define { name: "i".into(), value: Box::new(Expr::Val(Val::Int(5))) }),
-                Box::new(Stmt::Return { value: Some(Box::new(Expr::Access(
-                    Box::new(Expr::Var("s".into())), Box::new(Expr::Var("i".into()))
-                ))) }),
+                Box::new(Stmt::Define {
+                    name: "s".into(),
+                    value: Box::new(Expr::Val(Val::Str("ab".into()))),
+                }),
+                Box::new(Stmt::Define {
+                    name: "i".into(),
+                    value: Box::new(Expr::Val(Val::Int(5))),
+                }),
+                Box::new(Stmt::Return {
+                    value: Some(Box::new(Expr::Access(
+                        Box::new(Expr::Var("s".into())),
+                        Box::new(Expr::Var("i".into())),
+                    ))),
+                }),
             ],
         };
         let fun2 = crate::vm::Compiler::new().compile_stmt(&program2);
@@ -1294,18 +1418,16 @@ mod tests {
         use crate::stmt::{ForPattern, Stmt};
         // Program: for _ in 0..10 step 0 { } -> should error
         let program = Stmt::Block {
-            statements: vec![
-                Box::new(Stmt::For {
-                    pattern: ForPattern::Ignore,
-                    iterable: Box::new(Expr::Range {
-                        start: Some(Box::new(Expr::Val(Val::Int(0)))),
-                        end: Some(Box::new(Expr::Val(Val::Int(10)))),
-                        inclusive: false,
-                        step: Some(Box::new(Expr::Val(Val::Int(0)))),
-                    }),
-                    body: Box::new(Stmt::Block { statements: vec![] }),
+            statements: vec![Box::new(Stmt::For {
+                pattern: ForPattern::Ignore,
+                iterable: Box::new(Expr::Range {
+                    start: Some(Box::new(Expr::Val(Val::Int(0)))),
+                    end: Some(Box::new(Expr::Val(Val::Int(10)))),
+                    inclusive: false,
+                    step: Some(Box::new(Expr::Val(Val::Int(0)))),
                 }),
-            ],
+                body: Box::new(Stmt::Block { statements: vec![] }),
+            })],
         };
         let fun = crate::vm::Compiler::new().compile_stmt(&program);
         let mut vm = crate::vm::Vm::new();
@@ -1324,23 +1446,50 @@ mod tests {
         //   return sum
         let program = Stmt::Block {
             statements: vec![
-                Box::new(Stmt::Define { name: "sum".into(), value: Box::new(Expr::Val(Val::Int(0))) }),
-                Box::new(Stmt::Define { name: "lst".into(), value: Box::new(Expr::List(vec![])) }),
+                Box::new(Stmt::Define {
+                    name: "sum".into(),
+                    value: Box::new(Expr::Val(Val::Int(0))),
+                }),
+                Box::new(Stmt::Define {
+                    name: "lst".into(),
+                    value: Box::new(Expr::List(vec![])),
+                }),
                 Box::new(Stmt::For {
                     pattern: ForPattern::Variable("i".into()),
-                    iterable: Box::new(Expr::Range { start: Some(Box::new(Expr::Val(Val::Int(0)))), end: Some(Box::new(Expr::Val(Val::Int(3)))), inclusive: false, step: None }),
-                    body: Box::new(Stmt::Block { statements: vec![
-                        Box::new(Stmt::Assign { name: "lst".into(), value: Box::new(Expr::List(vec![
-                            Box::new(Expr::Var("i".into())),
-                            Box::new(Expr::Val(Val::Int(99)))
-                        ])), span: None }),
-                        Box::new(Stmt::Assign { name: "sum".into(), value: Box::new(Expr::Bin(
-                            Box::new(Expr::Var("sum".into())), BinOp::Add,
-                            Box::new(Expr::Access(Box::new(Expr::Var("lst".into())), Box::new(Expr::Val(Val::Int(0)))))
-                        )), span: None }),
-                    ] }),
+                    iterable: Box::new(Expr::Range {
+                        start: Some(Box::new(Expr::Val(Val::Int(0)))),
+                        end: Some(Box::new(Expr::Val(Val::Int(3)))),
+                        inclusive: false,
+                        step: None,
+                    }),
+                    body: Box::new(Stmt::Block {
+                        statements: vec![
+                            Box::new(Stmt::Assign {
+                                name: "lst".into(),
+                                value: Box::new(Expr::List(vec![
+                                    Box::new(Expr::Var("i".into())),
+                                    Box::new(Expr::Val(Val::Int(99))),
+                                ])),
+                                span: None,
+                            }),
+                            Box::new(Stmt::Assign {
+                                name: "sum".into(),
+                                value: Box::new(Expr::Bin(
+                                    Box::new(Expr::Var("sum".into())),
+                                    BinOp::Add,
+                                    Box::new(Expr::Access(
+                                        Box::new(Expr::Var("lst".into())),
+                                        Box::new(Expr::Val(Val::Int(0))),
+                                    )),
+                                )),
+                                span: None,
+                            }),
+                        ],
+                    }),
                 }),
-                Box::new(Stmt::Return { value: Some(Box::new(Expr::Var("sum".into()))) }),
+                Box::new(Stmt::Return {
+                    value: Some(Box::new(Expr::Var("sum".into()))),
+                }),
             ],
         };
         let fun = crate::vm::Compiler::new().compile_stmt(&program);
@@ -1518,50 +1667,78 @@ mod tests {
         //   return acc
         let program = Stmt::Block {
             statements: vec![
-                Box::new(Stmt::Define { name: "acc".into(), value: Box::new(Expr::Val(Val::Str("".into()))) }),
-                Box::new(Stmt::Define { name: "i".into(), value: Box::new(Expr::Val(Val::Int(0))) }),
+                Box::new(Stmt::Define {
+                    name: "acc".into(),
+                    value: Box::new(Expr::Val(Val::Str("".into()))),
+                }),
+                Box::new(Stmt::Define {
+                    name: "i".into(),
+                    value: Box::new(Expr::Val(Val::Int(0))),
+                }),
                 Box::new(Stmt::While {
                     condition: Box::new(Expr::Bin(
                         Box::new(Expr::Var("i".into())),
                         BinOp::Lt,
-                        Box::new(Expr::Val(Val::Int(3)))
+                        Box::new(Expr::Val(Val::Int(3))),
                     )),
-                    body: Box::new(Stmt::Block { statements: vec![
-                        // if (i == 0) { s = "αβ" } else if (i == 1) { s = "XY" } else { s = "Z!" }
-                        Box::new(Stmt::If {
-                            condition: Box::new(Expr::Bin(
-                                Box::new(Expr::Var("i".into())), BinOp::Eq, Box::new(Expr::Val(Val::Int(0)))
-                            )),
-                            then_stmt: Box::new(Stmt::Define { name: "s".into(), value: Box::new(Expr::Val(Val::Str("αβ".into()))) }),
-                            else_stmt: Some(Box::new(Stmt::If {
+                    body: Box::new(Stmt::Block {
+                        statements: vec![
+                            // if (i == 0) { s = "αβ" } else if (i == 1) { s = "XY" } else { s = "Z!" }
+                            Box::new(Stmt::If {
                                 condition: Box::new(Expr::Bin(
-                                    Box::new(Expr::Var("i".into())), BinOp::Eq, Box::new(Expr::Val(Val::Int(1)))
+                                    Box::new(Expr::Var("i".into())),
+                                    BinOp::Eq,
+                                    Box::new(Expr::Val(Val::Int(0))),
                                 )),
-                                then_stmt: Box::new(Stmt::Define { name: "s".into(), value: Box::new(Expr::Val(Val::Str("XY".into()))) }),
-                                else_stmt: Some(Box::new(Stmt::Define { name: "s".into(), value: Box::new(Expr::Val(Val::Str("Z!".into()))) })),
-                            })),
-                        }),
-                        // acc = acc + s[0]
-                        Box::new(Stmt::Assign {
-                            name: "acc".into(),
-                            value: Box::new(Expr::Bin(
-                                Box::new(Expr::Var("acc".into())),
-                                BinOp::Add,
-                                Box::new(Expr::Access(Box::new(Expr::Var("s".into())), Box::new(Expr::Val(Val::Int(0))))),
-                            )),
-                            span: None,
-                        }),
-                        // i = i + 1
-                        Box::new(Stmt::Assign {
-                            name: "i".into(),
-                            value: Box::new(Expr::Bin(
-                                Box::new(Expr::Var("i".into())), BinOp::Add, Box::new(Expr::Val(Val::Int(1)))
-                            )),
-                            span: None,
-                        }),
-                    ]}),
+                                then_stmt: Box::new(Stmt::Define {
+                                    name: "s".into(),
+                                    value: Box::new(Expr::Val(Val::Str("αβ".into()))),
+                                }),
+                                else_stmt: Some(Box::new(Stmt::If {
+                                    condition: Box::new(Expr::Bin(
+                                        Box::new(Expr::Var("i".into())),
+                                        BinOp::Eq,
+                                        Box::new(Expr::Val(Val::Int(1))),
+                                    )),
+                                    then_stmt: Box::new(Stmt::Define {
+                                        name: "s".into(),
+                                        value: Box::new(Expr::Val(Val::Str("XY".into()))),
+                                    }),
+                                    else_stmt: Some(Box::new(Stmt::Define {
+                                        name: "s".into(),
+                                        value: Box::new(Expr::Val(Val::Str("Z!".into()))),
+                                    })),
+                                })),
+                            }),
+                            // acc = acc + s[0]
+                            Box::new(Stmt::Assign {
+                                name: "acc".into(),
+                                value: Box::new(Expr::Bin(
+                                    Box::new(Expr::Var("acc".into())),
+                                    BinOp::Add,
+                                    Box::new(Expr::Access(
+                                        Box::new(Expr::Var("s".into())),
+                                        Box::new(Expr::Val(Val::Int(0))),
+                                    )),
+                                )),
+                                span: None,
+                            }),
+                            // i = i + 1
+                            Box::new(Stmt::Assign {
+                                name: "i".into(),
+                                value: Box::new(Expr::Bin(
+                                    Box::new(Expr::Var("i".into())),
+                                    BinOp::Add,
+                                    Box::new(Expr::Val(Val::Int(1))),
+                                )),
+                                span: None,
+                            }),
+                        ],
+                    }),
                 }),
-                Box::new(Stmt::Return { value: Some(Box::new(Expr::Var("acc".into()))) }),
+                Box::new(Stmt::Return {
+                    value: Some(Box::new(Expr::Var("acc".into()))),
+                }),
             ],
         };
         let fun = crate::vm::Compiler::new().compile_stmt(&program);
@@ -1577,7 +1754,10 @@ mod tests {
         // x = 0; for _ in 0..5 step -1 { x += 1 } return x;  // zero iterations
         let program = Stmt::Block {
             statements: vec![
-                Box::new(Stmt::Define { name: "x".into(), value: Box::new(Expr::Val(Val::Int(0))) }),
+                Box::new(Stmt::Define {
+                    name: "x".into(),
+                    value: Box::new(Expr::Val(Val::Int(0))),
+                }),
                 Box::new(Stmt::For {
                     pattern: ForPattern::Ignore,
                     iterable: Box::new(Expr::Range {
@@ -1586,13 +1766,21 @@ mod tests {
                         inclusive: false,
                         step: Some(Box::new(Expr::Val(Val::Int(-1)))),
                     }),
-                    body: Box::new(Stmt::Block { statements: vec![
-                        Box::new(Stmt::Assign { name: "x".into(), value: Box::new(Expr::Bin(
-                            Box::new(Expr::Var("x".into())), BinOp::Add, Box::new(Expr::Val(Val::Int(1)))
-                        )), span: None }),
-                    ]}),
+                    body: Box::new(Stmt::Block {
+                        statements: vec![Box::new(Stmt::Assign {
+                            name: "x".into(),
+                            value: Box::new(Expr::Bin(
+                                Box::new(Expr::Var("x".into())),
+                                BinOp::Add,
+                                Box::new(Expr::Val(Val::Int(1))),
+                            )),
+                            span: None,
+                        })],
+                    }),
                 }),
-                Box::new(Stmt::Return { value: Some(Box::new(Expr::Var("x".into()))) }),
+                Box::new(Stmt::Return {
+                    value: Some(Box::new(Expr::Var("x".into()))),
+                }),
             ],
         };
         let fun = crate::vm::Compiler::new().compile_stmt(&program);

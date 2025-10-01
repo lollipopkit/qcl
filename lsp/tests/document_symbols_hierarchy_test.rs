@@ -35,14 +35,22 @@ fn test_function_symbol_hierarchy_with_groups_and_labels() {
     "#;
 
     let res = analyzer.analyze(code);
-    assert!(res.diagnostics.is_empty(), "unexpected diagnostics: {:?}", res.diagnostics);
+    assert!(
+        res.diagnostics.is_empty(),
+        "unexpected diagnostics: {:?}",
+        res.diagnostics
+    );
     assert!(!res.symbols.is_empty());
 
     // Top-level Imports container with child import symbol(s)
     let imports = get_symbol(&res.symbols, "Imports").expect("Imports container present");
     assert_eq!(imports.kind, SymbolKind::NAMESPACE);
     let import_kids = list_child_names(imports);
-    assert!(import_kids.iter().any(|n| n == "import math"), "imports children: {:?}", import_kids);
+    assert!(
+        import_kids.iter().any(|n| n == "import math"),
+        "imports children: {:?}",
+        import_kids
+    );
 
     // Top-level Variables container and individual variable
     let vars = get_symbol(&res.symbols, "Variables").expect("Variables container present");
@@ -94,7 +102,11 @@ fn test_nested_function_appears_under_parent() {
     "#;
 
     let res = analyzer.analyze(code);
-    assert!(res.diagnostics.is_empty(), "unexpected diagnostics: {:?}", res.diagnostics);
+    assert!(
+        res.diagnostics.is_empty(),
+        "unexpected diagnostics: {:?}",
+        res.diagnostics
+    );
 
     let outer = res
         .symbols
@@ -102,19 +114,39 @@ fn test_nested_function_appears_under_parent() {
         .find(|s| s.name == "outer" && s.kind == SymbolKind::FUNCTION)
         .expect("outer function present");
     let child_names = list_child_names(outer);
-    assert!(child_names.iter().any(|n| n == "inner"), "nested child not found, children: {:?}", child_names);
+    assert!(
+        child_names.iter().any(|n| n == "inner"),
+        "nested child not found, children: {:?}",
+        child_names
+    );
     let inner = get_child(outer, "inner").expect("inner function symbol under outer");
     // inner should have Parameters and Locals groups
     let inner_child_names = list_child_names(inner);
-    assert!(inner_child_names.iter().any(|n| n == "Parameters"), "inner children: {:?}", inner_child_names);
-    assert!(inner_child_names.iter().any(|n| n == "Locals"), "inner children: {:?}", inner_child_names);
+    assert!(
+        inner_child_names.iter().any(|n| n == "Parameters"),
+        "inner children: {:?}",
+        inner_child_names
+    );
+    assert!(
+        inner_child_names.iter().any(|n| n == "Locals"),
+        "inner children: {:?}",
+        inner_child_names
+    );
     // Verify parameter q and local y exist within respective groups
     let inner_params = get_child(inner, "Parameters").expect("Parameters under inner");
     let inner_param_names = list_child_names(inner_params);
-    assert!(inner_param_names.iter().any(|n| n == "q"), "inner params: {:?}", inner_param_names);
+    assert!(
+        inner_param_names.iter().any(|n| n == "q"),
+        "inner params: {:?}",
+        inner_param_names
+    );
     let inner_locals = get_child(inner, "Locals").expect("Locals under inner");
     let inner_local_names = list_child_names(inner_locals);
-    assert!(inner_local_names.iter().any(|n| n == "y"), "inner locals: {:?}", inner_local_names);
+    assert!(
+        inner_local_names.iter().any(|n| n == "y"),
+        "inner locals: {:?}",
+        inner_local_names
+    );
 }
 
 #[test]
@@ -129,12 +161,20 @@ fn test_toplevel_grouped_containers() {
     "#;
 
     let res = analyzer.analyze(code);
-    assert!(res.diagnostics.is_empty(), "unexpected diagnostics: {:?}", res.diagnostics);
+    assert!(
+        res.diagnostics.is_empty(),
+        "unexpected diagnostics: {:?}",
+        res.diagnostics
+    );
 
     // Imports container contains each import as a child; exact label per analyzer
     let imports = get_symbol(&res.symbols, "Imports").expect("Imports container present");
     let import_names = list_child_names(imports);
-    assert!(import_names.iter().any(|n| n == "import math"), "imports: {:?}", import_names);
+    assert!(
+        import_names.iter().any(|n| n == "import math"),
+        "imports: {:?}",
+        import_names
+    );
     assert!(
         import_names.iter().any(|n| n == "import {…} from math"),
         "imports: {:?}",

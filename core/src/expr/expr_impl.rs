@@ -533,7 +533,9 @@ impl Expr {
             Expr::Paren(expr) => expr.eval_with_env(env),
             Expr::Var(name) => {
                 // Only resolve variables from the lexical environment. No implicit context lookup.
-                if let Some(env) = env && let Some(val) = env.get_value(name) {
+                if let Some(env) = env
+                    && let Some(val) = env.get_value(name)
+                {
                     return Ok(val);
                 }
                 Err(anyhow!("Undefined variable: {}", name))

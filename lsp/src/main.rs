@@ -833,7 +833,10 @@ impl LanguageServer for QclLanguageServer {
             if let Ok((tokens, spans)) = qcl_core::token::Tokenizer::tokenize_enhanced_with_spans(&content) {
                 let _analyzer = crate::analyzer::QclAnalyzer::default();
                 // Try to find definition precisely to determine scope
-                if let Some(def_loc) = self.find_definition_precise(&content, &symbol_name, position, uri).await {
+                if let Some(def_loc) = self
+                    .find_definition_precise(&content, &symbol_name, position, uri)
+                    .await
+                {
                     let fbodies = crate::analyzer::QclAnalyzer::scan_function_blocks(&tokens, &spans);
                     // Identify if this def is inside a function body by comparing lines (0-based)
                     let def_line0 = def_loc.range.start.line;
@@ -1141,7 +1144,10 @@ impl LanguageServer for QclLanguageServer {
         // Find the symbol at the cursor position
         if let Some(symbol_name) = self.find_symbol_at_position(&content, position).await {
             // Prefer precise resolver-based decl spans
-            if let Some(definition_location) = self.find_definition_precise(&content, &symbol_name, position, uri).await {
+            if let Some(definition_location) = self
+                .find_definition_precise(&content, &symbol_name, position, uri)
+                .await
+            {
                 return Ok(Some(GotoDefinitionResponse::Scalar(definition_location)));
             }
             // Fallback: heuristic text scan
@@ -1820,7 +1826,13 @@ impl QclLanguageServer {
     }
 
     /// More precise definition finder using slot resolver + scanned spans.
-    async fn find_definition_precise(&self, content: &str, symbol_name: &str, pos: Position, uri: &Url) -> Option<Location> {
+    async fn find_definition_precise(
+        &self,
+        content: &str,
+        symbol_name: &str,
+        pos: Position,
+        uri: &Url,
+    ) -> Option<Location> {
         // Tokenize with spans
         let (tokens, spans) = match qcl_core::token::Tokenizer::tokenize_enhanced_with_spans(content) {
             Ok(p) => p,
@@ -1888,7 +1900,10 @@ impl QclLanguageServer {
             }
         }
         if let Some(sp) = candidate_spans.first() {
-            let range = Range::new(Position::new(sp.start.line - 1, sp.start.column - 1), Position::new(sp.end.line - 1, sp.end.column - 1));
+            let range = Range::new(
+                Position::new(sp.start.line - 1, sp.start.column - 1),
+                Position::new(sp.end.line - 1, sp.end.column - 1),
+            );
             return Some(Location::new(uri.clone(), range));
         }
         None

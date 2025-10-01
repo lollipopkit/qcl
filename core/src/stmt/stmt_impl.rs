@@ -208,16 +208,13 @@ impl Environment {
     /// Current environment-wide generation used for global cache invalidation.
     #[inline]
     pub fn generation(&self) -> u64 {
-        self.global_gen
-            .load(std::sync::atomic::Ordering::Relaxed)
+        self.global_gen.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Bump generation (wrap-around safe) to invalidate global caches.
     #[inline]
     fn bump_generation(&self) {
-        let _ = self
-            .global_gen
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let _ = self.global_gen.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// 进入新的作用域
@@ -230,7 +227,9 @@ impl Environment {
                 if let (Ok(mut next), Ok(pre)) = (frame.next.lock(), frame.preassigned_by_depth.lock()) {
                     // Determine current block depth after the push (0-based inside function)
                     let depth = scopes.len() - 1; // at least 1
-                    if let Some(pre_by_depth) = pre.as_ref().as_ref() && depth < pre_by_depth.len() {
+                    if let Some(pre_by_depth) = pre.as_ref().as_ref()
+                        && depth < pre_by_depth.len()
+                    {
                         let seed = &pre_by_depth[depth];
                         if let Some(top) = scopes.last_mut() {
                             let mut max_idx = *next;
@@ -259,7 +258,9 @@ impl Environment {
                 if let (Ok(mut next), Ok(pre)) = (frame.next.lock(), frame.preassigned_by_depth.lock()) {
                     // Determine current block depth after the push (0-based inside function)
                     let depth = scopes.len() - 1; // at least 1
-                    if let Some(pre_by_depth) = pre.as_ref().as_ref() && depth < pre_by_depth.len() {
+                    if let Some(pre_by_depth) = pre.as_ref().as_ref()
+                        && depth < pre_by_depth.len()
+                    {
                         let seed = &pre_by_depth[depth];
                         if let Some(top) = scopes.last_mut() {
                             let mut max_idx = *next;
@@ -330,7 +331,9 @@ impl Environment {
             self.scopes.pop();
         }
         if let Some(frame) = &self.current_frame {
-            if let Ok(mut scopes) = frame.slot_scopes.lock() && scopes.len() > 1 {
+            if let Ok(mut scopes) = frame.slot_scopes.lock()
+                && scopes.len() > 1
+            {
                 scopes.pop();
             }
         }
@@ -351,10 +354,7 @@ impl Environment {
                 (frame.next.lock(), frame.locals.lock(), frame.slot_scopes.lock())
             {
                 // Prefer pre-assigned slot if mapping exists (search innermost to outermost scopes)
-                let pre_mapped: Option<u16> = scopes
-                    .iter()
-                    .rev()
-                    .find_map(|m| m.get(&name).copied());
+                let pre_mapped: Option<u16> = scopes.iter().rev().find_map(|m| m.get(&name).copied());
                 if let Some(pre_idx) = pre_mapped {
                     let idx = pre_idx as usize;
                     if idx < locals.len() {
@@ -545,9 +545,11 @@ impl Environment {
                 *pre = Some(grouped);
             }
             // Also seed depth 0 into the top slot scope immediately, to keep current behavior.
-            if let (Ok(mut scopes), Ok(mut next), Ok(pre)) =
-                (frame.slot_scopes.lock(), frame.next.lock(), frame.preassigned_by_depth.lock())
-            {
+            if let (Ok(mut scopes), Ok(mut next), Ok(pre)) = (
+                frame.slot_scopes.lock(),
+                frame.next.lock(),
+                frame.preassigned_by_depth.lock(),
+            ) {
                 if let Some(groups) = pre.as_ref().as_ref()
                     && let Some(seed0) = groups.first()
                     && let Some(top) = scopes.last_mut()

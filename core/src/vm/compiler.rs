@@ -213,7 +213,11 @@ impl FunctionBuilder {
                 let out = self.alloc();
                 let rl = self.expr(l);
                 let jpos = self.code.len();
-                self.emit(Op::JmpFalseSet { r: rl, dst: out, ofs: 0 });
+                self.emit(Op::JmpFalseSet {
+                    r: rl,
+                    dst: out,
+                    ofs: 0,
+                });
                 let rr = self.expr(r);
                 self.emit(Op::ToBool(out, rr));
                 let end = self.code.len();
@@ -228,7 +232,11 @@ impl FunctionBuilder {
                 let out = self.alloc();
                 let rl = self.expr(l);
                 let jpos = self.code.len();
-                self.emit(Op::JmpTrueSet { r: rl, dst: out, ofs: 0 });
+                self.emit(Op::JmpTrueSet {
+                    r: rl,
+                    dst: out,
+                    ofs: 0,
+                });
                 let rr = self.expr(r);
                 self.emit(Op::ToBool(out, rr));
                 let end = self.code.len();
@@ -311,7 +319,11 @@ impl FunctionBuilder {
                 let out = self.alloc();
                 let rl = self.expr(l);
                 let pick_pos = self.code.len();
-                self.emit(Op::NullishPick { l: rl, dst: out, ofs: 0 });
+                self.emit(Op::NullishPick {
+                    l: rl,
+                    dst: out,
+                    ofs: 0,
+                });
                 let rr = self.expr(r);
                 self.emit(Op::Move(out, rr));
                 let end = self.code.len();
