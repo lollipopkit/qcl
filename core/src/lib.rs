@@ -6,6 +6,7 @@ pub mod rt;
 pub mod stmt;
 pub mod token;
 pub mod typ;
+pub mod util;
 pub mod val;
 
 // Optional subsystems, gated by features

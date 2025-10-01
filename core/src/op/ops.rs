@@ -89,10 +89,39 @@ impl BinOp {
 
                 // Map key lookup optimization
                 (Val::Str(s), Val::Map(m)) => Ok(m.contains_key(s.as_ref())),
-                // For non-string keys, try converting to string key
-                (Val::Int(i), Val::Map(m)) => Ok(m.contains_key(i.to_string().as_str())),
-                (Val::Float(f), Val::Map(m)) => Ok(m.contains_key(f.to_string().as_str())),
-                (Val::Bool(b), Val::Map(m)) => Ok(m.contains_key(b.to_string().as_str())),
+                // For non-string keys, convert to string key with fast path when enabled
+                (Val::Int(i), Val::Map(m)) => {
+                    #[cfg(feature = "fast_numconv")]
+                    {
+                        let mut buf = itoa::Buffer::new();
+                        let s = buf.format(*i);
+                        return Ok(m.contains_key(s));
+                    }
+                    #[cfg(not(feature = "fast_numconv"))]
+                    {
+                        return Ok(m.contains_key(i.to_string().as_str()));
+                    }
+                }
+                (Val::Float(f), Val::Map(m)) => {
+                    #[cfg(feature = "fast_numconv")]
+                    {
+                        let mut buf = ryu::Buffer::new();
+                        let s = buf.format(*f);
+                        return Ok(m.contains_key(s));
+                    }
+                    #[cfg(not(feature = "fast_numconv"))]
+                    {
+                        return Ok(m.contains_key(f.to_string().as_str()));
+                    }
+                }
+                (Val::Bool(b), Val::Map(m)) => {
+                    // Avoid allocation for boolean conversion
+                    if *b {
+                        Ok(m.contains_key("true"))
+                    } else {
+                        Ok(m.contains_key("false"))
+                    }
+                }
                 // Other types return false (Nil or complex structures can't be keys)
                 (_, Val::Map(_)) => Ok(false),
 

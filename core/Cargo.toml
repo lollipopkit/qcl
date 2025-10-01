@@ -17,6 +17,9 @@ chrono = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 crossbeam = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
+rustc-hash = { version = "2", optional = true }
+itoa = { version = "1", optional = true }
+ryu = { version = "1", optional = true }
  
 
 [features]
@@ -25,6 +28,10 @@ default = ["all"]
 sem_arith = []
 # Advanced arithmetic support: Map + Map, List + Val etc.
 adv_arith = []
+# Faster hashmap for runtime maps and environments
+fast_hash = ["dep:rustc-hash"]
+# Faster number-to-string conversions for hot paths
+fast_numconv = ["dep:itoa", "dep:ryu"]
 # Input format features
 json = ["serde_json"]
 yaml = ["serde_yaml"]
@@ -39,7 +46,20 @@ vm = []
 bc32 = []
 # `slots`: enables name resolution to slot indices
 slots = []
-all = ["sem_arith", "adv_arith", "json", "yaml", "toml", "concurrency", "vm", "slots", "bc32"]
+all = [
+    "sem_arith",
+    "adv_arith",
+    "json",
+    "yaml",
+    "toml",
+    "concurrency",
+    "vm",
+    "slots",
+    "bc32",
+    # default performance features
+    "fast_hash",
+    "fast_numconv",
+]
 
 [dev-dependencies]
 criterion = "0.3"

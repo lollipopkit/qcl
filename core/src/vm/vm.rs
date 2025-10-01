@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 
+use crate::util::fast_map::{FastHashMap, fast_hash_map_with_capacity};
 use crate::val::Val;
 
 use super::bytecode::{Function, Op};
@@ -371,7 +372,9 @@ impl Vm {
                                             }
                                         }
                                         out
-                                    } else { None };
+                                    } else {
+                                        None
+                                    };
                                     if let Some(v) = hit {
                                         v
                                     } else {
@@ -384,9 +387,13 @@ impl Vm {
                                                     idx: *i,
                                                     value: v.clone(),
                                                 };
-                                                if slots[0].as_ref().is_some_and(|e| e.base_ptr == lptr && e.idx == *i) {
+                                                if slots[0].as_ref().is_some_and(|e| e.base_ptr == lptr && e.idx == *i)
+                                                {
                                                     slots[0] = Some(newe);
-                                                } else if slots[1].as_ref().is_some_and(|e| e.base_ptr == lptr && e.idx == *i) {
+                                                } else if slots[1]
+                                                    .as_ref()
+                                                    .is_some_and(|e| e.base_ptr == lptr && e.idx == *i)
+                                                {
                                                     slots[1] = Some(newe);
                                                 } else {
                                                     slots[3] = slots[2].clone();
@@ -396,7 +403,16 @@ impl Vm {
                                                 }
                                             }
                                             _ => {
-                                                index_ic[pc] = Some(IndexIc::List([Some(ListEntry { base_ptr: lptr, idx: *i, value: v.clone() }), None, None, None]));
+                                                index_ic[pc] = Some(IndexIc::List([
+                                                    Some(ListEntry {
+                                                        base_ptr: lptr,
+                                                        idx: *i,
+                                                        value: v.clone(),
+                                                    }),
+                                                    None,
+                                                    None,
+                                                    None,
+                                                ]));
                                             }
                                         }
                                         v
@@ -417,7 +433,9 @@ impl Vm {
                                             }
                                         }
                                         out
-                                    } else { None };
+                                    } else {
+                                        None
+                                    };
                                     if let Some(v) = hit {
                                         v
                                     } else {
@@ -443,9 +461,13 @@ impl Vm {
                                                     idx: *i,
                                                     value: v.clone(),
                                                 };
-                                                if slots[0].as_ref().is_some_and(|e| e.base_ptr == sptr && e.idx == *i) {
+                                                if slots[0].as_ref().is_some_and(|e| e.base_ptr == sptr && e.idx == *i)
+                                                {
                                                     slots[0] = Some(newe);
-                                                } else if slots[1].as_ref().is_some_and(|e| e.base_ptr == sptr && e.idx == *i) {
+                                                } else if slots[1]
+                                                    .as_ref()
+                                                    .is_some_and(|e| e.base_ptr == sptr && e.idx == *i)
+                                                {
                                                     slots[1] = Some(newe);
                                                 } else {
                                                     slots[3] = slots[2].clone();
@@ -455,7 +477,16 @@ impl Vm {
                                                 }
                                             }
                                             _ => {
-                                                index_ic[pc] = Some(IndexIc::Str([Some(StrEntry { base_ptr: sptr, idx: *i, value: v.clone() }), None, None, None]));
+                                                index_ic[pc] = Some(IndexIc::Str([
+                                                    Some(StrEntry {
+                                                        base_ptr: sptr,
+                                                        idx: *i,
+                                                        value: v.clone(),
+                                                    }),
+                                                    None,
+                                                    None,
+                                                    None,
+                                                ]));
                                             }
                                         }
                                         v
@@ -527,17 +558,24 @@ impl Vm {
                             let key_ptr = s.as_ref().as_ptr() as usize;
                             let cur_gen = if let Some(e) = env.as_ref() { e.generation() } else { 0 };
                             if let Some(GlobalEntry(ptr, v, generation)) = &global_ic[pc]
-                                && *ptr == key_ptr && *generation == cur_gen
+                                && *ptr == key_ptr
+                                && *generation == cur_gen
                             {
                                 out = v.clone();
                             }
                             if matches!(out, Val::Nil) {
-                                if let Some(e) = env.as_ref() && let Some(v) = e.get_value(s.as_ref()) {
+                                if let Some(e) = env.as_ref()
+                                    && let Some(v) = e.get_value(s.as_ref())
+                                {
                                     out = v.clone();
                                 }
                                 global_ic[pc] = Some(GlobalEntry(key_ptr, out.clone(), cur_gen));
                             }
-                        } else if let Some(e) = env.as_ref() && let Some(v) = e.get_value(&format!("{}", name_val)) { out = v; }
+                        } else if let Some(e) = env.as_ref()
+                            && let Some(v) = e.get_value(&format!("{}", name_val))
+                        {
+                            out = v;
+                        }
                         regs[dst as usize] = out;
                         pc += 1;
                     }
@@ -580,7 +618,9 @@ impl Vm {
                                         }
                                     }
                                     out
-                                } else { None }
+                                } else {
+                                    None
+                                }
                             }
                             _ => None,
                         };
@@ -601,7 +641,10 @@ impl Vm {
                                             };
                                             if slots[0].as_ref().is_some_and(|e| e.map_ptr == mp && e.key_ptr == kp) {
                                                 slots[0] = Some(newe);
-                                            } else if slots[1].as_ref().is_some_and(|e| e.map_ptr == mp && e.key_ptr == kp) {
+                                            } else if slots[1]
+                                                .as_ref()
+                                                .is_some_and(|e| e.map_ptr == mp && e.key_ptr == kp)
+                                            {
                                                 slots[1] = Some(newe);
                                             } else {
                                                 slots[3] = slots[2].clone();
@@ -633,9 +676,15 @@ impl Vm {
                                                 key: s.as_ref().to_string(),
                                                 value: v.clone(),
                                             };
-                                            if slots[0].as_ref().is_some_and(|e| e.obj_ptr == optr && e.key.as_str() == s.as_ref()) {
+                                            if slots[0]
+                                                .as_ref()
+                                                .is_some_and(|e| e.obj_ptr == optr && e.key.as_str() == s.as_ref())
+                                            {
                                                 slots[0] = Some(newe);
-                                            } else if slots[1].as_ref().is_some_and(|e| e.obj_ptr == optr && e.key.as_str() == s.as_ref()) {
+                                            } else if slots[1]
+                                                .as_ref()
+                                                .is_some_and(|e| e.obj_ptr == optr && e.key.as_str() == s.as_ref())
+                                            {
                                                 slots[1] = Some(newe);
                                             } else {
                                                 slots[3] = slots[2].clone();
@@ -690,10 +739,15 @@ impl Vm {
                                     if let Some(AccessIc::ObjectStr(slots)) = &access_ic[pc] {
                                         let mut out: Option<Val> = None;
                                         for e in slots.iter().flatten() {
-                                            if e.obj_ptr == optr && e.key.as_str() == s.as_ref() { out = Some(e.value.clone()); break; }
+                                            if e.obj_ptr == optr && e.key.as_str() == s.as_ref() {
+                                                out = Some(e.value.clone());
+                                                break;
+                                            }
                                         }
                                         (out, None, None, true)
-                                    } else { (None, None, None, true) }
+                                    } else {
+                                        (None, None, None, true)
+                                    }
                                 }
                                 _ => (None, None, None, false),
                             };
@@ -711,7 +765,10 @@ impl Vm {
                                             };
                                             if slots[0].as_ref().is_some_and(|e| e.map_ptr == mp && e.key_ptr == kp) {
                                                 slots[0] = Some(newe);
-                                            } else if slots[1].as_ref().is_some_and(|e| e.map_ptr == mp && e.key_ptr == kp) {
+                                            } else if slots[1]
+                                                .as_ref()
+                                                .is_some_and(|e| e.map_ptr == mp && e.key_ptr == kp)
+                                            {
                                                 slots[1] = Some(newe);
                                             } else {
                                                 slots[3] = slots[2].clone();
@@ -736,10 +793,21 @@ impl Vm {
                                 } else if obj {
                                     match access_ic[pc].as_mut() {
                                         Some(AccessIc::ObjectStr(slots)) => {
-                                            let newe = ObjectStrEntry { obj_ptr: std::sync::Arc::as_ptr(match &regs[base as usize] { Val::Object{fields,..}=>fields, _=> unreachable!() }) as usize, key: s.as_ref().to_string(), value: v.clone() };
-                                            if slots[0].as_ref().is_some_and(|e| e.obj_ptr == newe.obj_ptr && e.key.as_str() == s.as_ref()) {
+                                            let newe = ObjectStrEntry {
+                                                obj_ptr: std::sync::Arc::as_ptr(match &regs[base as usize] {
+                                                    Val::Object { fields, .. } => fields,
+                                                    _ => unreachable!(),
+                                                }) as usize,
+                                                key: s.as_ref().to_string(),
+                                                value: v.clone(),
+                                            };
+                                            if slots[0].as_ref().is_some_and(|e| {
+                                                e.obj_ptr == newe.obj_ptr && e.key.as_str() == s.as_ref()
+                                            }) {
                                                 slots[0] = Some(newe);
-                                            } else if slots[1].as_ref().is_some_and(|e| e.obj_ptr == newe.obj_ptr && e.key.as_str() == s.as_ref()) {
+                                            } else if slots[1].as_ref().is_some_and(|e| {
+                                                e.obj_ptr == newe.obj_ptr && e.key.as_str() == s.as_ref()
+                                            }) {
                                                 slots[1] = Some(newe);
                                             } else {
                                                 slots[3] = slots[2].clone();
@@ -749,8 +817,20 @@ impl Vm {
                                             }
                                         }
                                         _ => {
-                                            let optr = std::sync::Arc::as_ptr(match &regs[base as usize] { Val::Object{fields,..}=>fields, _=> unreachable!() }) as usize;
-                                            access_ic[pc] = Some(AccessIc::ObjectStr([Some(ObjectStrEntry { obj_ptr: optr, key: s.as_ref().to_string(), value: v.clone() }), None, None, None]));
+                                            let optr = std::sync::Arc::as_ptr(match &regs[base as usize] {
+                                                Val::Object { fields, .. } => fields,
+                                                _ => unreachable!(),
+                                            }) as usize;
+                                            access_ic[pc] = Some(AccessIc::ObjectStr([
+                                                Some(ObjectStrEntry {
+                                                    obj_ptr: optr,
+                                                    key: s.as_ref().to_string(),
+                                                    value: v.clone(),
+                                                }),
+                                                None,
+                                                None,
+                                                None,
+                                            ]));
                                         }
                                     }
                                 }
@@ -813,8 +893,7 @@ impl Vm {
                     Op::BuildMap { dst, base, len } => {
                         let start = base as usize;
                         let n = len as usize;
-                        let mut map: std::collections::HashMap<Arc<str>, Val> =
-                            std::collections::HashMap::with_capacity(n);
+                        let mut map: FastHashMap<Arc<str>, Val> = fast_hash_map_with_capacity(n);
                         for i in 0..n {
                             let k = &regs[start + 2 * i];
                             let v = regs[start + 2 * i + 1].clone();
@@ -1066,12 +1145,15 @@ impl Vm {
                         let key_ptr = s.as_ref().as_ptr() as usize;
                         let cur_gen = if let Some(e) = env.as_ref() { e.generation() } else { 0 };
                         if let Some(GlobalEntry(ptr, v, generation)) = &global_ic[pc]
-                            && *ptr == key_ptr && *generation == cur_gen
+                            && *ptr == key_ptr
+                            && *generation == cur_gen
                         {
                             out = v.clone();
                         }
                         if matches!(out, Val::Nil) {
-                            if let Some(e) = env.as_ref() && let Some(v) = e.get_value(s.as_ref()) {
+                            if let Some(e) = env.as_ref()
+                                && let Some(v) = e.get_value(s.as_ref())
+                            {
                                 out = v.clone();
                             }
                             global_ic[pc] = Some(GlobalEntry(key_ptr, out.clone(), cur_gen));
@@ -1115,7 +1197,9 @@ impl Vm {
                                     }
                                 }
                                 out
-                            } else { None }
+                            } else {
+                                None
+                            }
                         }
                         (Val::Object { fields, .. }, Val::Str(s)) => {
                             let optr = Arc::as_ptr(fields) as usize;
@@ -1128,7 +1212,9 @@ impl Vm {
                                     }
                                 }
                                 out
-                            } else { None }
+                            } else {
+                                None
+                            }
                         }
                         _ => None,
                     };
@@ -1149,7 +1235,8 @@ impl Vm {
                                         };
                                         if slots[0].as_ref().is_some_and(|e| e.map_ptr == mp && e.key_ptr == kp) {
                                             slots[0] = Some(newe);
-                                        } else if slots[1].as_ref().is_some_and(|e| e.map_ptr == mp && e.key_ptr == kp) {
+                                        } else if slots[1].as_ref().is_some_and(|e| e.map_ptr == mp && e.key_ptr == kp)
+                                        {
                                             slots[1] = Some(newe);
                                         } else {
                                             slots[3] = slots[2].clone();
@@ -1181,9 +1268,15 @@ impl Vm {
                                             key: s.as_ref().to_string(),
                                             value: v.clone(),
                                         };
-                                        if slots[0].as_ref().is_some_and(|e| e.obj_ptr == optr && e.key.as_str() == s.as_ref()) {
+                                        if slots[0]
+                                            .as_ref()
+                                            .is_some_and(|e| e.obj_ptr == optr && e.key.as_str() == s.as_ref())
+                                        {
                                             slots[0] = Some(newe);
-                                        } else if slots[1].as_ref().is_some_and(|e| e.obj_ptr == optr && e.key.as_str() == s.as_ref()) {
+                                        } else if slots[1]
+                                            .as_ref()
+                                            .is_some_and(|e| e.obj_ptr == optr && e.key.as_str() == s.as_ref())
+                                        {
                                             slots[1] = Some(newe);
                                         } else {
                                             slots[3] = slots[2].clone();
@@ -1224,7 +1317,10 @@ impl Vm {
                                 if let Some(AccessIc::MapStr(slots)) = &access_ic[pc] {
                                     let mut out: Option<Val> = None;
                                     for e in slots.iter().flatten() {
-                                        if e.map_ptr == mp && e.key_ptr == kp { out = Some(e.value.clone()); break; }
+                                        if e.map_ptr == mp && e.key_ptr == kp {
+                                            out = Some(e.value.clone());
+                                            break;
+                                        }
                                     }
                                     (out, Some(mp), Some(kp), false)
                                 } else {
@@ -1236,7 +1332,10 @@ impl Vm {
                                 if let Some(AccessIc::ObjectStr(slots)) = &access_ic[pc] {
                                     let mut out: Option<Val> = None;
                                     for e in slots.iter().flatten() {
-                                        if e.obj_ptr == optr && e.key.as_str() == s.as_ref() { out = Some(e.value.clone()); break; }
+                                        if e.obj_ptr == optr && e.key.as_str() == s.as_ref() {
+                                            out = Some(e.value.clone());
+                                            break;
+                                        }
                                     }
                                     (out, None, None, true)
                                 } else {
@@ -1259,7 +1358,8 @@ impl Vm {
                                         };
                                         if slots[0].as_ref().is_some_and(|e| e.map_ptr == mp && e.key_ptr == kp) {
                                             slots[0] = Some(newe);
-                                        } else if slots[1].as_ref().is_some_and(|e| e.map_ptr == mp && e.key_ptr == kp) {
+                                        } else if slots[1].as_ref().is_some_and(|e| e.map_ptr == mp && e.key_ptr == kp)
+                                        {
                                             slots[1] = Some(newe);
                                         } else {
                                             slots[3] = slots[2].clone();
@@ -1284,10 +1384,23 @@ impl Vm {
                             } else if obj {
                                 match access_ic[pc].as_mut() {
                                     Some(AccessIc::ObjectStr(slots)) => {
-                                        let newe = ObjectStrEntry { obj_ptr: Arc::as_ptr(match &regs[*base as usize] { Val::Object{fields,..}=>fields, _=> unreachable!() }) as usize, key: s.as_ref().to_string(), value: v.clone() };
-                                        if slots[0].as_ref().is_some_and(|e| e.obj_ptr == newe.obj_ptr && e.key.as_str() == s.as_ref()) {
+                                        let newe = ObjectStrEntry {
+                                            obj_ptr: Arc::as_ptr(match &regs[*base as usize] {
+                                                Val::Object { fields, .. } => fields,
+                                                _ => unreachable!(),
+                                            }) as usize,
+                                            key: s.as_ref().to_string(),
+                                            value: v.clone(),
+                                        };
+                                        if slots[0]
+                                            .as_ref()
+                                            .is_some_and(|e| e.obj_ptr == newe.obj_ptr && e.key.as_str() == s.as_ref())
+                                        {
                                             slots[0] = Some(newe);
-                                        } else if slots[1].as_ref().is_some_and(|e| e.obj_ptr == newe.obj_ptr && e.key.as_str() == s.as_ref()) {
+                                        } else if slots[1]
+                                            .as_ref()
+                                            .is_some_and(|e| e.obj_ptr == newe.obj_ptr && e.key.as_str() == s.as_ref())
+                                        {
                                             slots[1] = Some(newe);
                                         } else {
                                             slots[3] = slots[2].clone();
@@ -1297,8 +1410,20 @@ impl Vm {
                                         }
                                     }
                                     _ => {
-                                        let optr = Arc::as_ptr(match &regs[*base as usize] { Val::Object{fields,..}=>fields, _=> unreachable!() }) as usize;
-                                        access_ic[pc] = Some(AccessIc::ObjectStr([Some(ObjectStrEntry { obj_ptr: optr, key: s.as_ref().to_string(), value: v.clone() }), None, None, None]));
+                                        let optr = Arc::as_ptr(match &regs[*base as usize] {
+                                            Val::Object { fields, .. } => fields,
+                                            _ => unreachable!(),
+                                        }) as usize;
+                                        access_ic[pc] = Some(AccessIc::ObjectStr([
+                                            Some(ObjectStrEntry {
+                                                obj_ptr: optr,
+                                                key: s.as_ref().to_string(),
+                                                value: v.clone(),
+                                            }),
+                                            None,
+                                            None,
+                                            None,
+                                        ]));
                                     }
                                 }
                             }
@@ -1337,7 +1462,9 @@ impl Vm {
                                         }
                                     }
                                     out
-                                } else { None };
+                                } else {
+                                    None
+                                };
                                 if let Some(v) = hit {
                                     v
                                 } else {
@@ -1351,7 +1478,10 @@ impl Vm {
                                             };
                                             if slots[0].as_ref().is_some_and(|e| e.base_ptr == lptr && e.idx == *i) {
                                                 slots[0] = Some(newe);
-                                            } else if slots[1].as_ref().is_some_and(|e| e.base_ptr == lptr && e.idx == *i) {
+                                            } else if slots[1]
+                                                .as_ref()
+                                                .is_some_and(|e| e.base_ptr == lptr && e.idx == *i)
+                                            {
                                                 slots[1] = Some(newe);
                                             } else {
                                                 slots[3] = slots[2].clone();
@@ -1361,7 +1491,16 @@ impl Vm {
                                             }
                                         }
                                         _ => {
-                                            index_ic[pc] = Some(IndexIc::List([Some(ListEntry { base_ptr: lptr, idx: *i, value: v.clone() }), None, None, None]));
+                                            index_ic[pc] = Some(IndexIc::List([
+                                                Some(ListEntry {
+                                                    base_ptr: lptr,
+                                                    idx: *i,
+                                                    value: v.clone(),
+                                                }),
+                                                None,
+                                                None,
+                                                None,
+                                            ]));
                                         }
                                     }
                                     v
@@ -1382,7 +1521,9 @@ impl Vm {
                                         }
                                     }
                                     out
-                                } else { None };
+                                } else {
+                                    None
+                                };
                                 if let Some(v) = hit {
                                     v
                                 } else {
@@ -1400,7 +1541,10 @@ impl Vm {
                                             };
                                             if slots[0].as_ref().is_some_and(|e| e.base_ptr == sptr && e.idx == *i) {
                                                 slots[0] = Some(newe);
-                                            } else if slots[1].as_ref().is_some_and(|e| e.base_ptr == sptr && e.idx == *i) {
+                                            } else if slots[1]
+                                                .as_ref()
+                                                .is_some_and(|e| e.base_ptr == sptr && e.idx == *i)
+                                            {
                                                 slots[1] = Some(newe);
                                             } else {
                                                 slots[3] = slots[2].clone();
@@ -1410,7 +1554,16 @@ impl Vm {
                                             }
                                         }
                                         _ => {
-                                            index_ic[pc] = Some(IndexIc::Str([Some(StrEntry { base_ptr: sptr, idx: *i, value: v.clone() }), None, None, None]));
+                                            index_ic[pc] = Some(IndexIc::Str([
+                                                Some(StrEntry {
+                                                    base_ptr: sptr,
+                                                    idx: *i,
+                                                    value: v.clone(),
+                                                }),
+                                                None,
+                                                None,
+                                                None,
+                                            ]));
                                         }
                                     }
                                     v
@@ -1493,7 +1646,7 @@ impl Vm {
                 Op::BuildMap { dst, base, len } => {
                     let start = *base as usize;
                     let n = *len as usize;
-                    let mut map: std::collections::HashMap<Arc<str>, Val> = std::collections::HashMap::with_capacity(n);
+                    let mut map: FastHashMap<Arc<str>, Val> = fast_hash_map_with_capacity(n);
                     for i in 0..n {
                         let k = &regs[start + 2 * i];
                         let v = regs[start + 2 * i + 1].clone();

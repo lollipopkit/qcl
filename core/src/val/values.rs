@@ -6,6 +6,8 @@ use std::{
     sync::Arc,
 };
 
+use crate::util::fast_map::{FastHashMap, fast_hash_map_with_capacity};
+
 // Using standard HashMap for maps and environments
 
 use anyhow::{Result, anyhow};
@@ -31,9 +33,9 @@ pub enum Val {
     Int(i64), // Since most arch are 64 bit, we can use i64 for int
     Float(f64),
     Bool(bool),
-    /// Map type, wrapped in Arc<HashMap> to avoid deep cloning
+    /// Map type, wrapped in Arc<FastHashMap> to avoid deep cloning
     /// Keys use Arc<str> to reduce key-string cloning and allocations
-    Map(Arc<HashMap<Arc<str>, Val>>),
+    Map(Arc<FastHashMap<Arc<str>, Val>>),
     /// List type, stored as Arc<[Val]> for compact, immutable sharing
     List(Arc<[Val]>),
     /// Closure - contains parameters and body with captured environment
@@ -641,15 +643,8 @@ impl Val {
                     call_env.define(param.clone(), arg_val.clone());
                 }
 
-                // Merge in missing globals from the caller's environment to support
-                // recursion and mutual recursion without a full upvalue system. We only
-                // add names that are not present in the captured environment.
-                let caller_globals = env.export_symbols();
-                for (k, v) in caller_globals.into_iter() {
-                    if call_env.get(&k).is_none() {
-                        call_env.define(k, v);
-                    }
-                }
+                // Note: globals are already present in the shallow call environment's
+                // cloned global scope; no additional merge needed here.
 
                 // Execute function body (VM fast-path when available), then pop frame.
                 #[cfg(feature = "vm")]
@@ -792,22 +787,46 @@ impl Add for &Val {
             (Val::Float(a), Val::Int(b)) => Ok(Val::Float(a + *b as f64)),
             (Val::Int(a), Val::Float(b)) => Ok(Val::Float(*a as f64 + b)),
             (Val::Str(a), Val::Str(b)) => Ok(Val::concat_strings(a.as_ref(), b.as_ref())),
-            #[cfg(feature = "adv_arith")]
+            #[cfg(all(feature = "adv_arith", feature = "fast_numconv"))]
+            (Val::Str(a), Val::Int(b)) => {
+                let mut buf = itoa::Buffer::new();
+                let b_str = buf.format(*b);
+                Ok(Val::concat_strings(a.as_ref(), b_str))
+            }
+            #[cfg(all(feature = "adv_arith", not(feature = "fast_numconv")))]
             (Val::Str(a), Val::Int(b)) => {
                 let b_str = b.to_string();
                 Ok(Val::concat_strings(a.as_ref(), &b_str))
             }
-            #[cfg(feature = "adv_arith")]
+            #[cfg(all(feature = "adv_arith", feature = "fast_numconv"))]
+            (Val::Str(a), Val::Float(b)) => {
+                let mut buf = ryu::Buffer::new();
+                let b_str = buf.format(*b);
+                Ok(Val::concat_strings(a.as_ref(), b_str))
+            }
+            #[cfg(all(feature = "adv_arith", not(feature = "fast_numconv")))]
             (Val::Str(a), Val::Float(b)) => {
                 let b_str = b.to_string();
                 Ok(Val::concat_strings(a.as_ref(), &b_str))
             }
-            #[cfg(feature = "adv_arith")]
+            #[cfg(all(feature = "adv_arith", feature = "fast_numconv"))]
+            (Val::Int(a), Val::Str(b)) => {
+                let mut buf = itoa::Buffer::new();
+                let a_str = buf.format(*a);
+                Ok(Val::concat_strings(a_str, b.as_ref()))
+            }
+            #[cfg(all(feature = "adv_arith", not(feature = "fast_numconv")))]
             (Val::Int(a), Val::Str(b)) => {
                 let a_str = a.to_string();
                 Ok(Val::concat_strings(&a_str, b.as_ref()))
             }
-            #[cfg(feature = "adv_arith")]
+            #[cfg(all(feature = "adv_arith", feature = "fast_numconv"))]
+            (Val::Float(a), Val::Str(b)) => {
+                let mut buf = ryu::Buffer::new();
+                let a_str = buf.format(*a);
+                Ok(Val::concat_strings(a_str, b.as_ref()))
+            }
+            #[cfg(all(feature = "adv_arith", not(feature = "fast_numconv")))]
             (Val::Float(a), Val::Str(b)) => {
                 let a_str = a.to_string();
                 Ok(Val::concat_strings(&a_str, b.as_ref()))
@@ -816,7 +835,7 @@ impl Add for &Val {
             (Val::Map(l), Val::Map(r)) => {
                 // Map + Map: merge with right side overriding left side for same keys
                 // Use with_capacity for better performance
-                let mut merged = HashMap::with_capacity(l.len() + r.len());
+                let mut merged = fast_hash_map_with_capacity(l.len() + r.len());
                 // First insert all from left map
                 for (k, v) in l.iter() {
                     merged.insert(k.clone(), v.clone());
@@ -949,7 +968,7 @@ impl Sub for &Val {
             }
             #[cfg(feature = "adv_arith")]
             (Val::Map(l), Val::Map(r)) => {
-                let mut result = HashMap::with_capacity(l.len());
+                let mut result = fast_hash_map_with_capacity(l.len());
                 for (k, v) in l.iter() {
                     if !r.contains_key(k) {
                         result.insert(k.clone(), v.clone());
@@ -960,7 +979,7 @@ impl Sub for &Val {
             #[cfg(feature = "adv_arith")]
             (Val::Map(l), r) => {
                 if let Val::Str(k) = r {
-                    let mut result = HashMap::with_capacity(l.len());
+                    let mut result = fast_hash_map_with_capacity(l.len());
                     for (existing_k, v) in l.iter() {
                         if existing_k.as_ref() != k.as_ref() {
                             result.insert(existing_k.clone(), v.clone());
@@ -1073,7 +1092,7 @@ where
 {
     fn from(m: HashMap<S, V, H>) -> Self {
         // Avoid rehashing by reserving exact capacity
-        let mut inner: HashMap<Arc<str>, Val> = HashMap::with_capacity(m.len());
+        let mut inner: FastHashMap<Arc<str>, Val> = fast_hash_map_with_capacity(m.len());
         for (k, v) in m.into_iter() {
             inner.insert(Arc::from(k.as_ref()), v.into());
         }
@@ -1159,7 +1178,7 @@ impl From<serde_json::Value> for Val {
                 Val::List(Arc::from(v))
             }
             serde_json::Value::Object(o) => {
-                let m: HashMap<Arc<str>, Val> = o
+                let m: FastHashMap<Arc<str>, Val> = o
                     .into_iter()
                     .map(|(k, v)| (Arc::<str>::from(k), Val::from(v)))
                     .collect();
@@ -1190,7 +1209,7 @@ impl From<serde_yaml::Value> for Val {
                 Val::List(Arc::from(v))
             }
             serde_yaml::Value::Mapping(o) => {
-                let m: HashMap<Arc<str>, Val> = o
+                let m: FastHashMap<Arc<str>, Val> = o
                     .into_iter()
                     .filter_map(|(k, v)| {
                         if let serde_yaml::Value::String(key) = k {
