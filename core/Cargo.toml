@@ -35,9 +35,11 @@ tokio-rt-multi-thread = ["concurrency", "tokio/rt-multi-thread"]
 tokio-rt-current-thread = ["concurrency", "tokio/rt"]
 # `vm`: enables the register bytecode VM subsystem
 vm = []
+# Optional compact 32-bit bytecode packing (scaffold)
+bc32 = []
 # `slots`: enables name resolution to slot indices
 slots = []
-all = ["sem_arith", "adv_arith", "json", "yaml", "toml", "concurrency", "vm", "slots"]
+all = ["sem_arith", "adv_arith", "json", "yaml", "toml", "concurrency", "vm", "slots", "bc32"]
 
 [dev-dependencies]
 criterion = "0.3"

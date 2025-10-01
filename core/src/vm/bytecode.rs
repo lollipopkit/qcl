@@ -13,6 +13,8 @@ pub struct Function {
     // Register indices for parameters in the order declared by the closure/function.
     // Empty for expression/statement wrappers that are not functions.
     pub param_regs: Vec<u16>,
+    #[cfg(feature = "bc32")]
+    pub code32: Option<Vec<u32>>, // Optional packed encoding for direct execution
 }
 
 #[derive(Debug, Clone)]
@@ -25,6 +27,20 @@ pub struct ClosureProto {
 pub enum Op {
     LoadK(u16 /*dst*/, u16 /*kidx*/),
     Move(u16 /*dst*/, u16 /*src*/),
+    // Boolean/logic
+    Not(u16 /*dst*/, u16 /*src*/),
+    // Convert any value to boolean truthiness (only Nil/false are falsey)
+    ToBool(u16 /*dst*/, u16 /*src*/),
+    // Branch helpers for nil checks
+    JmpIfNil(u16 /*r*/, i16 /*ofs*/),
+    JmpIfNotNil(u16 /*r*/, i16 /*ofs*/),
+    // Nullish coalescing fused branch: if l != nil { dst = l; jmp ofs } else fallthrough
+    NullishPick { l: u16, dst: u16, ofs: i16 },
+    // Boolean short-circuit helpers that also set a boolean result register
+    // If r is falsey: set dst=false and jump by ofs; else fallthrough
+    JmpFalseSet { r: u16, dst: u16, ofs: i16 },
+    // If r is truthy: set dst=true and jump by ofs; else fallthrough
+    JmpTrueSet { r: u16, dst: u16, ofs: i16 },
     // Arithmetic
     Add(u16 /*dst*/, u16 /*a*/, u16 /*b*/),
     Sub(u16, u16, u16),
@@ -38,6 +54,8 @@ pub enum Op {
     CmpLe(u16, u16, u16),
     CmpGt(u16, u16, u16),
     CmpGe(u16, u16, u16),
+    // Membership test: dst = (a in b)
+    In(u16 /*dst*/, u16 /*a*/, u16 /*b*/),
     // Locals
     LoadLocal(u16 /*dst*/, u16 /*idx*/),
     StoreLocal(u16 /*idx*/, u16 /*src*/),
@@ -47,6 +65,10 @@ pub enum Op {
     LoadCtx(u16 /*dst*/),
     // Access and constructors
     Access(u16 /*dst*/, u16 /*base*/, u16 /*field*/),
+    // Access with constant string field (avoids allocating/register for field expr)
+    AccessK(u16 /*dst*/, u16 /*base*/, u16 /*kidx*/),
+    // Index with constant integer (avoids temp registers)
+    IndexK(u16 /*dst*/, u16 /*base*/, u16 /*kidx*/),
     // Length and index helpers
     Len {
         dst: u16,
@@ -128,6 +150,13 @@ impl fmt::Debug for Op {
         match self {
             Op::LoadK(d, k) => write!(f, "LoadK r{}, k{}", d, k),
             Op::Move(d, s) => write!(f, "Move r{}, r{}", d, s),
+            Op::Not(d, s) => write!(f, "Not r{}, r{}", d, s),
+            Op::ToBool(d, s) => write!(f, "ToBool r{}, r{}", d, s),
+            Op::JmpIfNil(r, ofs) => write!(f, "JmpIfNil r{}, {}", r, ofs),
+            Op::JmpIfNotNil(r, ofs) => write!(f, "JmpIfNotNil r{}, {}", r, ofs),
+            Op::NullishPick { l, dst, ofs } => write!(f, "NullishPick l=r{}, dst=r{}, {}", l, dst, ofs),
+            Op::JmpFalseSet { r, dst, ofs } => write!(f, "JmpFalseSet r{}, dst=r{}, {}", r, dst, ofs),
+            Op::JmpTrueSet { r, dst, ofs } => write!(f, "JmpTrueSet r{}, dst=r{}, {}", r, dst, ofs),
             Op::Add(d, a, b) => write!(f, "Add r{}, r{}, r{}", d, a, b),
             Op::Sub(d, a, b) => write!(f, "Sub r{}, r{}, r{}", d, a, b),
             Op::Mul(d, a, b) => write!(f, "Mul r{}, r{}, r{}", d, a, b),
@@ -139,12 +168,15 @@ impl fmt::Debug for Op {
             Op::CmpLe(d, a, b) => write!(f, "CmpLe r{}, r{}, r{}", d, a, b),
             Op::CmpGt(d, a, b) => write!(f, "CmpGt r{}, r{}, r{}", d, a, b),
             Op::CmpGe(d, a, b) => write!(f, "CmpGe r{}, r{}, r{}", d, a, b),
+            Op::In(d, a, b) => write!(f, "In r{}, r{}, r{}", d, a, b),
             Op::LoadLocal(d, i) => write!(f, "LoadLocal r{}, [{}]", d, i),
             Op::StoreLocal(i, s) => write!(f, "StoreLocal [{}], r{}", i, s),
             Op::LoadGlobal(d, k) => write!(f, "LoadGlobal r{}, k{}", d, k),
             Op::DefineGlobal(k, s) => write!(f, "DefineGlobal k{}, r{}", k, s),
             Op::LoadCtx(d) => write!(f, "LoadCtx r{}", d),
             Op::Access(d, b, fld) => write!(f, "Access r{}, r{}, r{}", d, b, fld),
+            Op::AccessK(d, b, k) => write!(f, "AccessK r{}, r{}, k{}", d, b, k),
+            Op::IndexK(d, b, k) => write!(f, "IndexK r{}, r{}, k{}", d, b, k),
             Op::Len { dst, src } => write!(f, "Len r{}, r{}", dst, src),
             Op::Index { dst, base, idx } => write!(f, "Index r{}, r{}, r{}", dst, base, idx),
             Op::ToIter { dst, src } => write!(f, "ToIter r{}, r{}", dst, src),

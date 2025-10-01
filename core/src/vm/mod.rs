@@ -5,11 +5,15 @@
 //! and the VM execution loop placeholder to enable incremental development.
 
 mod bytecode;
+#[cfg(feature = "bc32")]
+mod bc32;
 mod compiler;
 #[allow(clippy::module_inception)]
 mod vm;
 
 pub use bytecode::*;
+#[cfg(feature = "bc32")]
+pub use bc32::*;
 pub use compiler::*;
 pub use vm::*;
 

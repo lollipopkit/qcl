@@ -92,13 +92,22 @@ impl FunctionBuilder {
         }
     }
     fn finish(self) -> Function {
-        Function {
+        let mut f = Function {
             consts: self.consts,
             code: self.code,
             n_regs: self.n_regs,
             protos: self.protos,
             param_regs: self.param_regs,
+            #[cfg(feature = "bc32")]
+            code32: None,
+        };
+        #[cfg(feature = "bc32")]
+        {
+            if let Some(packed) = crate::vm::Bc32Function::try_from_function(&f) {
+                f.code32 = Some(packed.code32);
+            }
         }
+        f
     }
     fn emit(&mut self, op: Op) {
         self.code.push(op);
@@ -129,6 +138,37 @@ impl FunctionBuilder {
         self.vars.get(name).copied()
     }
 
+    // Constant folding helpers
+    fn try_fold_unary(&mut self, uop: &crate::op::UnaryOp, inner: &crate::expr::Expr) -> Option<Val> {
+        if let crate::expr::Expr::Val(v) = inner {
+            match uop {
+                crate::op::UnaryOp::Not => {
+                    if let Val::Bool(b) = v {
+                        return Some(Val::Bool(!b));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn try_fold_bin(&mut self, op: &crate::op::BinOp, l: &crate::expr::Expr, r: &crate::expr::Expr) -> Option<Val> {
+        use crate::expr::Expr;
+        match (l, r) {
+            (Expr::Val(lv), Expr::Val(rv)) => {
+                let res = if op.is_arith() {
+                    op.eval_vals(lv, rv)
+                } else if op.is_cmp() {
+                    op.cmp(lv, rv).map(Val::Bool)
+                } else {
+                    return None;
+                };
+                res.ok()
+            }
+            _ => None,
+        }
+    }
+
     // Expression compilation returns the register containing the result
     fn expr(&mut self, e: &Expr) -> u16 {
         use crate::op::BinOp;
@@ -152,133 +192,103 @@ impl FunctionBuilder {
             }
             Expr::Paren(inner) => self.expr(inner),
             Expr::Unary(uop, inner) => {
+                if let Some(v) = self.try_fold_unary(uop, inner) {
+                    let dst = self.alloc();
+                    let k = self.k(v);
+                    self.emit(Op::LoadK(dst, k));
+                    return dst;
+                }
                 let r = self.expr(inner);
-                // Lower some unary ops via constants and comparisons
                 match uop {
                     crate::op::UnaryOp::Not => {
-                        // !x  ->  (x == false) or (x is Nil/false)
-                        // Implement as JmpFalse/LoadK/Move
                         let out = self.alloc();
-                        let k_true = self.k(Val::Bool(true));
-                        let k_false = self.k(Val::Bool(false));
-                        // if !r -> out=true else out=false
-                        let jslot = self.code.len();
-                        self.emit(Op::JmpFalse(r, 0)); // patch later
-                        self.emit(Op::LoadK(out, k_false));
-                        let jend = self.code.len();
-                        self.emit(Op::Jmp(0));
-                        // falsey branch
-                        let target = self.code.len();
-                        // patch JmpFalse to jump here
-                        if let Op::JmpFalse(_, ref mut ofs) = self.code[jslot] {
-                            *ofs = (target as isize - jslot as isize) as i16;
-                        }
-                        self.emit(Op::LoadK(out, k_true));
-                        // end label
-                        let end = self.code.len();
-                        if let Op::Jmp(ref mut ofs) = self.code[jend] {
-                            *ofs = (end as isize - jend as isize) as i16;
-                        }
+                        self.emit(Op::Not(out, r));
                         out
                     }
                 }
             }
             Expr::And(l, r) => {
+                // Short-circuiting AND producing a boolean result:
+                // rl = l; if !rl { out=false; jmp end } ; rr = r; out = bool(rr)
                 let out = self.alloc();
                 let rl = self.expr(l);
-                // if !rl -> out=false
-                let jf = self.code.len();
-                self.emit(Op::JmpFalse(rl, 0)); // patch
+                let jpos = self.code.len();
+                self.emit(Op::JmpFalseSet { r: rl, dst: out, ofs: 0 });
                 let rr = self.expr(r);
-                // out = rl && rr
-                let k_true = self.k(Val::Bool(true));
-                let k_false = self.k(Val::Bool(false));
-                // if rr -> out=true else out=false
-                let jf2 = self.code.len();
-                self.emit(Op::JmpFalse(rr, 0)); // to false branch
-                self.emit(Op::LoadK(out, k_true));
-                let jend = self.code.len();
-                self.emit(Op::Jmp(0));
-                let f2 = self.code.len();
-                if let Op::JmpFalse(_, ref mut ofs) = self.code[jf2] {
-                    *ofs = (f2 as isize - jf2 as isize) as i16;
-                }
-                self.emit(Op::LoadK(out, k_false));
+                self.emit(Op::ToBool(out, rr));
                 let end = self.code.len();
-                if let Op::Jmp(ref mut ofs) = self.code[jend] {
-                    *ofs = (end as isize - jend as isize) as i16;
-                }
-                // patch first false to jump to set false
-                if let Op::JmpFalse(_, ref mut ofs) = self.code[jf] {
-                    *ofs = (f2 as isize - jf as isize) as i16;
+                if let Op::JmpFalseSet { ofs, .. } = &mut self.code[jpos] {
+                    *ofs = (end as isize - jpos as isize) as i16;
                 }
                 out
             }
             Expr::Or(l, r) => {
+                // Short-circuiting OR producing a boolean result:
+                // rl = l; if rl { out=true; jmp end } ; rr = r; out = bool(rr)
                 let out = self.alloc();
                 let rl = self.expr(l);
-                // if !rl -> evaluate r, else set true
-                let jf = self.code.len();
-                self.emit(Op::JmpFalse(rl, 0));
-                let k_true = self.k(Val::Bool(true));
-                let k_false = self.k(Val::Bool(false));
-                self.emit(Op::LoadK(out, k_true));
-                let jend = self.code.len();
-                self.emit(Op::Jmp(0));
-                let fall = self.code.len();
-                if let Op::JmpFalse(_, ref mut ofs) = self.code[jf] {
-                    *ofs = (fall as isize - jf as isize) as i16;
-                }
+                let jpos = self.code.len();
+                self.emit(Op::JmpTrueSet { r: rl, dst: out, ofs: 0 });
                 let rr = self.expr(r);
-                let jf2 = self.code.len();
-                self.emit(Op::JmpFalse(rr, 0));
-                self.emit(Op::LoadK(out, k_true));
-                let jend2 = self.code.len();
-                self.emit(Op::Jmp(0));
-                let f2 = self.code.len();
-                if let Op::JmpFalse(_, ref mut ofs) = self.code[jf2] {
-                    *ofs = (f2 as isize - jf2 as isize) as i16;
-                }
-                self.emit(Op::LoadK(out, k_false));
+                self.emit(Op::ToBool(out, rr));
                 let end = self.code.len();
-                if let Op::Jmp(ref mut ofs) = self.code[jend] {
-                    *ofs = (end as isize - jend as isize) as i16;
-                }
-                if let Op::Jmp(ref mut ofs) = self.code[jend2] {
-                    *ofs = (end as isize - jend2 as isize) as i16;
+                if let Op::JmpTrueSet { ofs, .. } = &mut self.code[jpos] {
+                    *ofs = (end as isize - jpos as isize) as i16;
                 }
                 out
             }
             // legacy '@' context access removed
             Expr::Access(base, field) => {
+                // If both sides are constant, fold at compile time
+                if let (crate::expr::Expr::Val(vb), crate::expr::Expr::Val(vf)) = (base.as_ref(), field.as_ref()) {
+                    let folded = vb.access(vf).unwrap_or(Val::Nil);
+                    let dst = self.alloc();
+                    let k = self.k(folded);
+                    self.emit(Op::LoadK(dst, k));
+                    return dst;
+                }
                 let b = self.expr(base);
-                let f = self.expr(field);
                 let out = self.alloc();
-                self.emit(Op::Access(out, b, f));
+                // If field is a constant string or int, use specialized opcodes
+                if let Expr::Val(Val::Str(s)) = field.as_ref() {
+                    let k = self.k(Val::Str(s.clone()));
+                    self.emit(Op::AccessK(out, b, k));
+                } else if let Expr::Val(Val::Int(i)) = field.as_ref() {
+                    let k = self.k(Val::Int(*i));
+                    self.emit(Op::IndexK(out, b, k));
+                } else {
+                    let f = self.expr(field);
+                    self.emit(Op::Access(out, b, f));
+                }
                 out
             }
             Expr::OptionalAccess(base, field) => {
                 let b = self.expr(base);
-                // if b == nil -> out=nil else out = b[field]
+                // if b is nil -> out=nil else out = b[field]
                 let out = self.alloc();
-                let k_nil = self.k(Val::Nil);
-                let rnil = self.alloc();
-                self.emit(Op::LoadK(rnil, k_nil));
-                let beq = self.alloc();
-                self.emit(Op::CmpEq(beq, b, rnil));
-                let j_not_nil = self.code.len();
-                self.emit(Op::JmpFalse(beq, 0));
-                // b is nil -> out=nil
-                self.emit(Op::LoadK(out, k_nil));
+                let j_is_nil = self.code.len();
+                self.emit(Op::JmpIfNil(b, 0));
+                // not nil path
+                if let Expr::Val(Val::Int(i)) = field.as_ref() {
+                    let k = self.k(Val::Int(*i));
+                    self.emit(Op::IndexK(out, b, k));
+                } else if let Expr::Val(Val::Str(s)) = field.as_ref() {
+                    let k = self.k(Val::Str(s.clone()));
+                    self.emit(Op::AccessK(out, b, k));
+                } else {
+                    let f = self.expr(field);
+                    self.emit(Op::Access(out, b, f));
+                }
                 let jend = self.code.len();
                 self.emit(Op::Jmp(0));
-                // not nil path
-                let not_nil = self.code.len();
-                if let Op::JmpFalse(_, ref mut ofs) = self.code[j_not_nil] {
-                    *ofs = (not_nil as isize - j_not_nil as isize) as i16;
+                // nil path sets out=nil
+                let nil_path = self.code.len();
+                if let Op::JmpIfNil(_, ref mut ofs) = self.code[j_is_nil] {
+                    *ofs = (nil_path as isize - j_is_nil as isize) as i16;
                 }
-                let f = self.expr(field);
-                self.emit(Op::Access(out, b, f));
+                let k_nil = self.k(Val::Nil);
+                self.emit(Op::LoadK(out, k_nil));
+                // end
                 let end = self.code.len();
                 if let Op::Jmp(ref mut ofs) = self.code[jend] {
                     *ofs = (end as isize - jend as isize) as i16;
@@ -286,33 +296,37 @@ impl FunctionBuilder {
                 out
             }
             Expr::NullishCoalescing(l, r) => {
+                // Compile-time reduction when left is a constant
+                if let crate::expr::Expr::Val(vl) = l.as_ref() {
+                    if *vl == Val::Nil {
+                        return self.expr(r);
+                    } else {
+                        let dst = self.alloc();
+                        let k = self.k(vl.clone());
+                        self.emit(Op::LoadK(dst, k));
+                        return dst;
+                    }
+                }
+                // Fused: if rl != nil { out = rl; jmp end } ; rr = expr(r); out = rr
                 let out = self.alloc();
                 let rl = self.expr(l);
-                let k_nil = self.k(Val::Nil);
-                let rnil = self.alloc();
-                self.emit(Op::LoadK(rnil, k_nil));
-                let r_is_nil = self.alloc();
-                self.emit(Op::CmpEq(r_is_nil, rl, rnil));
-                let j_not_nil = self.code.len();
-                // if not (rl == nil) jump to use-left
-                self.emit(Op::JmpFalse(r_is_nil, 0));
-                // left is nil -> evaluate right
+                let pick_pos = self.code.len();
+                self.emit(Op::NullishPick { l: rl, dst: out, ofs: 0 });
                 let rr = self.expr(r);
                 self.emit(Op::Move(out, rr));
-                let jend = self.code.len();
-                self.emit(Op::Jmp(0));
-                let use_left = self.code.len();
-                if let Op::JmpFalse(_, ref mut ofs) = self.code[j_not_nil] {
-                    *ofs = (use_left as isize - j_not_nil as isize) as i16;
-                }
-                self.emit(Op::Move(out, rl));
                 let end = self.code.len();
-                if let Op::Jmp(ref mut ofs) = self.code[jend] {
-                    *ofs = (end as isize - jend as isize) as i16;
+                if let Op::NullishPick { ofs, .. } = &mut self.code[pick_pos] {
+                    *ofs = (end as isize - pick_pos as isize) as i16;
                 }
                 out
             }
             Expr::Bin(l, op, r) => {
+                if let Some(v) = self.try_fold_bin(op, l, r) {
+                    let dst = self.alloc();
+                    let k = self.k(v);
+                    self.emit(Op::LoadK(dst, k));
+                    return dst;
+                }
                 let a = self.expr(l);
                 let b = self.expr(r);
                 let dst = self.alloc();
@@ -328,11 +342,7 @@ impl FunctionBuilder {
                     BinOp::Le => self.emit(Op::CmpLe(dst, a, b)),
                     BinOp::Gt => self.emit(Op::CmpGt(dst, a, b)),
                     BinOp::Ge => self.emit(Op::CmpGe(dst, a, b)),
-                    _ => {
-                        // Fallback: unsupported binary op -> Nil
-                        let k = self.k(Val::Nil);
-                        self.emit(Op::LoadK(dst, k));
-                    }
+                    BinOp::In => self.emit(Op::In(dst, a, b)),
                 }
                 dst
             }

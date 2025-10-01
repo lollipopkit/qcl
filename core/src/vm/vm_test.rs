@@ -27,6 +27,201 @@ mod tests {
     }
 
     #[test]
+    fn test_bc32_for_range_ascending_exclusive() {
+        use crate::stmt::{ForPattern, Stmt};
+        // Program: x=0; for _ in 0..3 { x = x + 1 } return x
+        let program = Stmt::Block {
+            statements: vec![
+                Box::new(Stmt::Define { name: "x".into(), value: Box::new(Expr::Val(Val::Int(0))) }),
+                Box::new(Stmt::For {
+                    pattern: ForPattern::Ignore,
+                    iterable: Box::new(Expr::Range { start: Some(Box::new(Expr::Val(Val::Int(0)))), end: Some(Box::new(Expr::Val(Val::Int(3)))), inclusive: false, step: None }),
+                    body: Box::new(Stmt::Block { statements: vec![ Box::new(Stmt::Assign { name: "x".into(), value: Box::new(Expr::Bin(Box::new(Expr::Var("x".into())), crate::op::BinOp::Add, Box::new(Expr::Val(Val::Int(1))))), span: None }) ] }),
+                }),
+                Box::new(Stmt::Return { value: Some(Box::new(Expr::Var("x".into()))) }),
+            ],
+        };
+        let fun = crate::vm::Compiler::new().compile_stmt(&program);
+        #[cfg(feature = "bc32")]
+        {
+            assert!(fun.code32.is_some(), "function should be bc32-packed");
+            let code32 = fun.code32.as_ref().unwrap();
+            let mut seen_prep = 0;
+            let mut seen_guard = 0;
+            let mut seen_step = 0;
+            for &w in code32.iter() {
+                let tag = crate::vm::tag_of(w);
+                if tag == crate::vm::TAG_FOR_RANGE_PREP { seen_prep += 1; }
+                if tag == crate::vm::TAG_FOR_RANGE_GUARD { seen_guard += 1; }
+                if tag == crate::vm::TAG_FOR_RANGE_STEP { seen_step += 1; }
+            }
+            assert!(seen_prep >= 1 && seen_guard >= 1 && seen_step >= 1, "expected ForRange* tags present in bc32 stream");
+        }
+        let out = crate::vm::Vm::new().exec(&fun).unwrap();
+        assert_eq!(out, Val::Int(3));
+    }
+
+    #[test]
+    fn test_bc32_for_range_descending_inclusive_with_step() {
+        use crate::stmt::{ForPattern, Stmt};
+        // Program: x=0; for _ in 5..=1 step -2 { x = x + 1 } return x
+        let program = Stmt::Block {
+            statements: vec![
+                Box::new(Stmt::Define { name: "x".into(), value: Box::new(Expr::Val(Val::Int(0))) }),
+                Box::new(Stmt::For {
+                    pattern: ForPattern::Ignore,
+                    iterable: Box::new(Expr::Range { start: Some(Box::new(Expr::Val(Val::Int(5)))), end: Some(Box::new(Expr::Val(Val::Int(1)))), inclusive: true, step: Some(Box::new(Expr::Val(Val::Int(-2)))) }),
+                    body: Box::new(Stmt::Block { statements: vec![ Box::new(Stmt::Assign { name: "x".into(), value: Box::new(Expr::Bin(Box::new(Expr::Var("x".into())), crate::op::BinOp::Add, Box::new(Expr::Val(Val::Int(1))))), span: None }) ] }),
+                }),
+                Box::new(Stmt::Return { value: Some(Box::new(Expr::Var("x".into()))) }),
+            ],
+        };
+        let fun = crate::vm::Compiler::new().compile_stmt(&program);
+        #[cfg(feature = "bc32")]
+        assert!(fun.code32.is_some(), "function should be bc32-packed");
+        let out = crate::vm::Vm::new().exec(&fun).unwrap();
+        // 5,3,1 => 3 iterations
+        assert_eq!(out, Val::Int(3));
+    }
+
+    #[test]
+    fn test_bc32_for_range_explicit_step_inclusive() {
+        use crate::stmt::{ForPattern, Stmt};
+        // Program: x=0; for _ in 0..=10 step 2 { x = x + 1 } return x
+        let program = Stmt::Block {
+            statements: vec![
+                Box::new(Stmt::Define { name: "x".into(), value: Box::new(Expr::Val(Val::Int(0))) }),
+                Box::new(Stmt::For {
+                    pattern: ForPattern::Ignore,
+                    iterable: Box::new(Expr::Range { start: Some(Box::new(Expr::Val(Val::Int(0)))), end: Some(Box::new(Expr::Val(Val::Int(10)))), inclusive: true, step: Some(Box::new(Expr::Val(Val::Int(2)))) }),
+                    body: Box::new(Stmt::Block { statements: vec![ Box::new(Stmt::Assign { name: "x".into(), value: Box::new(Expr::Bin(Box::new(Expr::Var("x".into())), crate::op::BinOp::Add, Box::new(Expr::Val(Val::Int(1))))), span: None }) ] }),
+                }),
+                Box::new(Stmt::Return { value: Some(Box::new(Expr::Var("x".into()))) }),
+            ],
+        };
+        let fun = crate::vm::Compiler::new().compile_stmt(&program);
+        #[cfg(feature = "bc32")]
+        assert!(fun.code32.is_some(), "function should be bc32-packed");
+        let out = crate::vm::Vm::new().exec(&fun).unwrap();
+        assert_eq!(out, Val::Int(6));
+    }
+
+    #[test]
+    fn test_bc32_long_or_uses_extended_true_set() {
+        use crate::op::BinOp;
+        use crate::vm::Compiler;
+        // Build a long right-hand expression to force an i16 jump distance
+        let mut rhs = Expr::Bin(
+            Box::new(Expr::Var("x".into())),
+            BinOp::Add,
+            Box::new(Expr::Val(Val::Int(1))),
+        );
+        for _ in 0..100 {
+            rhs = Expr::Bin(Box::new(rhs), BinOp::Add, Box::new(Expr::Val(Val::Int(1))));
+        }
+        let expr = Expr::Or(Box::new(Expr::Val(Val::Bool(true))), Box::new(rhs));
+        let fun = Compiler::new().compile_expr(&expr);
+        #[cfg(feature = "bc32")]
+        {
+            let code32 = fun.code32.as_ref().expect("function should be bc32-packed");
+            let mut found_ext = false;
+            for &w in code32.iter() {
+                let tag = crate::vm::tag_of(w);
+                if tag == crate::vm::TAG_JMP_TRUE_SET_X { found_ext = true; break; }
+            }
+            assert!(found_ext, "expected extended JmpTrueSetX to be present for long OR");
+        }
+        // Execution should short-circuit to true
+        let out = crate::vm::Vm::new().exec(&fun).unwrap();
+        assert_eq!(out, Val::Bool(true));
+    }
+
+    #[test]
+    fn test_bc32_long_and_uses_extended_false_set() {
+        use crate::op::BinOp;
+        use crate::vm::Compiler;
+        let mut rhs = Expr::Bin(
+            Box::new(Expr::Var("y".into())),
+            BinOp::Add,
+            Box::new(Expr::Val(Val::Int(1))),
+        );
+        for _ in 0..100 {
+            rhs = Expr::Bin(Box::new(rhs), BinOp::Add, Box::new(Expr::Val(Val::Int(1))));
+        }
+        let expr = Expr::And(Box::new(Expr::Val(Val::Bool(false))), Box::new(rhs));
+        let fun = Compiler::new().compile_expr(&expr);
+        #[cfg(feature = "bc32")]
+        {
+            let code32 = fun.code32.as_ref().expect("function should be bc32-packed");
+            let mut found_ext = false;
+            for &w in code32.iter() {
+                let tag = crate::vm::tag_of(w);
+                if tag == crate::vm::TAG_JMP_FALSE_SET_X { found_ext = true; break; }
+            }
+            assert!(found_ext, "expected extended JmpFalseSetX to be present for long AND");
+        }
+        // Execution should short-circuit to false
+        let out = crate::vm::Vm::new().exec(&fun).unwrap();
+        assert_eq!(out, Val::Bool(false));
+    }
+
+    #[test]
+    fn test_bc32_long_nullish_uses_extended_pick() {
+        use crate::op::BinOp;
+        use crate::vm::Compiler;
+        // left is a variable (undefined -> nil at runtime), forcing NullishPick emission
+        // right is a long chain to push the jump distance beyond i8
+        let mut rhs = Expr::Bin(
+            Box::new(Expr::Var("x".into())),
+            BinOp::Add,
+            Box::new(Expr::Val(Val::Int(0))),
+        );
+        for _ in 0..100 {
+            rhs = Expr::Bin(Box::new(rhs), BinOp::Add, Box::new(Expr::Val(Val::Int(0))));
+        }
+        let expr = Expr::NullishCoalescing(Box::new(Expr::Var("u".into())), Box::new(rhs));
+        let fun = Compiler::new().compile_expr(&expr);
+        #[cfg(feature = "bc32")]
+        {
+            let code32 = fun.code32.as_ref().expect("function should be bc32-packed");
+            let mut found_ext = false;
+            for &w in code32.iter() {
+                let tag = crate::vm::tag_of(w);
+                if tag == crate::vm::TAG_NULLISH_PICK_X { found_ext = true; break; }
+            }
+            assert!(found_ext, "expected extended NullishPickX to be present for long nullish coalescing");
+        }
+        // Execution: define x so rhs evaluates cleanly; u is undefined -> nil so rhs taken
+        let mut env = crate::stmt::Environment::new();
+        env.define("x".into(), Val::Int(42));
+        let out = crate::vm::Vm::new().exec_with(&fun, Some(&mut env), None).unwrap();
+        // Result should be 42 given repeated +0
+        assert_eq!(out, Val::Int(42));
+    }
+
+    #[test]
+    fn test_vm_global_ic_multiple_redefines() {
+        use crate::stmt::Stmt;
+        use crate::vm::Compiler;
+        // Program:
+        //   x = 1; _ = x; x = 2; _ = x; x = 3; return x
+        let program = Stmt::Block {
+            statements: vec![
+                Box::new(Stmt::Define { name: "x".into(), value: Box::new(Expr::Val(Val::Int(1))) }),
+                Box::new(Stmt::Expr(Box::new(Expr::Var("x".into())))),
+                Box::new(Stmt::Define { name: "x".into(), value: Box::new(Expr::Val(Val::Int(2))) }),
+                Box::new(Stmt::Expr(Box::new(Expr::Var("x".into())))),
+                Box::new(Stmt::Define { name: "x".into(), value: Box::new(Expr::Val(Val::Int(3))) }),
+                Box::new(Stmt::Return { value: Some(Box::new(Expr::Var("x".into()))) }),
+            ],
+        };
+        let fun = Compiler::new().compile_stmt(&program);
+        let mut env = crate::stmt::Environment::new();
+        let out = crate::vm::Vm::new().exec_with(&fun, Some(&mut env), None).unwrap();
+        assert_eq!(out, Val::Int(3));
+    }
+
+    #[test]
     fn test_vm_int_add() {
         let compiler = crate::vm::Compiler::new();
         let expr = Expr::Bin(
@@ -609,6 +804,221 @@ mod tests {
         assert_eq!(out, Val::Bool(false));
     }
 
+    #[test]
+    fn test_vm_nullish_non_nil_values() {
+        use crate::vm::Compiler;
+
+        // false ?? 5 -> false (do not coalesce)
+        let expr = Expr::NullishCoalescing(
+            Box::new(Expr::Val(Val::Bool(false))),
+            Box::new(Expr::Val(Val::Int(5))),
+        );
+        let fun = Compiler::new().compile_expr(&expr);
+        let out = crate::vm::Vm::new().exec(&fun).unwrap();
+        assert_eq!(out, Val::Bool(false));
+
+        // 0 ?? 5 -> 0
+        let expr = Expr::NullishCoalescing(
+            Box::new(Expr::Val(Val::Int(0))),
+            Box::new(Expr::Val(Val::Int(5))),
+        );
+        let fun = Compiler::new().compile_expr(&expr);
+        let out = crate::vm::Vm::new().exec(&fun).unwrap();
+        assert_eq!(out, Val::Int(0));
+
+        // "" ?? 7 -> ""
+        let expr = Expr::NullishCoalescing(
+            Box::new(Expr::Val(Val::Str("".into()))),
+            Box::new(Expr::Val(Val::Int(7))),
+        );
+        let fun = Compiler::new().compile_expr(&expr);
+        let out = crate::vm::Vm::new().exec(&fun).unwrap();
+        assert_eq!(out, Val::Str("".into()));
+    }
+
+    #[test]
+    fn test_vm_nullish_short_circuit_right_not_evaluated() {
+        use crate::vm::Compiler;
+
+        // 1 ?? (1 / 0) -> 1, and must not evaluate right (division by zero)
+        let expr = Expr::NullishCoalescing(
+            Box::new(Expr::Val(Val::Int(1))),
+            Box::new(Expr::Bin(
+                Box::new(Expr::Val(Val::Int(1))),
+                crate::op::BinOp::Div,
+                Box::new(Expr::Val(Val::Int(0))),
+            )),
+        );
+        let fun = Compiler::new().compile_expr(&expr);
+        let out = crate::vm::Vm::new().exec(&fun).unwrap();
+        assert_eq!(out, Val::Int(1));
+    }
+
+    #[test]
+    fn test_vm_indexk_negative_and_overflow() {
+        use crate::vm::Compiler;
+
+        // [1,2][ -1 ] -> nil
+        let expr = Expr::Access(
+            Box::new(Expr::List(vec![
+                Box::new(Expr::Val(Val::Int(1))),
+                Box::new(Expr::Val(Val::Int(2))),
+            ])),
+            Box::new(Expr::Val(Val::Int(-1))),
+        );
+        let fun = Compiler::new().compile_expr(&expr);
+        let out = crate::vm::Vm::new().exec(&fun).unwrap();
+        assert_eq!(out, Val::Nil);
+
+        // "ab"[ 5 ] -> nil
+        let expr = Expr::Access(
+            Box::new(Expr::Val(Val::Str("ab".into()))),
+            Box::new(Expr::Val(Val::Int(5))),
+        );
+        let fun = Compiler::new().compile_expr(&expr);
+        let out = crate::vm::Vm::new().exec(&fun).unwrap();
+        assert_eq!(out, Val::Nil);
+    }
+
+    #[test]
+    fn test_vm_index_dynamic_list_negative_overflow() {
+        use crate::stmt::Stmt;
+        // l = [1,2]; i = -1; return l[i] -> nil
+        let program = Stmt::Block {
+            statements: vec![
+                Box::new(Stmt::Define { name: "l".into(), value: Box::new(Expr::List(vec![
+                    Box::new(Expr::Val(Val::Int(1))), Box::new(Expr::Val(Val::Int(2)))
+                ])) }),
+                Box::new(Stmt::Define { name: "i".into(), value: Box::new(Expr::Val(Val::Int(-1))) }),
+                Box::new(Stmt::Return { value: Some(Box::new(Expr::Access(
+                    Box::new(Expr::Var("l".into())), Box::new(Expr::Var("i".into()))
+                ))) }),
+            ],
+        };
+        let fun = crate::vm::Compiler::new().compile_stmt(&program);
+        let out = crate::vm::Vm::new().exec(&fun).unwrap();
+        assert_eq!(out, Val::Nil);
+
+        // i = 5 (overflow) -> nil
+        let program2 = Stmt::Block {
+            statements: vec![
+                Box::new(Stmt::Define { name: "l".into(), value: Box::new(Expr::List(vec![
+                    Box::new(Expr::Val(Val::Int(1))), Box::new(Expr::Val(Val::Int(2)))
+                ])) }),
+                Box::new(Stmt::Define { name: "i".into(), value: Box::new(Expr::Val(Val::Int(5))) }),
+                Box::new(Stmt::Return { value: Some(Box::new(Expr::Access(
+                    Box::new(Expr::Var("l".into())), Box::new(Expr::Var("i".into()))
+                ))) }),
+            ],
+        };
+        let fun2 = crate::vm::Compiler::new().compile_stmt(&program2);
+        let out2 = crate::vm::Vm::new().exec(&fun2).unwrap();
+        assert_eq!(out2, Val::Nil);
+    }
+
+    #[test]
+    fn test_vm_index_dynamic_string_negative_overflow() {
+        use crate::stmt::Stmt;
+        // s = "ab"; i = -1; return s[i] -> nil
+        let program = Stmt::Block {
+            statements: vec![
+                Box::new(Stmt::Define { name: "s".into(), value: Box::new(Expr::Val(Val::Str("ab".into()))) }),
+                Box::new(Stmt::Define { name: "i".into(), value: Box::new(Expr::Val(Val::Int(-1))) }),
+                Box::new(Stmt::Return { value: Some(Box::new(Expr::Access(
+                    Box::new(Expr::Var("s".into())), Box::new(Expr::Var("i".into()))
+                ))) }),
+            ],
+        };
+        let fun = crate::vm::Compiler::new().compile_stmt(&program);
+        let out = crate::vm::Vm::new().exec(&fun).unwrap();
+        assert_eq!(out, Val::Nil);
+
+        // i = 5 (overflow) -> nil
+        let program2 = Stmt::Block {
+            statements: vec![
+                Box::new(Stmt::Define { name: "s".into(), value: Box::new(Expr::Val(Val::Str("ab".into()))) }),
+                Box::new(Stmt::Define { name: "i".into(), value: Box::new(Expr::Val(Val::Int(5))) }),
+                Box::new(Stmt::Return { value: Some(Box::new(Expr::Access(
+                    Box::new(Expr::Var("s".into())), Box::new(Expr::Var("i".into()))
+                ))) }),
+            ],
+        };
+        let fun2 = crate::vm::Compiler::new().compile_stmt(&program2);
+        let out2 = crate::vm::Vm::new().exec(&fun2).unwrap();
+        assert_eq!(out2, Val::Nil);
+    }
+
+    #[test]
+    fn test_vm_global_ic_invalidation_on_define() {
+        use crate::stmt::{Environment, Stmt};
+        use crate::vm::Compiler;
+
+        // Program: warm LoadGlobal(x); Define x=2; return x
+        let program = Stmt::Block {
+            statements: vec![
+                Box::new(Stmt::Expr(Box::new(Expr::Var("x".into())))),
+                Box::new(Stmt::Define {
+                    name: "x".into(),
+                    value: Box::new(Expr::Val(Val::Int(2))),
+                }),
+                Box::new(Stmt::Return {
+                    value: Some(Box::new(Expr::Var("x".into()))),
+                }),
+            ],
+        };
+
+        let fun = Compiler::new().compile_stmt(&program);
+        let mut env = Environment::new();
+        env.define("x".into(), Val::Int(1));
+
+        let out = crate::vm::Vm::new().exec_with(&fun, Some(&mut env), None).unwrap();
+        assert_eq!(out, Val::Int(2));
+    }
+
+    #[test]
+    fn test_vm_access_ic_identity_change_miss() {
+        use crate::stmt::{Environment, Stmt};
+        use crate::vm::Compiler;
+
+        // Program:
+        //   m = {"a":1}; m.a; m = {"a":2}; return m.a
+        let program = Stmt::Block {
+            statements: vec![
+                Box::new(Stmt::Define {
+                    name: "m".into(),
+                    value: Box::new(Expr::Map(vec![(
+                        Box::new(Expr::Val(Val::Str("a".into()))),
+                        Box::new(Expr::Val(Val::Int(1))),
+                    )])),
+                }),
+                // Warm IC
+                Box::new(Stmt::Expr(Box::new(Expr::Access(
+                    Box::new(Expr::Var("m".into())),
+                    Box::new(Expr::Val(Val::Str("a".into()))),
+                )))),
+                // Replace m with a new map (different Arc identity)
+                Box::new(Stmt::Define {
+                    name: "m".into(),
+                    value: Box::new(Expr::Map(vec![(
+                        Box::new(Expr::Val(Val::Str("a".into()))),
+                        Box::new(Expr::Val(Val::Int(2))),
+                    )])),
+                }),
+                Box::new(Stmt::Return {
+                    value: Some(Box::new(Expr::Access(
+                        Box::new(Expr::Var("m".into())),
+                        Box::new(Expr::Val(Val::Str("a".into()))),
+                    ))),
+                }),
+            ],
+        };
+
+        let fun = Compiler::new().compile_stmt(&program);
+        let mut env = Environment::new();
+        let out = crate::vm::Vm::new().exec_with(&fun, Some(&mut env), None).unwrap();
+        assert_eq!(out, Val::Int(2));
+    }
+
     // Large CALL packing case covered elsewhere; skipped here to keep CI fast.
 
     #[test]
@@ -880,6 +1290,66 @@ mod tests {
     }
 
     #[test]
+    fn test_bc32_for_range_step_zero_errors() {
+        use crate::stmt::{ForPattern, Stmt};
+        // Program: for _ in 0..10 step 0 { } -> should error
+        let program = Stmt::Block {
+            statements: vec![
+                Box::new(Stmt::For {
+                    pattern: ForPattern::Ignore,
+                    iterable: Box::new(Expr::Range {
+                        start: Some(Box::new(Expr::Val(Val::Int(0)))),
+                        end: Some(Box::new(Expr::Val(Val::Int(10)))),
+                        inclusive: false,
+                        step: Some(Box::new(Expr::Val(Val::Int(0)))),
+                    }),
+                    body: Box::new(Stmt::Block { statements: vec![] }),
+                }),
+            ],
+        };
+        let fun = crate::vm::Compiler::new().compile_stmt(&program);
+        let mut vm = crate::vm::Vm::new();
+        let mut env = crate::stmt::Environment::new();
+        let res = vm.exec_with(&fun, Some(&mut env), None);
+        assert!(res.is_err(), "expected error for zero step in for-range");
+    }
+
+    #[test]
+    fn test_vm_index_ic_list_identity_replacement() {
+        use crate::op::BinOp;
+        use crate::stmt::{ForPattern, Stmt};
+        // Program:
+        //   sum = 0; lst = [];
+        //   for i in 0..3 { lst = [i, 99]; sum = sum + lst[0]; }
+        //   return sum
+        let program = Stmt::Block {
+            statements: vec![
+                Box::new(Stmt::Define { name: "sum".into(), value: Box::new(Expr::Val(Val::Int(0))) }),
+                Box::new(Stmt::Define { name: "lst".into(), value: Box::new(Expr::List(vec![])) }),
+                Box::new(Stmt::For {
+                    pattern: ForPattern::Variable("i".into()),
+                    iterable: Box::new(Expr::Range { start: Some(Box::new(Expr::Val(Val::Int(0)))), end: Some(Box::new(Expr::Val(Val::Int(3)))), inclusive: false, step: None }),
+                    body: Box::new(Stmt::Block { statements: vec![
+                        Box::new(Stmt::Assign { name: "lst".into(), value: Box::new(Expr::List(vec![
+                            Box::new(Expr::Var("i".into())),
+                            Box::new(Expr::Val(Val::Int(99)))
+                        ])), span: None }),
+                        Box::new(Stmt::Assign { name: "sum".into(), value: Box::new(Expr::Bin(
+                            Box::new(Expr::Var("sum".into())), BinOp::Add,
+                            Box::new(Expr::Access(Box::new(Expr::Var("lst".into())), Box::new(Expr::Val(Val::Int(0)))))
+                        )), span: None }),
+                    ] }),
+                }),
+                Box::new(Stmt::Return { value: Some(Box::new(Expr::Var("sum".into()))) }),
+            ],
+        };
+        let fun = crate::vm::Compiler::new().compile_stmt(&program);
+        let out = crate::vm::Vm::new().exec(&fun).unwrap();
+        // Expect 0 + 1 + 2 = 3 if cache invalidates on identity change correctly
+        assert_eq!(out, Val::Int(3));
+    }
+
+    #[test]
     fn test_vm_recursive_function_factorial() {
         use crate::op::BinOp;
         use crate::stmt::Stmt;
@@ -1033,5 +1503,100 @@ mod tests {
         let mut env = crate::stmt::Environment::new();
         let out = crate::vm::Vm::new().exec_with(&fun, Some(&mut env), None).unwrap();
         assert_eq!(out, Val::Bool(true));
+    }
+
+    #[test]
+    fn test_vm_index_ic_str_identity_replacement_multibyte() {
+        use crate::op::BinOp;
+        use crate::stmt::Stmt;
+        // Program:
+        //   acc = "";
+        //   for i in 0..3 {
+        //     if i == 0 { s = "αβ" } else if i == 1 { s = "XY" } else { s = "Z!" }
+        //     acc = acc + s[0]
+        //   }
+        //   return acc
+        let program = Stmt::Block {
+            statements: vec![
+                Box::new(Stmt::Define { name: "acc".into(), value: Box::new(Expr::Val(Val::Str("".into()))) }),
+                Box::new(Stmt::Define { name: "i".into(), value: Box::new(Expr::Val(Val::Int(0))) }),
+                Box::new(Stmt::While {
+                    condition: Box::new(Expr::Bin(
+                        Box::new(Expr::Var("i".into())),
+                        BinOp::Lt,
+                        Box::new(Expr::Val(Val::Int(3)))
+                    )),
+                    body: Box::new(Stmt::Block { statements: vec![
+                        // if (i == 0) { s = "αβ" } else if (i == 1) { s = "XY" } else { s = "Z!" }
+                        Box::new(Stmt::If {
+                            condition: Box::new(Expr::Bin(
+                                Box::new(Expr::Var("i".into())), BinOp::Eq, Box::new(Expr::Val(Val::Int(0)))
+                            )),
+                            then_stmt: Box::new(Stmt::Define { name: "s".into(), value: Box::new(Expr::Val(Val::Str("αβ".into()))) }),
+                            else_stmt: Some(Box::new(Stmt::If {
+                                condition: Box::new(Expr::Bin(
+                                    Box::new(Expr::Var("i".into())), BinOp::Eq, Box::new(Expr::Val(Val::Int(1)))
+                                )),
+                                then_stmt: Box::new(Stmt::Define { name: "s".into(), value: Box::new(Expr::Val(Val::Str("XY".into()))) }),
+                                else_stmt: Some(Box::new(Stmt::Define { name: "s".into(), value: Box::new(Expr::Val(Val::Str("Z!".into()))) })),
+                            })),
+                        }),
+                        // acc = acc + s[0]
+                        Box::new(Stmt::Assign {
+                            name: "acc".into(),
+                            value: Box::new(Expr::Bin(
+                                Box::new(Expr::Var("acc".into())),
+                                BinOp::Add,
+                                Box::new(Expr::Access(Box::new(Expr::Var("s".into())), Box::new(Expr::Val(Val::Int(0))))),
+                            )),
+                            span: None,
+                        }),
+                        // i = i + 1
+                        Box::new(Stmt::Assign {
+                            name: "i".into(),
+                            value: Box::new(Expr::Bin(
+                                Box::new(Expr::Var("i".into())), BinOp::Add, Box::new(Expr::Val(Val::Int(1)))
+                            )),
+                            span: None,
+                        }),
+                    ]}),
+                }),
+                Box::new(Stmt::Return { value: Some(Box::new(Expr::Var("acc".into()))) }),
+            ],
+        };
+        let fun = crate::vm::Compiler::new().compile_stmt(&program);
+        let out = crate::vm::Vm::new().exec(&fun).unwrap();
+        // Expect "αXZ" if caching invalidates on identity change and multibyte index works
+        assert_eq!(out, Val::Str("αXZ".into()));
+    }
+
+    #[test]
+    fn test_vm_for_range_explicit_negative_step_ascending_zero_iters() {
+        use crate::op::BinOp;
+        use crate::stmt::{ForPattern, Stmt};
+        // x = 0; for _ in 0..5 step -1 { x += 1 } return x;  // zero iterations
+        let program = Stmt::Block {
+            statements: vec![
+                Box::new(Stmt::Define { name: "x".into(), value: Box::new(Expr::Val(Val::Int(0))) }),
+                Box::new(Stmt::For {
+                    pattern: ForPattern::Ignore,
+                    iterable: Box::new(Expr::Range {
+                        start: Some(Box::new(Expr::Val(Val::Int(0)))),
+                        end: Some(Box::new(Expr::Val(Val::Int(5)))),
+                        inclusive: false,
+                        step: Some(Box::new(Expr::Val(Val::Int(-1)))),
+                    }),
+                    body: Box::new(Stmt::Block { statements: vec![
+                        Box::new(Stmt::Assign { name: "x".into(), value: Box::new(Expr::Bin(
+                            Box::new(Expr::Var("x".into())), BinOp::Add, Box::new(Expr::Val(Val::Int(1)))
+                        )), span: None }),
+                    ]}),
+                }),
+                Box::new(Stmt::Return { value: Some(Box::new(Expr::Var("x".into()))) }),
+            ],
+        };
+        let fun = crate::vm::Compiler::new().compile_stmt(&program);
+        let out = crate::vm::Vm::new().exec(&fun).unwrap();
+        assert_eq!(out, Val::Int(0));
     }
 }

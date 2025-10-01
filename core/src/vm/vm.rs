@@ -1,8 +1,18 @@
+use std::sync::Arc;
+
 use anyhow::{Result, anyhow};
 
 use crate::val::Val;
 
 use super::bytecode::{Function, Op};
+
+// Simple monomorphic inline cache for property/index access at the instruction site.
+// Keyed by container pointer and constant string key identity.
+#[derive(Clone)]
+enum AccessIc {
+    MapStr { map_ptr: usize, key_ptr: usize, value: Val },
+    ObjectStr { obj_ptr: usize, key: String, value: Val },
+}
 
 /// Minimal VM loop that can execute the placeholder Function produced by the stub compiler.
 /// Reuses an internal register vector across executions to reduce allocations.
@@ -25,6 +35,21 @@ impl Vm {
         mut env: Option<&mut crate::stmt::Environment>,
         args: Option<&[Val]>,
     ) -> Result<Val> {
+        // Instruction-site caches (sizes decided per-path below)
+        // Access/AccessK IC (not used in bc32 subset, but defined for type consistency)
+        let mut access_ic: Vec<Option<AccessIc>>;
+        // Instruction-site cache for Index (dynamic int index)
+        #[derive(Clone)]
+        enum IndexIc { List { base_ptr: usize, idx: i64, value: Val }, Str { base_ptr: usize, idx: i64, value: Val } }
+        let mut index_ic: Vec<Option<IndexIc>>;
+        // Global load IC with generation validation
+        #[derive(Clone)]
+        struct GlobalEntry(usize /*name_ptr*/, Val, u64 /*generation*/);
+        let mut global_ic: Vec<Option<GlobalEntry>>;
+        // Basic call-site IC for Rust functions
+        #[derive(Clone, Copy)]
+        enum CallIc { Rust(crate::val::RustFunction, u8 /*argc*/) }
+        let mut call_ic: Vec<Option<CallIc>>;
         // Ensure capacity and initialize registers to Nil without reallocating where possible.
         let regs = &mut self.regs;
         regs.clear();
@@ -41,6 +66,449 @@ impl Vm {
         // Locals share the same storage space as registers for this simple VM.
         // `LoadLocal/StoreLocal` simply index into this vector.
         let mut pc: usize = 0;
+
+        // Fast path: execute packed 32-bit bytecode directly when available (feature = bc32)
+        #[cfg(feature = "bc32")]
+        if let Some(code32) = f.code32.as_ref() {
+            access_ic = vec![None; code32.len()];
+            index_ic = vec![None; code32.len()];
+            global_ic = vec![None; code32.len()];
+            call_ic = vec![None; code32.len()];
+            while pc < code32.len() {
+                // Handle multi-word ForRange* specially using tag peek
+                let tag = crate::vm::bc32::tag_of(code32[pc]);
+                if tag == crate::vm::bc32::TAG_FOR_RANGE_PREP {
+                    let w = code32[pc];
+                    let a = ((w >> 16) & 0xFF) as u16; // idx
+                    let b = ((w >> 8) & 0xFF) as u16;  // limit
+                    let c = (w & 0xFF) as u16;         // step
+                    let w2 = code32.get(pc + 1).ok_or_else(|| anyhow!("bc32: missing Ext for ForRangePrep"))?;
+                    let flags = ((w2 >> 16) & 0xFF) as u8;
+                    let inclusive = (flags & 1) != 0;
+                    let explicit = (flags & 2) != 0;
+                    // Execute ForRangePrep
+                    let (i0, ilim) = match (&regs[a as usize], &regs[b as usize]) {
+                        (Val::Int(a0), Val::Int(b0)) => (*a0, *b0),
+                        _ => return Err(anyhow!("For-range requires integer bounds")),
+                    };
+                    if !explicit {
+                        let step_val = if i0 <= ilim { 1 } else { -1 };
+                        regs[c as usize] = Val::Int(step_val);
+                    } else {
+                        match &regs[c as usize] {
+                            Val::Int(0) => return Err(anyhow!("For-range step cannot be zero")),
+                            Val::Int(_) => {}
+                            other => return Err(anyhow!("For-range step must be Int when explicit, got {:?}", other)),
+                        }
+                    }
+                    let _ = inclusive; // carried to guard
+                    pc += 2;
+                    continue;
+                } else if tag == crate::vm::bc32::TAG_FOR_RANGE_GUARD {
+                    let w = code32[pc];
+                    let a = ((w >> 16) & 0xFF) as u16; // idx
+                    let b = ((w >> 8) & 0xFF) as u16;  // limit
+                    let c = (w & 0xFF) as u16;         // step
+                    let w2 = code32.get(pc + 1).ok_or_else(|| anyhow!("bc32: missing Ext for ForRangeGuard"))?;
+                    let flags = ((w2 >> 16) & 0xFF) as u8;
+                    let ofs = (((((w2 >> 8) & 0xFF) as u16) << 8) | ((w2 & 0xFF) as u16)) as i16;
+                    let inclusive = (flags & 1) != 0;
+                    let (i, lim, st) = match (&regs[a as usize], &regs[b as usize], &regs[c as usize]) {
+                        (Val::Int(i), Val::Int(l), Val::Int(s)) => (*i, *l, *s),
+                        _ => return Err(anyhow!("For-range guard expects Int registers")),
+                    };
+                    let cont = if st > 0 { if inclusive { i <= lim } else { i < lim } } else if inclusive { i >= lim } else { i > lim };
+                    if !cont { pc = ((pc as isize) + (ofs as isize)) as usize; } else { pc += 2; }
+                    continue;
+                } else if tag == crate::vm::bc32::TAG_FOR_RANGE_STEP {
+                    let w = code32[pc];
+                    let a = ((w >> 16) & 0xFF) as u16; // idx
+                    let b = ((w >> 8) & 0xFF) as u16;  // step
+                    let w2 = code32.get(pc + 1).ok_or_else(|| anyhow!("bc32: missing Ext for ForRangeStep"))?;
+                    let back_ofs = (((((w2 >> 8) & 0xFF) as u16) << 8) | ((w2 & 0xFF) as u16)) as i16;
+                    let (i, st) = match (&regs[a as usize], &regs[b as usize]) {
+                        (Val::Int(i), Val::Int(s)) => (*i, *s),
+                        _ => return Err(anyhow!("For-range step expects Int registers")),
+                    };
+                    regs[a as usize] = Val::Int(i + st);
+                    pc = ((pc as isize) + (back_ofs as isize)) as usize;
+                    continue;
+                } else if tag == crate::vm::bc32::TAG_JMP_FALSE_SET_X {
+                    let w = code32[pc];
+                    let a = ((w >> 16) & 0xFF) as u16; // r
+                    let b = ((w >> 8) & 0xFF) as u16;  // dst
+                    let w2 = code32.get(pc + 1).ok_or_else(|| anyhow!("bc32: missing Ext for JmpFalseSetX"))?;
+                    let ofs = (((((w2 >> 8) & 0xFF) as u16) << 8) | ((w2 & 0xFF) as u16)) as i16;
+                    let cond_falsey = matches!(regs[a as usize], Val::Nil | Val::Bool(false));
+                    if cond_falsey { regs[b as usize] = Val::Bool(false); pc = ((pc as isize) + (ofs as isize)) as usize; } else { pc += 2; }
+                    continue;
+                } else if tag == crate::vm::bc32::TAG_JMP_TRUE_SET_X {
+                    let w = code32[pc];
+                    let a = ((w >> 16) & 0xFF) as u16; // r
+                    let b = ((w >> 8) & 0xFF) as u16;  // dst
+                    let w2 = code32.get(pc + 1).ok_or_else(|| anyhow!("bc32: missing Ext for JmpTrueSetX"))?;
+                    let ofs = (((((w2 >> 8) & 0xFF) as u16) << 8) | ((w2 & 0xFF) as u16)) as i16;
+                    let cond_truthy = !matches!(regs[a as usize], Val::Nil | Val::Bool(false));
+                    if cond_truthy { regs[b as usize] = Val::Bool(true); pc = ((pc as isize) + (ofs as isize)) as usize; } else { pc += 2; }
+                    continue;
+                } else if tag == crate::vm::bc32::TAG_NULLISH_PICK_X {
+                    let w = code32[pc];
+                    let a = ((w >> 16) & 0xFF) as u16; // l
+                    let b = ((w >> 8) & 0xFF) as u16;  // dst
+                    let w2 = code32.get(pc + 1).ok_or_else(|| anyhow!("bc32: missing Ext for NullishPickX"))?;
+                    let ofs = (((((w2 >> 8) & 0xFF) as u16) << 8) | ((w2 & 0xFF) as u16)) as i16;
+                    if !matches!(regs[a as usize], Val::Nil) {
+                        let v = regs[a as usize].clone();
+                        regs[b as usize] = v;
+                        pc = ((pc as isize) + (ofs as isize)) as usize;
+                    } else {
+                        pc += 2;
+                    }
+                    continue;
+                }
+                let op = crate::vm::bc32::decode_word(code32[pc]);
+                match op {
+                    Op::LoadK(dst, k) => {
+                        regs[dst as usize] = f.consts[k as usize].clone();
+                        pc += 1;
+                    }
+                    Op::Move(dst, src) => {
+                        regs[dst as usize] = regs[src as usize].clone();
+                        pc += 1;
+                    }
+                    Op::Add(dst, a, b) => {
+                        if !Self::arith2_try_numeric(regs, dst, a, b, |x, y| x + y, |x, y| x + y) {
+                            let out = crate::op::BinOp::Add.eval_vals(&regs[a as usize], &regs[b as usize])?;
+                            regs[dst as usize] = out;
+                        }
+                        pc += 1;
+                    }
+                    Op::Sub(dst, a, b) => {
+                        if !Self::arith2_try_numeric(regs, dst, a, b, |x, y| x - y, |x, y| x - y) {
+                            let out = crate::op::BinOp::Sub.eval_vals(&regs[a as usize], &regs[b as usize])?;
+                            regs[dst as usize] = out;
+                        }
+                        pc += 1;
+                    }
+                    Op::Mul(dst, a, b) => {
+                        if !Self::arith2_try_numeric(regs, dst, a, b, |x, y| x * y, |x, y| x * y) {
+                            let out = crate::op::BinOp::Mul.eval_vals(&regs[a as usize], &regs[b as usize])?;
+                            regs[dst as usize] = out;
+                        }
+                        pc += 1;
+                    }
+                    Op::Div(dst, a, b) => {
+                        if !Self::arith2_try_numeric(regs, dst, a, b, |x, y| x / y, |x, y| x / y) {
+                            let out = crate::op::BinOp::Div.eval_vals(&regs[a as usize], &regs[b as usize])?;
+                            regs[dst as usize] = out;
+                        }
+                        pc += 1;
+                    }
+                    Op::Mod(dst, a, b) => {
+                        match (&regs[a as usize], &regs[b as usize]) {
+                            (Val::Int(x), Val::Int(y)) => regs[dst as usize] = Val::Int(x % y),
+                            _ => {
+                                let out = crate::op::BinOp::Mod.eval_vals(&regs[a as usize], &regs[b as usize])?;
+                                regs[dst as usize] = out;
+                            }
+                        }
+                        pc += 1;
+                    }
+                    Op::CmpEq(dst, a, b) => { regs[dst as usize] = Val::Bool(regs[a as usize] == regs[b as usize]); pc += 1; }
+                    Op::CmpNe(dst, a, b) => { regs[dst as usize] = Val::Bool(regs[a as usize] != regs[b as usize]); pc += 1; }
+                    Op::CmpLt(dst, a, b) => {
+                        if !Self::cmp2_try_numeric(regs, dst, a, b, |x, y| x < y, |x, y| x < y) {
+                            let res = crate::op::BinOp::Lt.cmp(&regs[a as usize], &regs[b as usize])?;
+                            regs[dst as usize] = Val::Bool(res);
+                        }
+                        pc += 1;
+                    }
+                    Op::CmpLe(dst, a, b) => {
+                        if !Self::cmp2_try_numeric(regs, dst, a, b, |x, y| x <= y, |x, y| x <= y) {
+                            let res = crate::op::BinOp::Le.cmp(&regs[a as usize], &regs[b as usize])?;
+                            regs[dst as usize] = Val::Bool(res);
+                        }
+                        pc += 1;
+                    }
+                    Op::CmpGt(dst, a, b) => {
+                        if !Self::cmp2_try_numeric(regs, dst, a, b, |x, y| x > y, |x, y| x > y) {
+                            let res = crate::op::BinOp::Gt.cmp(&regs[a as usize], &regs[b as usize])?;
+                            regs[dst as usize] = Val::Bool(res);
+                        }
+                        pc += 1;
+                    }
+                    Op::CmpGe(dst, a, b) => {
+                        if !Self::cmp2_try_numeric(regs, dst, a, b, |x, y| x >= y, |x, y| x >= y) {
+                            let res = crate::op::BinOp::Ge.cmp(&regs[a as usize], &regs[b as usize])?;
+                            regs[dst as usize] = Val::Bool(res);
+                        }
+                        pc += 1;
+                    }
+                    Op::Len { dst, src } => {
+                        let v = &regs[src as usize];
+                        let out = match v {
+                            Val::List(l) => Val::Int(l.len() as i64),
+                            Val::Str(s) => Val::Int(s.len() as i64),
+                            Val::Map(m) => Val::Int(m.len() as i64),
+                            _ => Val::Int(0),
+                        };
+                        regs[dst as usize] = out;
+                        pc += 1;
+                    }
+                    Op::Index { dst, base, idx } => {
+                        let res = match (&regs[base as usize], &regs[idx as usize]) {
+                            (Val::List(l), Val::Int(i)) => {
+                                if *i < 0 { Val::Nil } else {
+                                    let lptr = Arc::as_ptr(l) as *const Val as usize;
+                                    if let Some(IndexIc::List { base_ptr, idx, value }) = &index_ic[pc]
+                                        && *base_ptr == lptr && *idx == *i { value.clone() }
+                                    else {
+                                        let v = l.get(*i as usize).cloned().unwrap_or(Val::Nil);
+                                        index_ic[pc] = Some(IndexIc::List { base_ptr: lptr, idx: *i, value: v.clone() });
+                                        v
+                                    }
+                                }
+                            }
+                            (Val::Str(s), Val::Int(i)) => {
+                                if *i < 0 { Val::Nil } else {
+                                    let sptr = s.as_ref().as_ptr() as usize;
+                                    if let Some(IndexIc::Str { base_ptr, idx, value }) = &index_ic[pc]
+                                        && *base_ptr == sptr && *idx == *i { value.clone() }
+                                    else {
+                                        let v = s.chars().nth(*i as usize).map(|c| Val::Str(c.to_string().into())).unwrap_or(Val::Nil);
+                                        index_ic[pc] = Some(IndexIc::Str { base_ptr: sptr, idx: *i, value: v.clone() });
+                                        v
+                                    }
+                                }
+                            }
+                            _ => Val::Nil,
+                        };
+                        regs[dst as usize] = res;
+                        pc += 1;
+                    }
+                    Op::Jmp(ofs) => { pc = ((pc as isize) + (ofs as isize)) as usize; }
+                    Op::JmpFalse(r, ofs) => {
+                        let cond_falsey = matches!(regs[r as usize], Val::Nil | Val::Bool(false));
+                        if cond_falsey { pc = ((pc as isize) + (ofs as isize)) as usize; } else { pc += 1; }
+                    }
+                    Op::JmpIfNil(r, ofs) => { if matches!(regs[r as usize], Val::Nil) { pc = ((pc as isize) + (ofs as isize)) as usize; } else { pc += 1; } }
+                    Op::JmpIfNotNil(r, ofs) => { if !matches!(regs[r as usize], Val::Nil) { pc = ((pc as isize) + (ofs as isize)) as usize; } else { pc += 1; } }
+                    Op::ToBool(dst, src) => { let truthy = !matches!(regs[src as usize], Val::Nil | Val::Bool(false)); regs[dst as usize] = Val::Bool(truthy); pc += 1; }
+                    Op::Not(dst, src) => { match &regs[src as usize] { Val::Bool(b) => regs[dst as usize] = Val::Bool(!b), other => return Err(anyhow!("Invalid operand: !{:?}", other)), } pc += 1; }
+                    Op::NullishPick { l, dst, ofs } => {
+                        if !matches!(regs[l as usize], Val::Nil) { regs[dst as usize] = regs[l as usize].clone(); pc = ((pc as isize) + (ofs as isize)) as usize; } else { pc += 1; }
+                    }
+                    Op::Ret { base, retc } => {
+                        let ret = if retc > 0 { regs[base as usize].clone() } else { Val::Nil };
+                        return Ok(ret);
+                    }
+                    Op::LoadGlobal(dst, name_k) => {
+                        let name_val = &f.consts[name_k as usize];
+                        let mut out = Val::Nil;
+                        if let Val::Str(s) = name_val {
+                            let key_ptr = s.as_ref().as_ptr() as usize;
+                            let cur_gen = if let Some(e) = env.as_ref() { e.generation() } else { 0 };
+                            if let Some(GlobalEntry(ptr, v, generation)) = &global_ic[pc] {
+                                if *ptr == key_ptr && *generation == cur_gen {
+                                    out = v.clone();
+                                }
+                            }
+                            if matches!(out, Val::Nil) {
+                                if let Some(e) = env.as_ref() {
+                                    if let Some(v) = e.get_value(s.as_ref()) { out = v.clone(); }
+                                }
+                                global_ic[pc] = Some(GlobalEntry(key_ptr, out.clone(), cur_gen));
+                            }
+                        } else if let Some(e) = env.as_ref() {
+                            if let Some(v) = e.get_value(&format!("{}", name_val)) { out = v; }
+                        }
+                        regs[dst as usize] = out;
+                        pc += 1;
+                    }
+                    Op::DefineGlobal(name_k, src) => {
+                        if let Some(e) = env.as_mut() {
+                            let name_val = &f.consts[name_k as usize];
+                            if let Val::Str(s) = name_val {
+                                e.define_global(s.to_string(), regs[src as usize].clone());
+                            }
+                        }
+                        pc += 1;
+                    }
+                    Op::Access(dst, base, field) => {
+                        let (hit_val, update) = match (&regs[base as usize], &regs[field as usize]) {
+                            (Val::Map(m), Val::Str(s)) => {
+                                let mp = std::sync::Arc::as_ptr(m) as usize;
+                                let kp = s.as_ref().as_ptr() as usize;
+                                if let Some(AccessIc::MapStr { map_ptr, key_ptr, value }) = &access_ic[pc] {
+                                    if *map_ptr == mp && *key_ptr == kp { (Some(value.clone()), false) } else { (None, true) }
+                                } else { (None, true) }
+                            }
+                            (Val::Object { fields, .. }, Val::Str(s)) => {
+                                let optr = std::sync::Arc::as_ptr(fields) as usize;
+                                if let Some(AccessIc::ObjectStr { obj_ptr, key, value }) = &access_ic[pc] {
+                                    if *obj_ptr == optr && key.as_str() == s.as_ref() { (Some(value.clone()), false) } else { (None, true) }
+                                } else { (None, true) }
+                            }
+                            _ => (None, false),
+                        };
+                        let res = if let Some(v) = hit_val { v } else {
+                            let v = regs[base as usize].access(&regs[field as usize]).unwrap_or(Val::Nil);
+                            if update {
+                                match (&regs[base as usize], &regs[field as usize]) {
+                                    (Val::Map(m), Val::Str(s)) => access_ic[pc] = Some(AccessIc::MapStr { map_ptr: std::sync::Arc::as_ptr(m) as usize, key_ptr: s.as_ref().as_ptr() as usize, value: v.clone() }),
+                                    (Val::Object { fields, .. }, Val::Str(s)) => access_ic[pc] = Some(AccessIc::ObjectStr { obj_ptr: std::sync::Arc::as_ptr(fields) as usize, key: s.as_ref().to_string(), value: v.clone() }),
+                                    _ => {}
+                                }
+                            }
+                            v
+                        };
+                        regs[dst as usize] = res;
+                        pc += 1;
+                    }
+                    Op::AccessK(dst, base, kidx) => {
+                        let key = &f.consts[kidx as usize];
+                        let res = if let Val::Str(s) = key {
+                            let (hit_val, update) = match &regs[base as usize] {
+                                Val::Map(m) => {
+                                    let mp = std::sync::Arc::as_ptr(m) as usize;
+                                    let kp = s.as_ref().as_ptr() as usize;
+                                    if let Some(AccessIc::MapStr { map_ptr, key_ptr, value }) = &access_ic[pc] {
+                                        if *map_ptr == mp && *key_ptr == kp { (Some(value.clone()), false) } else { (None, true) }
+                                    } else { (None, true) }
+                                }
+                                _ => (None, false),
+                            };
+                            if let Some(v) = hit_val { v } else {
+                                let v = regs[base as usize].access(key).unwrap_or(Val::Nil);
+                                if update {
+                                    if let Val::Map(m) = &regs[base as usize] {
+                                        access_ic[pc] = Some(AccessIc::MapStr { map_ptr: std::sync::Arc::as_ptr(m) as usize, key_ptr: s.as_ref().as_ptr() as usize, value: v.clone() });
+                                    }
+                                }
+                                v
+                            }
+                        } else { Val::Nil };
+                        regs[dst as usize] = res;
+                        pc += 1;
+                    }
+                    Op::IndexK(dst, base, kidx) => {
+                        let key = &f.consts[kidx as usize];
+                        let res = if let Val::Int(i) = key {
+                            match &regs[base as usize] {
+                                Val::List(l) => { if *i < 0 { Val::Nil } else { l.get(*i as usize).cloned().unwrap_or(Val::Nil) } }
+                                Val::Str(s) => { if *i < 0 { Val::Nil } else { s.chars().nth(*i as usize).map(|c| Val::Str(c.to_string().into())).unwrap_or(Val::Nil) } }
+                                _ => Val::Nil,
+                            }
+                        } else { Val::Nil };
+                        regs[dst as usize] = res;
+                        pc += 1;
+                    }
+                    Op::BuildList { dst, base, len } => {
+                        let start = base as usize;
+                        let n = len as usize;
+                        let mut v = Vec::with_capacity(n);
+                        for i in 0..n { v.push(regs[start + i].clone()); }
+                        regs[dst as usize] = Val::List(v.into());
+                        pc += 1;
+                    }
+                    Op::BuildMap { dst, base, len } => {
+                        let start = base as usize;
+                        let n = len as usize;
+                        let mut map: std::collections::HashMap<String, Val> = std::collections::HashMap::with_capacity(n);
+                        for i in 0..n {
+                            let k = &regs[start + 2 * i];
+                            let v = regs[start + 2 * i + 1].clone();
+                            let key_str = match k {
+                                Val::Str(s) => s.as_ref().to_string(),
+                                Val::Int(i) => i.to_string(),
+                                Val::Float(f) => f.to_string(),
+                                Val::Bool(b) => b.to_string(),
+                                _ => { return Err(anyhow!("Map key must be a primitive type, got: {:?}", k)); }
+                            };
+                            map.insert(key_str, v);
+                        }
+                        regs[dst as usize] = Val::from(map);
+                        pc += 1;
+                    }
+                    Op::MakeClosure { dst, proto } => {
+                        let p = f.protos.get(proto as usize).ok_or_else(|| anyhow!("closure proto out of range"))?;
+                        if let Some(e) = env.as_ref() {
+                            let clo = Val::Closure {
+                                params: std::sync::Arc::new(p.params.clone()),
+                                body: std::sync::Arc::new(p.body.clone()),
+                                env: std::sync::Arc::new((**e).clone()),
+                                upvalues: std::sync::Arc::new(Vec::new()),
+                                #[cfg(feature = "vm")]
+                                code: std::sync::Arc::new(once_cell::sync::OnceCell::new()),
+                                #[cfg(feature = "slots")]
+                                layout: std::sync::Arc::new(once_cell::sync::OnceCell::new()),
+                            };
+                            regs[dst as usize] = clo;
+                        } else {
+                            regs[dst as usize] = Val::Nil;
+                        }
+                        pc += 1;
+                    }
+                    Op::LoadLocal(dst, idx) => { regs[dst as usize] = regs[idx as usize].clone(); pc += 1; }
+                    Op::StoreLocal(idx, src) => { let v = regs[src as usize].clone(); regs[idx as usize] = v; pc += 1; }
+                    Op::Call { f: rf, base, argc, retc } => {
+                        let func = regs[rf as usize].clone();
+                        let start = base as usize;
+                        let n = argc as usize;
+                        let args_slice: &[Val] = &regs[start..start + n];
+                        let result = if let Some(e) = env.as_ref() {
+                            if let Some(CallIc::Rust(fp, cached_argc)) = call_ic[pc] && argc == cached_argc && matches!(func, Val::RustFunction(_)) {
+                                fp(args_slice, e)
+                            } else {
+                                match &func {
+                                    Val::RustFunction(fptr) => { call_ic[pc] = Some(CallIc::Rust(*fptr, argc)); fptr(args_slice, e) }
+                                    _ => func.call(args_slice, e),
+                                }
+                            }
+                        } else { Err(anyhow!("Function call requires environment")) }?;
+                        if retc > 0 { regs[base as usize] = result; }
+                        pc += 1;
+                    }
+                    Op::LoadCtx(dst) => { regs[dst as usize] = Val::Nil; pc += 1; }
+                    Op::JmpFalseSet { r, dst, ofs } => {
+                        let cond_falsey = matches!(regs[r as usize], Val::Nil | Val::Bool(false));
+                        if cond_falsey { regs[dst as usize] = Val::Bool(false); pc = ((pc as isize) + (ofs as isize)) as usize; } else { pc += 1; }
+                    }
+                    Op::JmpTrueSet { r, dst, ofs } => {
+                        let cond_truthy = !matches!(regs[r as usize], Val::Nil | Val::Bool(false));
+                        if cond_truthy { regs[dst as usize] = Val::Bool(true); pc = ((pc as isize) + (ofs as isize)) as usize; } else { pc += 1; }
+                    }
+                    Op::ListSlice { dst, src, start } => {
+                        let (list, start_idx) = match (&regs[src as usize], &regs[start as usize]) {
+                            (Val::List(l), Val::Int(i)) => (l, *i),
+                            (a, b) => return Err(anyhow!("ListSlice expects (List, Int), got ({:?}, {:?})", a, b)),
+                        };
+                        if start_idx <= 0 {
+                            regs[dst as usize] = Val::List(list.clone());
+                        } else {
+                            let s = start_idx as usize;
+                            if s >= list.len() {
+                                regs[dst as usize] = Val::List(Vec::<Val>::new().into());
+                            } else {
+                                regs[dst as usize] = Val::List((list[s..]).to_vec().into());
+                            }
+                        }
+                        pc += 1;
+                    }
+                    _ => {
+                        // Unreachable for bc32-packed functions (subset only)
+                        return Err(anyhow!("bc32: unsupported opcode in packed function"));
+                    }
+                }
+            }
+            return Ok(Val::Nil);
+        }
+
+        // Default path: execute Op enum bytecode
+        access_ic = vec![None; f.code.len()];
+        index_ic = vec![None; f.code.len()];
+        global_ic = vec![None; f.code.len()];
+        call_ic = vec![None; f.code.len()];
         while pc < f.code.len() {
             match &f.code[pc] {
                 Op::LoadK(dst, k) => {
@@ -52,25 +520,50 @@ impl Vm {
                     pc += 1;
                 }
                 Op::Add(dst, a, b) => {
-                    Self::arith2(regs, *dst, *a, *b, |x, y| x + y, |x, y| x + y);
+                    if !Self::arith2_try_numeric(regs, *dst, *a, *b, |x, y| x + y, |x, y| x + y)
+                    {
+                        // Fallback to high-level semantics (strings, lists, maps under features)
+                        let out = crate::op::BinOp::Add
+                            .eval_vals(&regs[*a as usize], &regs[*b as usize])?;
+                        regs[*dst as usize] = out;
+                    }
                     pc += 1;
                 }
                 Op::Sub(dst, a, b) => {
-                    Self::arith2(regs, *dst, *a, *b, |x, y| x - y, |x, y| x - y);
+                    if !Self::arith2_try_numeric(regs, *dst, *a, *b, |x, y| x - y, |x, y| x - y)
+                    {
+                        let out = crate::op::BinOp::Sub
+                            .eval_vals(&regs[*a as usize], &regs[*b as usize])?;
+                        regs[*dst as usize] = out;
+                    }
                     pc += 1;
                 }
                 Op::Mul(dst, a, b) => {
-                    Self::arith2(regs, *dst, *a, *b, |x, y| x * y, |x, y| x * y);
+                    if !Self::arith2_try_numeric(regs, *dst, *a, *b, |x, y| x * y, |x, y| x * y)
+                    {
+                        let out = crate::op::BinOp::Mul
+                            .eval_vals(&regs[*a as usize], &regs[*b as usize])?;
+                        regs[*dst as usize] = out;
+                    }
                     pc += 1;
                 }
                 Op::Div(dst, a, b) => {
-                    Self::arith2(regs, *dst, *a, *b, |x, y| x / y, |x, y| x / y);
+                    if !Self::arith2_try_numeric(regs, *dst, *a, *b, |x, y| x / y, |x, y| x / y)
+                    {
+                        let out = crate::op::BinOp::Div
+                            .eval_vals(&regs[*a as usize], &regs[*b as usize])?;
+                        regs[*dst as usize] = out;
+                    }
                     pc += 1;
                 }
                 Op::Mod(dst, a, b) => {
                     match (&regs[*a as usize], &regs[*b as usize]) {
                         (Val::Int(x), Val::Int(y)) => regs[*dst as usize] = Val::Int(x % y),
-                        _ => regs[*dst as usize] = Val::Nil,
+                        _ => {
+                            let out = crate::op::BinOp::Mod
+                                .eval_vals(&regs[*a as usize], &regs[*b as usize])?;
+                            regs[*dst as usize] = out;
+                        }
                     }
                     pc += 1;
                 }
@@ -85,19 +578,41 @@ impl Vm {
                     pc += 1;
                 }
                 Op::CmpLt(dst, a, b) => {
-                    Self::cmp2(regs, *dst, *a, *b, |x, y| x < y, |x, y| x < y);
+                    if !Self::cmp2_try_numeric(regs, *dst, *a, *b, |x, y| x < y, |x, y| x < y) {
+                        let res = crate::op::BinOp::Lt
+                            .cmp(&regs[*a as usize], &regs[*b as usize])?;
+                        regs[*dst as usize] = Val::Bool(res);
+                    }
                     pc += 1;
                 }
                 Op::CmpLe(dst, a, b) => {
-                    Self::cmp2(regs, *dst, *a, *b, |x, y| x <= y, |x, y| x <= y);
+                    if !Self::cmp2_try_numeric(regs, *dst, *a, *b, |x, y| x <= y, |x, y| x <= y) {
+                        let res = crate::op::BinOp::Le
+                            .cmp(&regs[*a as usize], &regs[*b as usize])?;
+                        regs[*dst as usize] = Val::Bool(res);
+                    }
                     pc += 1;
                 }
                 Op::CmpGt(dst, a, b) => {
-                    Self::cmp2(regs, *dst, *a, *b, |x, y| x > y, |x, y| x > y);
+                    if !Self::cmp2_try_numeric(regs, *dst, *a, *b, |x, y| x > y, |x, y| x > y) {
+                        let res = crate::op::BinOp::Gt
+                            .cmp(&regs[*a as usize], &regs[*b as usize])?;
+                        regs[*dst as usize] = Val::Bool(res);
+                    }
                     pc += 1;
                 }
                 Op::CmpGe(dst, a, b) => {
-                    Self::cmp2(regs, *dst, *a, *b, |x, y| x >= y, |x, y| x >= y);
+                    if !Self::cmp2_try_numeric(regs, *dst, *a, *b, |x, y| x >= y, |x, y| x >= y) {
+                        let res = crate::op::BinOp::Ge
+                            .cmp(&regs[*a as usize], &regs[*b as usize])?;
+                        regs[*dst as usize] = Val::Bool(res);
+                    }
+                    pc += 1;
+                }
+                Op::In(dst, a, b) => {
+                    let res = crate::op::BinOp::In
+                        .cmp(&regs[*a as usize], &regs[*b as usize])?;
+                    regs[*dst as usize] = Val::Bool(res);
                     pc += 1;
                 }
                 Op::LoadLocal(dst, idx) => {
@@ -112,11 +627,27 @@ impl Vm {
                 Op::LoadGlobal(dst, name_k) => {
                     let name_val = &f.consts[*name_k as usize];
                     let mut out = Val::Nil;
-                    if let Val::Str(s) = name_val
-                        && let Some(e) = env.as_ref()
-                        && let Some(v) = e.get_value(s.as_ref())
-                    {
-                        out = v;
+                    if let Val::Str(s) = name_val {
+                        let key_ptr = s.as_ref().as_ptr() as usize;
+                        let cur_gen = if let Some(e) = env.as_ref() { e.generation() } else { 0 };
+                        if let Some(GlobalEntry(ptr, v, generation)) = &global_ic[pc] {
+                            if *ptr == key_ptr && *generation == cur_gen {
+                                out = v.clone();
+                            }
+                        }
+                        if matches!(out, Val::Nil) {
+                            if let Some(e) = env.as_ref() {
+                                if let Some(v) = e.get_value(s.as_ref()) {
+                                    out = v.clone();
+                                }
+                            }
+                            global_ic[pc] = Some(GlobalEntry(key_ptr, out.clone(), cur_gen));
+                        }
+                    } else if let Some(e) = env.as_ref() {
+                        // Non-string globals are uncommon; fall back
+                        if let Some(v) = e.get_value(&format!("{}", name_val)) {
+                            out = v;
+                        }
                     }
                     regs[*dst as usize] = out;
                     pc += 1;
@@ -125,9 +656,10 @@ impl Vm {
                     if let Some(e) = env.as_mut() {
                         let name_val = &f.consts[*name_k as usize];
                         if let Val::Str(s) = name_val {
-                            e.define(s.to_string(), regs[*src as usize].clone());
+                            e.define_global(s.to_string(), regs[*src as usize].clone());
                         }
                     }
+                    // Env::define_global bumps global generation
                     pc += 1;
                 }
                 Op::LoadCtx(dst) => {
@@ -136,7 +668,104 @@ impl Vm {
                     pc += 1;
                 }
                 Op::Access(dst, base, field) => {
-                    let res = regs[*base as usize].access(&regs[*field as usize]).unwrap_or(Val::Nil);
+                    // Try IC for Map[String] and Object[String]
+                    let (hit_val, update) = match (&regs[*base as usize], &regs[*field as usize]) {
+                        (Val::Map(m), Val::Str(s)) => {
+                            let mp = Arc::as_ptr(m) as usize;
+                            let kp = s.as_ref().as_ptr() as usize;
+                            if let Some(AccessIc::MapStr { map_ptr, key_ptr, value }) = &access_ic[pc] {
+                                if *map_ptr == mp && *key_ptr == kp {
+                                    (Some(value.clone()), false)
+                                } else {
+                                    (None, true)
+                                }
+                            } else {
+                                (None, true)
+                            }
+                        }
+                        (Val::Object { fields, .. }, Val::Str(s)) => {
+                            let optr = Arc::as_ptr(fields) as usize;
+                            if let Some(AccessIc::ObjectStr { obj_ptr, key, value }) = &access_ic[pc] {
+                                if *obj_ptr == optr && key.as_str() == s.as_ref() {
+                                    (Some(value.clone()), false)
+                                } else {
+                                    (None, true)
+                                }
+                            } else {
+                                (None, true)
+                            }
+                        }
+                        _ => (None, false),
+                    };
+                    let res = if let Some(v) = hit_val {
+                        v
+                    } else {
+                        let v = regs[*base as usize]
+                            .access(&regs[*field as usize])
+                            .unwrap_or(Val::Nil);
+                        if update {
+                            match (&regs[*base as usize], &regs[*field as usize]) {
+                                (Val::Map(m), Val::Str(s)) => {
+                                    access_ic[pc] = Some(AccessIc::MapStr {
+                                        map_ptr: Arc::as_ptr(m) as usize,
+                                        key_ptr: s.as_ref().as_ptr() as usize,
+                                        value: v.clone(),
+                                    });
+                                }
+                                (Val::Object { fields, .. }, Val::Str(s)) => {
+                                    access_ic[pc] = Some(AccessIc::ObjectStr {
+                                        obj_ptr: Arc::as_ptr(fields) as usize,
+                                        key: s.as_ref().to_string(),
+                                        value: v.clone(),
+                                    });
+                                }
+                                _ => {}
+                            }
+                        }
+                        v
+                    };
+                    regs[*dst as usize] = res;
+                    pc += 1;
+                }
+                Op::AccessK(dst, base, kidx) => {
+                    let key = &f.consts[*kidx as usize];
+                    // Only valid for string constants; otherwise yield Nil
+                    let res = if let Val::Str(s) = key {
+                        // IC for Map[String] with constant key
+                        let (hit_val, update) = match &regs[*base as usize] {
+                            Val::Map(m) => {
+                                let mp = Arc::as_ptr(m) as usize;
+                                let kp = s.as_ref().as_ptr() as usize;
+                                if let Some(AccessIc::MapStr { map_ptr, key_ptr, value }) = &access_ic[pc] {
+                                    if *map_ptr == mp && *key_ptr == kp {
+                                        (Some(value.clone()), false)
+                                    } else {
+                                        (None, true)
+                                    }
+                                } else {
+                                    (None, true)
+                                }
+                            }
+                            _ => (None, false),
+                        };
+                        if let Some(v) = hit_val {
+                            v
+                        } else {
+                            let v = regs[*base as usize].access(key).unwrap_or(Val::Nil);
+                            if update {
+                                if let Val::Map(m) = &regs[*base as usize] {
+                                    access_ic[pc] = Some(AccessIc::MapStr {
+                                        map_ptr: Arc::as_ptr(m) as usize,
+                                        key_ptr: s.as_ref().as_ptr() as usize,
+                                        value: v.clone(),
+                                    });
+                                }
+                            }
+                            v
+                        }
+                    } else {
+                        Val::Nil
+                    };
                     regs[*dst as usize] = res;
                     pc += 1;
                 }
@@ -155,21 +784,58 @@ impl Vm {
                     let res = match (&regs[*base as usize], &regs[*idx as usize]) {
                         (Val::List(l), Val::Int(i)) => {
                             if *i < 0 {
-                                None
+                                Val::Nil
                             } else {
-                                l.get(*i as usize).cloned()
+                                let lptr = Arc::as_ptr(l) as *const Val as usize;
+                                if let Some(IndexIc::List { base_ptr, idx, value }) = &index_ic[pc]
+                                    && *base_ptr == lptr && *idx == *i
+                                {
+                                    value.clone()
+                                } else {
+                                    let v = l.get(*i as usize).cloned().unwrap_or(Val::Nil);
+                                    index_ic[pc] = Some(IndexIc::List { base_ptr: lptr, idx: *i, value: v.clone() });
+                                    v
+                                }
                             }
                         }
                         (Val::Str(s), Val::Int(i)) => {
                             if *i < 0 {
-                                None
+                                Val::Nil
                             } else {
-                                s.chars().nth(*i as usize).map(|c| Val::Str(c.to_string().into()))
+                                let sptr = s.as_ref().as_ptr() as usize;
+                                if let Some(IndexIc::Str { base_ptr, idx, value }) = &index_ic[pc]
+                                    && *base_ptr == sptr && *idx == *i
+                                {
+                                    value.clone()
+                                } else {
+                                    let v = s
+                                        .chars()
+                                        .nth(*i as usize)
+                                        .map(|c| Val::Str(c.to_string().into()))
+                                        .unwrap_or(Val::Nil);
+                                    index_ic[pc] = Some(IndexIc::Str { base_ptr: sptr, idx: *i, value: v.clone() });
+                                    v
+                                }
                             }
                         }
-                        _ => None,
-                    }
-                    .unwrap_or(Val::Nil);
+                        _ => Val::Nil,
+                    };
+                    regs[*dst as usize] = res;
+                    pc += 1;
+                }
+                Op::IndexK(dst, base, kidx) => {
+                    let key = &f.consts[*kidx as usize];
+                    let res = if let Val::Int(i) = key {
+                        match &regs[*base as usize] {
+                            Val::List(l) => {
+                                if *i < 0 { Val::Nil } else { l.get(*i as usize).cloned().unwrap_or(Val::Nil) }
+                            }
+                            Val::Str(s) => {
+                                if *i < 0 { Val::Nil } else { s.chars().nth(*i as usize).map(|c| Val::Str(c.to_string().into())).unwrap_or(Val::Nil) }
+                            }
+                            _ => Val::Nil,
+                        }
+                    } else { Val::Nil };
                     regs[*dst as usize] = res;
                     pc += 1;
                 }
@@ -326,19 +992,31 @@ impl Vm {
                         .ok_or_else(|| anyhow!("closure proto out of range"))?;
                     if let Some(e) = env.as_ref() {
                         let clo = Val::Closure {
-                            params: std::sync::Arc::new(p.params.clone()),
-                            body: std::sync::Arc::new(p.body.clone()),
-                            env: std::sync::Arc::new((*e).clone()),
-                            upvalues: std::sync::Arc::new(Vec::new()),
+                            params: Arc::new(p.params.clone()),
+                            body: Arc::new(p.body.clone()),
+                            env: Arc::new((*e).clone()),
+                            upvalues: Arc::new(Vec::new()),
                             #[cfg(feature = "vm")]
-                            code: std::sync::Arc::new(once_cell::sync::OnceCell::new()),
+                            code: Arc::new(once_cell::sync::OnceCell::new()),
                             #[cfg(feature = "slots")]
-                            layout: std::sync::Arc::new(once_cell::sync::OnceCell::new()),
+                            layout: Arc::new(once_cell::sync::OnceCell::new()),
                         };
                         regs[*dst as usize] = clo;
                     } else {
                         regs[*dst as usize] = Val::Nil;
                     }
+                    pc += 1;
+                }
+                Op::Not(dst, src) => {
+                    match &regs[*src as usize] {
+                        Val::Bool(b) => regs[*dst as usize] = Val::Bool(!b),
+                        other => return Err(anyhow!("Invalid operand: !{:?}", other)),
+                    }
+                    pc += 1;
+                }
+                Op::ToBool(dst, src) => {
+                    let truthy = !matches!(regs[*src as usize], Val::Nil | Val::Bool(false));
+                    regs[*dst as usize] = Val::Bool(truthy);
                     pc += 1;
                 }
                 Op::Jmp(ofs) => {
@@ -347,6 +1025,46 @@ impl Vm {
                 Op::JmpFalse(r, ofs) => {
                     let cond_falsey = matches!(regs[*r as usize], Val::Nil | Val::Bool(false));
                     if cond_falsey {
+                        pc = ((pc as isize) + (*ofs as isize)) as usize;
+                    } else {
+                        pc += 1;
+                    }
+                }
+                Op::JmpFalseSet { r, dst, ofs } => {
+                    let cond_falsey = matches!(regs[*r as usize], Val::Nil | Val::Bool(false));
+                    if cond_falsey {
+                        regs[*dst as usize] = Val::Bool(false);
+                        pc = ((pc as isize) + (*ofs as isize)) as usize;
+                    } else {
+                        pc += 1;
+                    }
+                }
+                Op::JmpIfNil(r, ofs) => {
+                    if matches!(regs[*r as usize], Val::Nil) {
+                        pc = ((pc as isize) + (*ofs as isize)) as usize;
+                    } else {
+                        pc += 1;
+                    }
+                }
+                Op::JmpIfNotNil(r, ofs) => {
+                    if !matches!(regs[*r as usize], Val::Nil) {
+                        pc = ((pc as isize) + (*ofs as isize)) as usize;
+                    } else {
+                        pc += 1;
+                    }
+                }
+                Op::NullishPick { l, dst, ofs } => {
+                    if !matches!(regs[*l as usize], Val::Nil) {
+                        regs[*dst as usize] = regs[*l as usize].clone();
+                        pc = ((pc as isize) + (*ofs as isize)) as usize;
+                    } else {
+                        pc += 1;
+                    }
+                }
+                Op::JmpTrueSet { r, dst, ofs } => {
+                    let cond_truthy = !matches!(regs[*r as usize], Val::Nil | Val::Bool(false));
+                    if cond_truthy {
+                        regs[*dst as usize] = Val::Bool(true);
                         pc = ((pc as isize) + (*ofs as isize)) as usize;
                     } else {
                         pc += 1;
@@ -364,9 +1082,20 @@ impl Vm {
                     // Pass a borrowed slice of registers as arguments to avoid cloning.
                     let args_slice: &[Val] = &regs[start..start + n];
                     let result = if let Some(e) = env.as_ref() {
-                        match &func {
-                            Val::RustFunction(f) => f(args_slice, e),
-                            _ => func.call(args_slice, e),
+                        // Check call-site IC for Rust function
+                        if let Some(CallIc::Rust(fp, cached_argc)) = call_ic[pc]
+                            && *argc == cached_argc
+                            && matches!(func, Val::RustFunction(_))
+                        {
+                            fp(args_slice, e)
+                        } else {
+                            match &func {
+                                Val::RustFunction(fptr) => {
+                                    call_ic[pc] = Some(CallIc::Rust(*fptr, *argc));
+                                    fptr(args_slice, e)
+                                }
+                                _ => func.call(args_slice, e),
+                            }
                         }
                     } else {
                         Err(anyhow!("Function call requires environment"))
@@ -389,40 +1118,57 @@ impl Vm {
         Ok(Val::Nil)
     }
 
-    fn arith2(
+    fn arith2_try_numeric(
         regs: &mut [Val],
         dst: u16,
         a: u16,
         b: u16,
         iop: impl FnOnce(i64, i64) -> i64,
         fop: impl FnOnce(f64, f64) -> f64,
-    ) {
+    ) -> bool {
         match (&regs[a as usize], &regs[b as usize]) {
-            (Val::Int(x), Val::Int(y)) => regs[dst as usize] = Val::Int(iop(*x, *y)),
-            (Val::Float(x), Val::Float(y)) => regs[dst as usize] = Val::Float(fop(*x, *y)),
+            (Val::Int(x), Val::Int(y)) => {
+                regs[dst as usize] = Val::Int(iop(*x, *y));
+                true
+            }
+            (Val::Float(x), Val::Float(y)) => {
+                regs[dst as usize] = Val::Float(fop(*x, *y));
+                true
+            }
             // Mixed numeric: promote to Float
-            (Val::Int(x), Val::Float(y)) => regs[dst as usize] = Val::Float(fop(*x as f64, *y)),
-            (Val::Float(x), Val::Int(y)) => regs[dst as usize] = Val::Float(fop(*x, *y as f64)),
-            _ => regs[dst as usize] = Val::Nil,
+            (Val::Int(x), Val::Float(y)) => {
+                regs[dst as usize] = Val::Float(fop(*x as f64, *y));
+                true
+            }
+            (Val::Float(x), Val::Int(y)) => {
+                regs[dst as usize] = Val::Float(fop(*x, *y as f64));
+                true
+            }
+            _ => false,
         }
     }
 
-    fn cmp2(
+    fn cmp2_try_numeric(
         regs: &mut [Val],
         dst: u16,
         a: u16,
         b: u16,
         iop: impl FnOnce(i64, i64) -> bool,
         fop: impl FnOnce(f64, f64) -> bool,
-    ) {
-        let res = match (&regs[a as usize], &regs[b as usize]) {
-            (Val::Int(x), Val::Int(y)) => iop(*x, *y),
-            (Val::Float(x), Val::Float(y)) => fop(*x, *y),
-            (Val::Int(x), Val::Float(y)) => fop(*x as f64, *y),
-            (Val::Float(x), Val::Int(y)) => fop(*x, *y as f64),
-            _ => false,
+    ) -> bool {
+        let res_opt = match (&regs[a as usize], &regs[b as usize]) {
+            (Val::Int(x), Val::Int(y)) => Some(iop(*x, *y)),
+            (Val::Float(x), Val::Float(y)) => Some(fop(*x, *y)),
+            (Val::Int(x), Val::Float(y)) => Some(fop(*x as f64, *y)),
+            (Val::Float(x), Val::Int(y)) => Some(fop(*x, *y as f64)),
+            _ => None,
         };
-        regs[dst as usize] = Val::Bool(res);
+        if let Some(res) = res_opt {
+            regs[dst as usize] = Val::Bool(res);
+            true
+        } else {
+            false
+        }
     }
 }
 

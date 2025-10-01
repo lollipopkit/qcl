@@ -153,6 +153,8 @@ pub struct Environment {
     type_checker: Option<TypeChecker>,
     /// 轻量运行时栈帧父链（用于槽位访问与调用帧）
     current_frame: Option<Arc<crate::rt::EnvFrame>>,
+    /// Environment-wide generation for invalidating global lookups (shared across clones)
+    global_gen: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl Default for Environment {
@@ -169,6 +171,7 @@ impl Environment {
             resolver: Arc::new(ModuleResolver::new()),
             type_checker: None,
             current_frame: None,
+            global_gen: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
 
@@ -179,6 +182,7 @@ impl Environment {
             resolver,
             type_checker: None,
             current_frame: None,
+            global_gen: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
 
@@ -199,6 +203,21 @@ impl Environment {
     pub fn export_symbols(&self) -> HashMap<String, Val> {
         // Clone the top-level scope only; imported symbols are not re-exported by default
         self.scopes.first().cloned().unwrap_or_default()
+    }
+
+    /// Current environment-wide generation used for global cache invalidation.
+    #[inline]
+    pub fn generation(&self) -> u64 {
+        self.global_gen
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Bump generation (wrap-around safe) to invalidate global caches.
+    #[inline]
+    fn bump_generation(&self) {
+        let _ = self
+            .global_gen
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// 进入新的作用域
@@ -299,6 +318,7 @@ impl Environment {
             resolver: self.resolver.clone(),
             type_checker: self.type_checker.clone(),
             current_frame: self.current_frame.clone(),
+            global_gen: self.global_gen.clone(),
         };
         env.push_scope_with_capacity(param_capacity);
         env
@@ -320,6 +340,10 @@ impl Environment {
     pub fn define(&mut self, name: String, value: Val) {
         if let Some(current_scope) = self.scopes.last_mut() {
             current_scope.insert(name.clone(), value.clone());
+        }
+        // 若在全局作用域中定义变量，则提升全局版本号以便使 VM 全局 IC 失效
+        if self.scopes.len() == 1 {
+            self.bump_generation();
         }
         // 若处在函数调用帧中，则为参数/局部 let 分配槽位并写入
         if let Some(frame) = &self.current_frame {
@@ -371,19 +395,33 @@ impl Environment {
         }
     }
 
+    /// 定义全局变量（始终写入全局作用域并使全局缓存失效）
+    pub fn define_global(&mut self, name: String, value: Val) {
+        if let Some(global) = self.scopes.first_mut() {
+            global.insert(name, value);
+            self.bump_generation();
+        }
+    }
+
     /// 赋值变量 (在最近的包含该变量的作用域中)
     pub fn assign(&mut self, name: &str, value: Val) -> Result<()> {
         // First, update HashMap-based scopes for correctness and reference stability
         let mut updated_hash = false;
-        for scope in self.scopes.iter_mut().rev() {
-            if let Some(slot) = scope.get_mut(name) {
+        let mut changed_scope_index: Option<usize> = None;
+        for i in (0..self.scopes.len()).rev() {
+            if let Some(slot) = self.scopes[i].get_mut(name) {
                 *slot = value.clone();
                 updated_hash = true;
+                changed_scope_index = Some(i);
                 break;
             }
         }
         if !updated_hash {
             return Err(anyhow!("Undefined variable: {}", name));
+        }
+        // Bump generation if assignment updated the global scope
+        if matches!(changed_scope_index, Some(0)) {
+            self.bump_generation();
         }
         // Then, if a slot mapping exists, mirror the write to the slot
         if let Some(frame) = &self.current_frame {
