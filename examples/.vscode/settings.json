@@ -1,14 +1,14 @@
 {
-    // Enable semantic highlighting for QCL
+    // Enable semantic highlighting for LKR
     "editor.semanticHighlighting.enabled": true,
     
-    // QCL Language Server settings
-    "qcl.lsp.enabled": true,
-    "qcl.lsp.autoStart": true,
-    "qcl.lsp.semanticTokens.enabled": true,
-    "qcl.lsp.semanticTokens.throttleMs": 100,
+    // LKR Language Server settings
+    "lkr.lsp.enabled": true,
+    "lkr.lsp.autoStart": true,
+    "lkr.lsp.semanticTokens.enabled": true,
+    "lkr.lsp.semanticTokens.throttleMs": 100,
     
     // Enable verbose logging for debugging (optional)
-    // "qcl.lsp.trace": "verbose",
-    // "qcl.lsp.outputChannel.enabled": true,
+    // "lkr.lsp.trace": "verbose",
+    // "lkr.lsp.outputChannel.enabled": true,
 }

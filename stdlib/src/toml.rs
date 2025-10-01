@@ -1,7 +1,7 @@
 use anyhow::Result;
-use qcl_core::module::Module;
-use qcl_core::val::Val;
-use qcl_core::val::de;
+use lkr_core::module::Module;
+use lkr_core::val::Val;
+use lkr_core::val::de;
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -28,7 +28,7 @@ impl Module for TomlModule {
         "toml"
     }
 
-    fn register(&self, _registry: &mut qcl_core::module::ModuleRegistry) -> Result<()> {
+    fn register(&self, _registry: &mut lkr_core::module::ModuleRegistry) -> Result<()> {
         Ok(())
     }
 
@@ -37,7 +37,7 @@ impl Module for TomlModule {
     }
 }
 
-fn parse(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn parse(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow::anyhow!("toml.parse(data) requires 1 argument"));
     }

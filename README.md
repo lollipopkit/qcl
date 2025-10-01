@@ -1,7 +1,7 @@
 English | [简体中文](README.zh-CN.md)
 
 <div align="center">
-    <h2>RLL</h2>
+    <h2>LKR</h2>
     <h5>a Rust-like scripting language written in Rust</h5>
 </div>
 
@@ -18,7 +18,7 @@ More language details: [LANG.md](LANG.md).
 #### Integration (library)
 
 ```rust
-use qcl_core::{expr::Expr, stmt::Environment, val::Val};
+use lkr_core::{expr::Expr, stmt::Environment, val::Val};
 
 // Parse expr
 let expr_src = "data.req.user.name in 'foobar' && data.files.0.published == true";

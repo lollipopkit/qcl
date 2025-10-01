@@ -2,8 +2,8 @@ use std::io::IsTerminal;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
-use qcl_core::stmt::ModuleResolver;
-use qcl_core::{
+use lkr_core::stmt::ModuleResolver;
+use lkr_core::{
     expr::Expr,
     module::ModuleRegistry,
     stmt::{self, stmt_parser::StmtParser},
@@ -12,7 +12,7 @@ use qcl_core::{
 };
 
 #[cfg(feature = "concurrency")]
-use qcl_core::rt;
+use lkr_core::rt;
 
 mod repl;
 
@@ -54,7 +54,7 @@ fn main() -> anyhow::Result<()> {
     // Default to expression mode; fallback target is expr when not a file
     let mut is_statement_mode = false;
     let mut repl_mode = false;
-    let mut use_vm = std::env::var("QCL_VM").is_ok();
+    let mut use_vm = std::env::var("LKR_VM").is_ok();
 
     while arg_idx < args.len() {
         match args[arg_idx].as_str() {
@@ -149,8 +149,8 @@ fn main() -> anyhow::Result<()> {
         };
         // Prepare stdlib environment
         let mut registry = ModuleRegistry::new();
-        qcl_stdlib::register_stdlib_globals(&mut registry);
-        qcl_stdlib::register_stdlib_modules(&mut registry);
+        lkr_stdlib::register_stdlib_globals(&mut registry);
+        lkr_stdlib::register_stdlib_modules(&mut registry);
         let resolver = Arc::new(ModuleResolver::with_registry(registry));
         let mut env = stmt::Environment::with_resolver(resolver);
 
@@ -158,11 +158,11 @@ fn main() -> anyhow::Result<()> {
             #[cfg(feature = "vm")]
             {
                 // Compile entire program block to bytecode and execute with VM
-                let block = qcl_core::stmt::Stmt::Block {
+                let block = lkr_core::stmt::Stmt::Block {
                     statements: program.statements.clone(),
                 };
-                let func = qcl_core::vm::Compiler::new().compile_stmt(&block);
-                let mut vm = qcl_core::vm::Vm::new();
+                let func = lkr_core::vm::Compiler::new().compile_stmt(&block);
+                let mut vm = lkr_core::vm::Vm::new();
                 vm.exec_with(&func, Some(&mut env), None)
             }
             #[cfg(not(feature = "vm"))]
@@ -181,15 +181,15 @@ fn main() -> anyhow::Result<()> {
             #[cfg(feature = "vm")]
             {
                 let expr = Expr::parse_cached_arc(&input)?;
-                let compiler = qcl_core::vm::Compiler::new();
+                let compiler = lkr_core::vm::Compiler::new();
                 let func = compiler.compile_expr(&expr);
-                let mut vm = qcl_core::vm::Vm::new();
+                let mut vm = lkr_core::vm::Vm::new();
                 vm.exec_with(&func, None, None)
             }
             #[cfg(not(feature = "vm"))]
             {
                 eprintln!(
-                    "Warning: --vm specified (or QCL_VM set) but this binary was built without 'vm' feature; using interpreter."
+                    "Warning: --vm specified (or LKR_VM set) but this binary was built without 'vm' feature; using interpreter."
                 );
                 let expr = Expr::parse_cached_arc(&input)?;
                 expr.eval()

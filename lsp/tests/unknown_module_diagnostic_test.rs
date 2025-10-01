@@ -1,9 +1,9 @@
-use qcl_lsp::analyzer::QclAnalyzer;
+use lkr_lsp::analyzer::LkrAnalyzer;
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
 #[test]
 fn test_unknown_module_import_diagnostic() {
-    let mut analyzer = QclAnalyzer::new();
+    let mut analyzer = LkrAnalyzer::new();
     let code = r#"
         import not_a_module;
         import * as ns from missing;

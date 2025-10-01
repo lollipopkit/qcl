@@ -1,4 +1,4 @@
-use qcl_core::{
+use lkr_core::{
     ast::Parser as ExprParser,
     stmt::{stmt_parser::StmtParser, ImportStmt, Stmt},
     token::Tokenizer,
@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_lsp::lsp_types::*;
 
-// Re-implement the analyzer for testing since we can't import from qcl_lsp
+// Re-implement the analyzer for testing since we can't import from lkr_lsp
 #[derive(Debug, Clone)]
 pub struct AnalysisResult {
     pub diagnostics: Vec<Diagnostic>,
@@ -17,9 +17,9 @@ pub struct AnalysisResult {
 }
 
 #[derive(Default)]
-pub struct QclAnalyzer;
+pub struct LkrAnalyzer;
 
-impl QclAnalyzer {
+impl LkrAnalyzer {
     pub fn new() -> Self {
         Self
     }
@@ -39,7 +39,7 @@ impl QclAnalyzer {
                     Range::new(Position::new(0, 0), Position::new(0, content.len() as u32)),
                     Some(DiagnosticSeverity::ERROR),
                     None,
-                    Some("qcl".to_string()),
+                    Some("lkr".to_string()),
                     format!("Tokenization error: {}", tokenize_err),
                     None,
                     None,
@@ -57,7 +57,7 @@ impl QclAnalyzer {
                 // Add expression symbol
                 let symbol = DocumentSymbol {
                     name: "expression".to_string(),
-                    detail: Some("QCL Expression".to_string()),
+                    detail: Some("LKR Expression".to_string()),
                     kind: SymbolKind::CONSTANT,
                     tags: None,
                     #[allow(deprecated)]
@@ -82,7 +82,7 @@ impl QclAnalyzer {
                             Range::new(Position::new(0, 0), Position::new(0, content.len() as u32)),
                             Some(DiagnosticSeverity::ERROR),
                             None,
-                            Some("qcl".to_string()),
+                            Some("lkr".to_string()),
                             format!("Parse error - Expression: {}, Statement: {}", expr_err, stmt_err),
                             None,
                             None,
@@ -100,7 +100,7 @@ impl QclAnalyzer {
             match stmt.as_ref() {
                 Stmt::Let { pattern, .. } => {
                     // Extract variable names from pattern and create symbols for each
-                    if let Some(variables) = qcl_lsp::analyzer::extract_variables_from_pattern(pattern) {
+                    if let Some(variables) = lkr_lsp::analyzer::extract_variables_from_pattern(pattern) {
                         for var_name in variables {
                             result.symbols.push(DocumentSymbol {
                                 name: var_name.clone(),
@@ -134,12 +134,12 @@ impl QclAnalyzer {
                         ImportStmt::Module { module } => module.clone(),
                         ImportStmt::File { path } => path.clone(),
                         ImportStmt::Items { source, .. } => match source {
-                            qcl_core::stmt::ImportSource::Module(name) => name.clone(),
-                            qcl_core::stmt::ImportSource::File(path) => path.clone(),
+                            lkr_core::stmt::ImportSource::Module(name) => name.clone(),
+                            lkr_core::stmt::ImportSource::File(path) => path.clone(),
                         },
                         ImportStmt::Namespace { source, .. } => match source {
-                            qcl_core::stmt::ImportSource::Module(name) => name.clone(),
-                            qcl_core::stmt::ImportSource::File(path) => path.clone(),
+                            lkr_core::stmt::ImportSource::Module(name) => name.clone(),
+                            lkr_core::stmt::ImportSource::File(path) => path.clone(),
                         },
                         ImportStmt::ModuleAlias { module, .. } => module.clone(),
                     };
@@ -198,7 +198,7 @@ use url::Url;
 // Test helper to create a mock language server
 struct TestLanguageServer {
     documents: Arc<RwLock<HashMap<Url, TestDocument>>>,
-    analyzer: QclAnalyzer,
+    analyzer: LkrAnalyzer,
 }
 
 struct TestDocument {
@@ -211,7 +211,7 @@ impl TestLanguageServer {
     fn new() -> Self {
         Self {
             documents: Arc::new(RwLock::new(HashMap::new())),
-            analyzer: QclAnalyzer::new(),
+            analyzer: LkrAnalyzer::new(),
         }
     }
 
@@ -243,7 +243,7 @@ impl TestLanguageServer {
         let content = &document.content;
 
         // Tokenize with spans; pick first non-whitespace token to emulate a hover position
-        let (tokens, spans) = qcl_core::token::Tokenizer::tokenize_enhanced_with_spans(content).ok()?;
+        let (tokens, spans) = lkr_core::token::Tokenizer::tokenize_enhanced_with_spans(content).ok()?;
         let hover_idx = Self::first_non_ws_token_index(content, &spans)?;
         let text = Self::describe_token_hover_test(&tokens, hover_idx);
 
@@ -253,7 +253,7 @@ impl TestLanguageServer {
         })
     }
 
-    fn first_non_ws_token_index(content: &str, spans: &[qcl_core::token::Span]) -> Option<usize> {
+    fn first_non_ws_token_index(content: &str, spans: &[lkr_core::token::Span]) -> Option<usize> {
         for (i, sp) in spans.iter().enumerate() {
             let start = sp.start.offset;
             let end = sp.end.offset.min(content.len());
@@ -265,8 +265,8 @@ impl TestLanguageServer {
         None
     }
 
-    fn describe_token_hover_test(tokens: &[qcl_core::token::Token], idx: usize) -> String {
-        use qcl_core::token::Token as T;
+    fn describe_token_hover_test(tokens: &[lkr_core::token::Token], idx: usize) -> String {
+        use lkr_core::token::Token as T;
         // Legacy '@' context path hover removed
         match &tokens[idx] {
             T::Id(name) => {
@@ -356,7 +356,7 @@ impl TestLanguageServer {
     fn get_completions(&self) -> Vec<CompletionItem> {
         let mut items = Vec::new();
 
-        // QCL keywords
+        // LKR keywords
         let keywords = [
             "if", "else", "while", "let", "fn", "return", "break", "continue", "import", "from", "as", "go", "select",
             "case", "default", "true", "false", "nil",
@@ -366,7 +366,7 @@ impl TestLanguageServer {
             items.push(CompletionItem {
                 label: keyword.to_string(),
                 kind: Some(CompletionItemKind::KEYWORD),
-                detail: Some("QCL keyword".to_string()),
+                detail: Some("LKR keyword".to_string()),
                 ..Default::default()
             });
         }
@@ -377,7 +377,7 @@ impl TestLanguageServer {
             items.push(CompletionItem {
                 label: op.to_string(),
                 kind: Some(CompletionItemKind::OPERATOR),
-                detail: Some("QCL operator".to_string()),
+                detail: Some("LKR operator".to_string()),
                 ..Default::default()
             });
         }
@@ -413,7 +413,7 @@ impl TestLanguageServer {
 #[tokio::test]
 async fn test_lsp_expression_validation() {
     let server = TestLanguageServer::new();
-    let uri = Url::parse("file:///test.qcl").unwrap();
+    let uri = Url::parse("file:///test.lkr").unwrap();
 
     // Test valid expression
     server
@@ -434,7 +434,7 @@ async fn test_lsp_expression_validation() {
 #[tokio::test]
 async fn test_lsp_statement_validation() {
     let server = TestLanguageServer::new();
-    let uri = Url::parse("file:///program.qcl").unwrap();
+    let uri = Url::parse("file:///program.lkr").unwrap();
 
     let program = r#"
         import math;
@@ -460,7 +460,7 @@ async fn test_lsp_statement_validation() {
 #[tokio::test]
 async fn test_lsp_hover_functionality() {
     let server = TestLanguageServer::new();
-    let uri = Url::parse("file:///test.qcl").unwrap();
+    let uri = Url::parse("file:///test.lkr").unwrap();
 
     // Test hover with identifier roots
     server
@@ -547,7 +547,7 @@ async fn test_lsp_completion_functionality() {
 #[tokio::test]
 async fn test_lsp_document_symbols() {
     let server = TestLanguageServer::new();
-    let uri = Url::parse("file:///program.qcl").unwrap();
+    let uri = Url::parse("file:///program.lkr").unwrap();
 
     let program = r#"
         import math;
@@ -596,7 +596,7 @@ async fn test_lsp_document_symbols() {
 
 #[tokio::test]
 async fn test_lsp_var_completions() {
-    let analyzer = QclAnalyzer::new();
+    let analyzer = LkrAnalyzer::new();
 
     // Test context completions with "req" prefix
     let completions = analyzer.get_var_completions("req");
@@ -616,7 +616,7 @@ async fn test_lsp_var_completions() {
 #[tokio::test]
 async fn test_lsp_complex_program_analysis() {
     let server = TestLanguageServer::new();
-    let uri = Url::parse("file:///complex.qcl").unwrap();
+    let uri = Url::parse("file:///complex.lkr").unwrap();
 
     let complex_program = r#"
         import math;
@@ -708,7 +708,7 @@ async fn test_lsp_complex_program_analysis() {
 #[tokio::test]
 async fn test_lsp_error_recovery() {
     let server = TestLanguageServer::new();
-    let uri = Url::parse("file:///error_test.qcl").unwrap();
+    let uri = Url::parse("file:///error_test.lkr").unwrap();
 
     // Test various error conditions
     let error_cases = [

@@ -1,6 +1,6 @@
 [package]
-name = "qcl-core"
-description = "Core library for QCL (Query Check Language)"
+name = "lkr-core"
+description = "Core library for LKR (Query Check Language)"
 version = "0.2.0"
 edition = "2024"
 authors = ["lollipopkit <a@lpkit.cn>"]

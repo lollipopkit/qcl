@@ -1,7 +1,7 @@
 中文 | [English](README.md)
 
 <div align="center">
-    <h2>RLL</h2>
+    <h2>LKR</h2>
     <h5>使用 Rust 编写的，类似 Rust 的脚本语言</h5>
 </div>
 
@@ -18,7 +18,7 @@
 #### 集成（库）
 
 ```rust
-use qcl_core::{expr::Expr, stmt::Environment, val::Val};
+use lkr_core::{expr::Expr, stmt::Environment, val::Val};
 
 // 解析表达式
 let expr_src = "data.req.user.name in 'foobar' && data.files.0.published == true";

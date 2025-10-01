@@ -19,8 +19,8 @@ mod globals_test;
 #[cfg(test)]
 mod tcp_test;
 
-use qcl_core::module::ModuleRegistry;
-use qcl_core::val::Val;
+use lkr_core::module::ModuleRegistry;
+use lkr_core::val::Val;
 
 /// Register all stdlib modules with the given registry
 pub fn register_stdlib_modules(registry: &mut ModuleRegistry) {
@@ -103,19 +103,19 @@ pub fn register_stdlib_globals(registry: &mut ModuleRegistry) {
         }
     }
 
-    fn print_fn(args: &[Val], _env: &qcl_core::stmt::Environment) -> anyhow::Result<Val> {
+    fn print_fn(args: &[Val], _env: &lkr_core::stmt::Environment) -> anyhow::Result<Val> {
         let out = format_variadic(args);
         print!("{}", out);
         Ok(Val::Nil)
     }
 
-    fn println_fn(args: &[Val], _env: &qcl_core::stmt::Environment) -> anyhow::Result<Val> {
+    fn println_fn(args: &[Val], _env: &lkr_core::stmt::Environment) -> anyhow::Result<Val> {
         let out = format_variadic(args);
         println!("{}", out);
         Ok(Val::Nil)
     }
 
-    fn panic_fn(args: &[Val], _env: &qcl_core::stmt::Environment) -> anyhow::Result<Val> {
+    fn panic_fn(args: &[Val], _env: &lkr_core::stmt::Environment) -> anyhow::Result<Val> {
         // Compose message from all arguments for better diagnostics
         let mut msg = if args.is_empty() {
             "panic".to_string()

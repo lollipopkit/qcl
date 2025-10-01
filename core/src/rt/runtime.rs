@@ -380,7 +380,7 @@ static GLOBAL_RUNTIME: Lazy<Arc<Mutex<Option<Runtime>>>> = Lazy::new(|| Arc::new
 pub fn init_runtime() -> Result<()> {
     let mut runtime = GLOBAL_RUNTIME.lock().unwrap();
     if runtime.is_none() {
-        let rt = if std::env::var("QCL_SINGLE_THREAD").is_ok() {
+        let rt = if std::env::var("LKR_SINGLE_THREAD").is_ok() {
             Runtime::new_current_thread()?
         } else {
             Runtime::new_multi_thread()?
@@ -400,7 +400,7 @@ where
 
     if runtime_guard.is_none() {
         // Initialize runtime automatically
-        let rt = if std::env::var("QCL_SINGLE_THREAD").is_ok() {
+        let rt = if std::env::var("LKR_SINGLE_THREAD").is_ok() {
             Runtime::new_current_thread()?
         } else {
             Runtime::new_multi_thread()?

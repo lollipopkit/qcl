@@ -1,10 +1,10 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use qcl_core::val::Val;
+use lkr_core::val::Val;
 
 #[cfg(feature = "vm")]
 mod vm_benches {
     use super::*;
-    use qcl_core::vm::{Function, Op, Vm};
+    use lkr_core::vm::{Function, Op, Vm};
     use std::sync::Arc;
 
     fn make_index_fn() -> Function {

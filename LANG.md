@@ -1,6 +1,6 @@
 ## Language Overview
 
-This document describes the QCL language as implemented in this repository (parser, evaluator, statements, types, and standard library wiring).
+This document describes the LKR language as implemented in this repository (parser, evaluator, statements, types, and standard library wiring).
 
 Comments
 - Line comments: `// ...`
@@ -121,16 +121,16 @@ Functions
 Imports
 - Forms:
   - `import math;` — stdlib module as a namespace
-  - `import "path/to/file.qcl";` — file module as a namespace (name is the file stem)
+  - `import "path/to/file.lkr";` — file module as a namespace (name is the file stem)
   - `import { abs, sqrt } from math;` — selected items
-  - `import { f as g } from "m.qcl";` — with alias
+  - `import { f as g } from "m.lkr";` — with alias
   - `import * as m from math;` — namespace alias
   - `import math as m;` — module alias
 
 - File import resolution and safety:
   - Paths are relative-only and sanitized: absolute paths and any `..` components are rejected.
-  - Resolution attempts, in order: `${MOD_NAME}.qcl`, then `${MOD_NAME}/mod.qcl` (relative to the current directory).
-  - If you pass a quoted path with `.qcl` already (e.g., `"lib/foo.qcl"`), it must be relative and will be used directly if it exists.
+  - Resolution attempts, in order: `${MOD_NAME}.lkr`, then `${MOD_NAME}/mod.lkr` (relative to the current directory).
+  - If you pass a quoted path with `.lkr` already (e.g., `"lib/foo.lkr"`), it must be relative and will be used directly if it exists.
 
 Builtins and Stdlib
 - Builtin globals: `print(fmt, ...args)`, `println(fmt, ...args)`, `panic([msg])`.

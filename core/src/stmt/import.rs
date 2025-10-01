@@ -8,13 +8,13 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-/// Import system for QCL - supports various import syntaxes and plugin-style module resolution
+/// Import system for LKR - supports various import syntaxes and plugin-style module resolution
 ///
 /// Supported import syntaxes:
 /// 1. `import math;` - imports stdlib module 'math' with all exports
-/// 2. `import "path/to/file.qcl";` - imports file with all exports  
+/// 2. `import "path/to/file.lkr";` - imports file with all exports  
 /// 3. `import { abs, sqrt } from math;` - imports specific items from stdlib module
-/// 4. `import { func as alias } from "file.qcl";` - imports with alias
+/// 4. `import { func as alias } from "file.lkr";` - imports with alias
 /// 5. `import * as math from math;` - imports all as namespace
 /// 6. `import math as m;` - imports entire module with alias
 ///
@@ -179,35 +179,35 @@ impl ModuleResolver {
         }
 
         // Candidate patterns (searched under each `search_paths` root):
-        // 1) ${MOD_NAME}.qcl
-        // 2) ${MOD_NAME}/mod.qcl
+        // 1) ${MOD_NAME}.lkr
+        // 2) ${MOD_NAME}/mod.lkr
         // If the input already contains an extension, also allow it directly.
         let base = PathBuf::from(path);
 
         for root in &self.search_paths {
-            // If the input already includes .qcl and exists under this root, accept it
-            if base.extension().and_then(|s| s.to_str()) == Some("qcl") {
+            // If the input already includes .lkr and exists under this root, accept it
+            if base.extension().and_then(|s| s.to_str()) == Some("lkr") {
                 let p = root.join(&base);
                 if p.exists() {
                     return Ok(p);
                 }
             }
 
-            // Try ${MOD_NAME}.qcl
-            let candidate1 = root.join(base.with_extension("qcl"));
+            // Try ${MOD_NAME}.lkr
+            let candidate1 = root.join(base.with_extension("lkr"));
             if candidate1.exists() {
                 return Ok(candidate1);
             }
 
-            // Try ${MOD_NAME}/mod.qcl
-            let candidate2 = root.join(base.join("mod.qcl"));
+            // Try ${MOD_NAME}/mod.lkr
+            let candidate2 = root.join(base.join("mod.lkr"));
             if candidate2.exists() {
                 return Ok(candidate2);
             }
         }
 
         Err(anyhow!(
-            "File not found for module '{}': expected '{}.qcl' or '{}/mod.qcl'",
+            "File not found for module '{}': expected '{}.lkr' or '{}/mod.lkr'",
             path.display(),
             path.display(),
             path.display()
@@ -372,11 +372,11 @@ mod tests {
         assert!(resolver.resolve_file_path(&abs_str).is_err());
 
         // Parent directory components are rejected
-        assert!(resolver.resolve_file_path("../foo.qcl").is_err());
+        assert!(resolver.resolve_file_path("../foo.lkr").is_err());
 
         // Relative simple path that likely does not exist should return not found
         // (error message still OK but not due to security check)
-        let rel = PathBuf::from("does_not_exist.qcl");
+        let rel = PathBuf::from("does_not_exist.lkr");
         assert!(resolver.resolve_file_path(&rel.to_string_lossy()).is_err());
     }
 

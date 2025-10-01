@@ -1,11 +1,11 @@
 #[cfg(test)]
 mod bench_tests {
-    use crate::analyzer::QclAnalyzer;
+    use crate::analyzer::LkrAnalyzer;
     use std::time::Instant;
 
     #[test]
     fn bench_analyzer_performance() {
-        let mut analyzer = QclAnalyzer::new();
+        let mut analyzer = LkrAnalyzer::new();
 
         // Test expression analysis
         let expr = "req.user.role == 'admin' && req.user.level > 5";
@@ -65,7 +65,7 @@ mod bench_tests {
 
     #[test]
     fn bench_completion_caching() {
-        let mut analyzer = QclAnalyzer::new();
+        let mut analyzer = LkrAnalyzer::new();
 
         let start = Instant::now();
         let _completions1 = analyzer.get_var_completions("req");

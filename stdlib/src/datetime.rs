@@ -1,7 +1,7 @@
 use anyhow::Result;
 use chrono::Datelike;
-use qcl_core::module::Module;
-use qcl_core::val::Val;
+use lkr_core::module::Module;
+use lkr_core::val::Val;
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -33,7 +33,7 @@ impl DateTimeModule {
     }
 
     /// Get current timestamp as Unix epoch
-    fn now(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn now(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if !args.is_empty() {
             return Err(anyhow::anyhow!("now() takes no arguments"));
         }
@@ -45,7 +45,7 @@ impl DateTimeModule {
     }
 
     /// Format timestamp to string
-    fn format(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn format(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!(
                 "format() takes exactly 2 arguments: timestamp and format_string"
@@ -72,7 +72,7 @@ impl DateTimeModule {
     }
 
     /// Parse string to timestamp
-    fn parse(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn parse(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!(
                 "parse() takes exactly 2 arguments: datetime_string and format_string"
@@ -98,7 +98,7 @@ impl DateTimeModule {
     }
 
     /// Add seconds to timestamp
-    fn add_seconds(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn add_seconds(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!(
                 "add_seconds() takes exactly 2 arguments: timestamp and seconds"
@@ -121,7 +121,7 @@ impl DateTimeModule {
     }
 
     /// Subtract seconds from timestamp
-    fn sub_seconds(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn sub_seconds(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!(
                 "sub_seconds() takes exactly 2 arguments: timestamp and seconds"
@@ -141,7 +141,7 @@ impl DateTimeModule {
     }
 
     /// Get day of week (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
-    fn day_of_week(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn day_of_week(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("day_of_week() takes exactly 1 argument: timestamp"));
         }
@@ -168,7 +168,7 @@ impl DateTimeModule {
     }
 
     /// Get day of year (1-366)
-    fn day_of_year(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn day_of_year(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("day_of_year() takes exactly 1 argument: timestamp"));
         }
@@ -185,7 +185,7 @@ impl DateTimeModule {
     }
 
     /// Check if date is weekend (Saturday or Sunday)
-    fn is_weekend(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn is_weekend(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("is_weekend() takes exactly 1 argument: timestamp"));
         }
@@ -212,7 +212,7 @@ impl Module for DateTimeModule {
         "Date and time functions"
     }
 
-    fn register(&self, _registry: &mut qcl_core::module::ModuleRegistry) -> Result<()> {
+    fn register(&self, _registry: &mut lkr_core::module::ModuleRegistry) -> Result<()> {
         // Don't register functions globally - they should be accessed via module.function()
         Ok(())
     }
@@ -226,7 +226,7 @@ impl Module for DateTimeModule {
 mod tests {
     use crate::register_stdlib_modules;
     use anyhow::Result;
-    use qcl_core::{stmt::stmt_parser::StmtParser, token::Tokenizer, val::Val};
+    use lkr_core::{stmt::stmt_parser::StmtParser, token::Tokenizer, val::Val};
 
     #[test]
     fn test_datetime_now() -> Result<()> {
@@ -236,12 +236,12 @@ mod tests {
         let program = parser.parse_program()?;
 
         // Create registry and register stdlib modules
-        let mut registry = qcl_core::module::ModuleRegistry::new();
+        let mut registry = lkr_core::module::ModuleRegistry::new();
         register_stdlib_modules(&mut registry);
 
         // Create environment with stdlib modules
-        let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
-        let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
+        let resolver = std::sync::Arc::new(lkr_core::stmt::ModuleResolver::with_registry(registry));
+        let mut env = lkr_core::stmt::Environment::with_resolver(resolver);
 
         let result = program.execute_with_env(&mut env)?;
         if let Val::Int(timestamp) = result {
@@ -261,12 +261,12 @@ mod tests {
         let program = parser.parse_program()?;
 
         // Create registry and register stdlib modules
-        let mut registry = qcl_core::module::ModuleRegistry::new();
+        let mut registry = lkr_core::module::ModuleRegistry::new();
         register_stdlib_modules(&mut registry);
 
         // Create environment with stdlib modules
-        let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
-        let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
+        let resolver = std::sync::Arc::new(lkr_core::stmt::ModuleResolver::with_registry(registry));
+        let mut env = lkr_core::stmt::Environment::with_resolver(resolver);
 
         let result = program.execute_with_env(&mut env)?;
         assert_eq!(result, Val::Str("2023-01-01".into()));

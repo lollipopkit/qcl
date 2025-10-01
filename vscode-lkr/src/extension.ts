@@ -29,61 +29,61 @@ const runtime = {
 };
 
 export function activate(context: vscode.ExtensionContext) {
-  console.log('QCL extension is now active');
+  console.log('LKR extension is now active');
 
   // Create status bar item
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusBarItem.text = '$(sync~spin) QCL LSP: Starting...';
-  statusBarItem.tooltip = 'QCL Language Server is starting';
-  statusBarItem.command = 'qcl.showStatusBarMenu';
+  statusBarItem.text = '$(sync~spin) LKR LSP: Starting...';
+  statusBarItem.tooltip = 'LKR Language Server is starting';
+  statusBarItem.command = 'lkr.showStatusBarMenu';
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
   // Register commands
-  const startCommand = vscode.commands.registerCommand('qcl.startServer', async () => {
+  const startCommand = vscode.commands.registerCommand('lkr.startServer', async () => {
     if (!client) {
-      vscode.window.showErrorMessage('QCL Language Server client not initialized');
+      vscode.window.showErrorMessage('LKR Language Server client not initialized');
       return;
     }
     try {
       updateStatusBar('starting');
       await client.start();
-      vscode.window.showInformationMessage('QCL Language Server started');
+      vscode.window.showInformationMessage('LKR Language Server started');
     } catch (e: any) {
-      vscode.window.showErrorMessage('Failed to start QCL Language Server: ' + (e?.message || e));
+      vscode.window.showErrorMessage('Failed to start LKR Language Server: ' + (e?.message || e));
     }
   });
 
-  const restartCommand = vscode.commands.registerCommand('qcl.restartServer', async () => {
+  const restartCommand = vscode.commands.registerCommand('lkr.restartServer', async () => {
     if (client) {
-      console.log('Restarting QCL Language Server...');
+      console.log('Restarting LKR Language Server...');
       updateStatusBar('starting');
       await client.stop();
       await client.start();
-      vscode.window.showInformationMessage('QCL Language Server restarted');
+      vscode.window.showInformationMessage('LKR Language Server restarted');
     }
   });
 
-  const statusBarMenuCommand = vscode.commands.registerCommand('qcl.showStatusBarMenu', async () => {
+  const statusBarMenuCommand = vscode.commands.registerCommand('lkr.showStatusBarMenu', async () => {
     const items: vscode.QuickPickItem[] = [];
     
     if (isManuallyDisabled) {
       items.push({
-        label: '$(play) Enable QCL LSP',
+        label: '$(play) Enable LKR LSP',
         description: 'Start the language server',
-        detail: 'Enable QCL Language Server'
+        detail: 'Enable LKR Language Server'
       });
     } else {
       items.push({
-        label: '$(sync) Restart QCL LSP',
+        label: '$(sync) Restart LKR LSP',
         description: 'Restart the language server',
-        detail: 'Restart QCL Language Server'
+        detail: 'Restart LKR Language Server'
       });
       
       items.push({
-        label: '$(circle-slash) Disable QCL LSP',
+        label: '$(circle-slash) Disable LKR LSP',
         description: 'Temporarily disable (memory state)',
-        detail: 'Disable QCL Language Server temporarily'
+        detail: 'Disable LKR Language Server temporarily'
       });
 
       // Inline menu toggles for inlay hints
@@ -105,50 +105,50 @@ export function activate(context: vscode.ExtensionContext) {
     }
     
     const selected = await vscode.window.showQuickPick(items, {
-      placeHolder: 'QCL Language Server Actions',
-      title: 'QCL Language Server'
+      placeHolder: 'LKR Language Server Actions',
+      title: 'LKR Language Server'
     });
     
     if (!selected) return;
     
     if (selected.label.includes('Enable')) {
       isManuallyDisabled = false;
-      await vscode.commands.executeCommand('qcl.startServer');
+      await vscode.commands.executeCommand('lkr.startServer');
     } else if (selected.label.includes('Restart')) {
-      await vscode.commands.executeCommand('qcl.restartServer');
+      await vscode.commands.executeCommand('lkr.restartServer');
     } else if (selected.label.includes('Disable')) {
       isManuallyDisabled = true;
       if (client) {
         await client.stop();
       }
       updateStatusBar('disabled');
-      vscode.window.showInformationMessage('QCL Language Server disabled temporarily');
+      vscode.window.showInformationMessage('LKR Language Server disabled temporarily');
     } else if (selected.label.includes('Toggle Inlay Hints')) {
       runtime.inlayHintsEnabled = !runtime.inlayHintsEnabled;
-      await vscode.workspace.getConfiguration('qcl.lsp').update('inlayHints.enabled', runtime.inlayHintsEnabled, vscode.ConfigurationTarget.Workspace);
-      vscode.window.showInformationMessage(`QCL Inlay Hints ${runtime.inlayHintsEnabled ? 'enabled' : 'disabled'}`);
+      await vscode.workspace.getConfiguration('lkr.lsp').update('inlayHints.enabled', runtime.inlayHintsEnabled, vscode.ConfigurationTarget.Workspace);
+      vscode.window.showInformationMessage(`LKR Inlay Hints ${runtime.inlayHintsEnabled ? 'enabled' : 'disabled'}`);
       // Trigger refresh
       await vscode.commands.executeCommand('editor.action.inlineHints.refresh');
     } else if (selected.label.includes('Parameter Hints')) {
       runtime.inlayHintsShowParameters = !runtime.inlayHintsShowParameters;
-      await vscode.workspace.getConfiguration('qcl.lsp').update('inlayHints.parameters.enabled', runtime.inlayHintsShowParameters, vscode.ConfigurationTarget.Workspace);
-      vscode.window.showInformationMessage(`QCL Parameter Hints ${runtime.inlayHintsShowParameters ? 'enabled' : 'disabled'}`);
+      await vscode.workspace.getConfiguration('lkr.lsp').update('inlayHints.parameters.enabled', runtime.inlayHintsShowParameters, vscode.ConfigurationTarget.Workspace);
+      vscode.window.showInformationMessage(`LKR Parameter Hints ${runtime.inlayHintsShowParameters ? 'enabled' : 'disabled'}`);
       await vscode.commands.executeCommand('editor.action.inlineHints.refresh');
     } else if (selected.label.includes('Type Hints')) {
       runtime.inlayHintsShowTypes = !runtime.inlayHintsShowTypes;
-      await vscode.workspace.getConfiguration('qcl.lsp').update('inlayHints.types.enabled', runtime.inlayHintsShowTypes, vscode.ConfigurationTarget.Workspace);
-      vscode.window.showInformationMessage(`QCL Type Hints ${runtime.inlayHintsShowTypes ? 'enabled' : 'disabled'}`);
+      await vscode.workspace.getConfiguration('lkr.lsp').update('inlayHints.types.enabled', runtime.inlayHintsShowTypes, vscode.ConfigurationTarget.Workspace);
+      vscode.window.showInformationMessage(`LKR Type Hints ${runtime.inlayHintsShowTypes ? 'enabled' : 'disabled'}`);
       await vscode.commands.executeCommand('editor.action.inlineHints.refresh');
     }
   });
 
   context.subscriptions.push(startCommand, restartCommand, statusBarMenuCommand);
 
-  // Analyze current file via qcl-lsp --analyze (uses relative, sanitized path)
-  const analyzeCommand = vscode.commands.registerCommand('qcl.analyzeCurrentFile', async () => {
+  // Analyze current file via lkr-lsp --analyze (uses relative, sanitized path)
+  const analyzeCommand = vscode.commands.registerCommand('lkr.analyzeCurrentFile', async () => {
     const editor = vscode.window.activeTextEditor;
-    if (!editor || editor.document.languageId !== 'qcl') {
-      vscode.window.showWarningMessage('Open a QCL file to analyze.');
+    if (!editor || editor.document.languageId !== 'lkr') {
+      vscode.window.showWarningMessage('Open a LKR file to analyze.');
       return;
     }
     const ws = vscode.workspace.workspaceFolders?.[0];
@@ -170,12 +170,12 @@ export function activate(context: vscode.ExtensionContext) {
     const pick = await vscode.window.showQuickPick([
       { label: 'Full JSON', description: 'Show full analysis output' },
       { label: 'Errors Only', description: 'List only errors' }
-    ], { title: 'QCL Analyze Current File' });
+    ], { title: 'LKR Analyze Current File' });
     if (!pick) return;
 
     const serverPath = getServerPath();
     if (!serverPath) {
-      vscode.window.showErrorMessage('QCL LSP server binary not found. Build the project or configure qcl.lsp.serverPath.');
+      vscode.window.showErrorMessage('LKR LSP server binary not found. Build the project or configure lkr.lsp.serverPath.');
       return;
     }
 
@@ -183,7 +183,7 @@ export function activate(context: vscode.ExtensionContext) {
     if (pick.label.startsWith('Errors')) args.push('--errors-only');
     args.push(rel);
 
-    const out = vscode.window.createOutputChannel('QCL Analysis');
+    const out = vscode.window.createOutputChannel('LKR Analysis');
     out.clear();
     out.show(true);
     out.appendLine(`Running: ${serverPath} ${args.join(' ')}`);
@@ -205,7 +205,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(analyzeCommand);
 
   // Check if LSP is enabled
-  const config = vscode.workspace.getConfiguration('qcl.lsp');
+  const config = vscode.workspace.getConfiguration('lkr.lsp');
   const lspEnabled = config.get<boolean>('enabled', true);
   const autoStart = config.get<boolean>('autoStart', true);
   // Load runtime settings from configuration
@@ -217,23 +217,23 @@ export function activate(context: vscode.ExtensionContext) {
   runtime.inlayHintsShowTypes = config.get<boolean>('inlayHints.types.enabled', true);
   
   if (!lspEnabled || isManuallyDisabled) {
-    console.log('QCL LSP is disabled in configuration or manually disabled');
+    console.log('LKR LSP is disabled in configuration or manually disabled');
     updateStatusBar('disabled');
     return;
   }
 
-  // Get the path to the QCL LSP server
+  // Get the path to the LKR LSP server
   const customServerPath = config.get<string>('serverPath', '');
   const serverPath = customServerPath ? expandHome(customServerPath) : getServerPath();
 
-  console.log('Looking for QCL LSP server...');
-  console.log('Server path resolved to:', serverPath ?? 'PATH: qcl-lsp');
+  console.log('Looking for LKR LSP server...');
+  console.log('Server path resolved to:', serverPath ?? 'PATH: lkr-lsp');
 
   // If the server path is not found, show an error and return
   if (!serverPath) {
     updateStatusBar('error', 'Server not found');
     vscode.window.showErrorMessage(
-      'QCL LSP server not found. Please build the QCL project first or configure a custom server path.'
+      'LKR LSP server not found. Please build the LKR project first or configure a custom server path.'
     );
     return;
   }
@@ -375,8 +375,8 @@ export function activate(context: vscode.ExtensionContext) {
 
   // React to configuration changes
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
-    if (!e.affectsConfiguration('qcl.lsp')) return;
-    const cfg = vscode.workspace.getConfiguration('qcl.lsp');
+    if (!e.affectsConfiguration('lkr.lsp')) return;
+    const cfg = vscode.workspace.getConfiguration('lkr.lsp');
     runtime.semanticTokensEnabled = cfg.get<boolean>('semanticTokens.enabled', true);
     runtime.semanticTokensThrottleMs = Math.max(0, Number(cfg.get<number>('semanticTokens.throttleMs', 40)) || 0);
     runtime.inlayHintsEnabled = cfg.get<boolean>('inlayHints.enabled', true);
@@ -388,40 +388,40 @@ export function activate(context: vscode.ExtensionContext) {
   }));
 
   const clientOptions: LanguageClientOptions = {
-    documentSelector: [{ scheme: 'file', language: 'qcl' }],
+    documentSelector: [{ scheme: 'file', language: 'lkr' }],
     synchronize: {
-      configurationSection: 'qcl'
+      configurationSection: 'lkr'
     },
     // Initialize options for semantic highlighting
     initializationOptions: {
       // Enable semantic highlighting
       semanticHighlighting: true,
-      // Custom configuration for QCL
-      qcl: {
+      // Custom configuration for LKR
+      lkr: {
         enableSemanticTokens: true
       }
     },
     // Never auto-reveal the output unless user explicitly opens it
     revealOutputChannelOn: RevealOutputChannelOn.Never,
-    traceOutputChannel: traceLevel !== 'off' ? vscode.window.createOutputChannel('QCL Language Server Trace') : undefined,
+    traceOutputChannel: traceLevel !== 'off' ? vscode.window.createOutputChannel('LKR Language Server Trace') : undefined,
     middleware
   };
 
   // Create and attach an output channel only when enabled/verbose
   if (outputChannelEnabled || isVerbose) {
-    const outputChannel = vscode.window.createOutputChannel('QCL Language Server');
+    const outputChannel = vscode.window.createOutputChannel('LKR Language Server');
     clientOptions.outputChannel = outputChannel;
   }
 
   client = new LanguageClient(
-    'qcl',
-    'QCL Language Server',
+    'lkr',
+    'LKR Language Server',
     serverOptions,
     clientOptions
   );
 
   if (isVerbose) {
-    console.log('Starting QCL Language Server...', serverPath);
+    console.log('Starting LKR Language Server...', serverPath);
   }
   
   // Add error handling for the client itself
@@ -457,7 +457,7 @@ export function activate(context: vscode.ExtensionContext) {
   Promise.race([startPromise, timeoutPromise])
     .then(() => {
       if (isVerbose && autoStart) {
-        console.log('QCL Language Server started successfully');
+        console.log('LKR Language Server started successfully');
         // Check if semantic highlighting is enabled
         const editorConfig = vscode.workspace.getConfiguration('editor');
         const semanticHighlighting = editorConfig.get('semanticHighlighting.enabled');
@@ -466,9 +466,9 @@ export function activate(context: vscode.ExtensionContext) {
       updateStatusBar('running');
     })
     .catch((error) => {
-      console.error('Failed to start QCL Language Server:', error);
+      console.error('Failed to start LKR Language Server:', error);
       console.error('Error details:', JSON.stringify(error, null, 2));
-      vscode.window.showErrorMessage('Failed to start QCL Language Server: ' + error.message);
+      vscode.window.showErrorMessage('Failed to start LKR Language Server: ' + error.message);
       updateStatusBar('error', 'Start failed');
       
       // Try to stop the client if it's in a bad state
@@ -479,21 +479,21 @@ export function activate(context: vscode.ExtensionContext) {
       }
     });
   
-  // Mark as checking when QCL documents change or save; diagnostics will clear it
+  // Mark as checking when LKR documents change or save; diagnostics will clear it
   context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(e => {
-    if (e.document.languageId === 'qcl') {
+    if (e.document.languageId === 'lkr') {
       nudgeChecking();
     }
   }));
   context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(doc => {
-    if (doc.languageId === 'qcl') {
+    if (doc.languageId === 'lkr') {
       nudgeChecking();
     }
   }));
   // React to configuration changes at runtime
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
-    if (e.affectsConfiguration('qcl.lsp.semanticTokens.enabled') || e.affectsConfiguration('qcl.lsp.semanticTokens.throttleMs')) {
-      const cfg = vscode.workspace.getConfiguration('qcl.lsp');
+    if (e.affectsConfiguration('lkr.lsp.semanticTokens.enabled') || e.affectsConfiguration('lkr.lsp.semanticTokens.throttleMs')) {
+      const cfg = vscode.workspace.getConfiguration('lkr.lsp');
       settings.semanticTokensEnabled = cfg.get<boolean>('semanticTokens.enabled', true);
       settings.throttleMs = Math.max(0, Number(cfg.get<number>('semanticTokens.throttleMs', 40)) || 0);
       if (isVerbose) console.log('Updated semantic tokens settings', settings);
@@ -502,21 +502,21 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 function getServerPath(): string | undefined {
-  // Try to find the qcl-lsp executable in different locations
+  // Try to find the lkr-lsp executable in different locations
   const exe = process.platform === 'win32' ? '.exe' : '';
   const possiblePaths = [
     // Check common build output directories
-    path.join(__dirname, '..', '..', 'target', 'debug', `qcl-lsp${exe}`),
-    path.join(__dirname, '..', 'target', 'debug', `qcl-lsp${exe}`),
-    path.join(__dirname, '..', '..', 'target', 'release', `qcl-lsp${exe}`),
-    path.join(__dirname, '..', 'target', 'release', `qcl-lsp${exe}`),
+    path.join(__dirname, '..', '..', 'target', 'debug', `lkr-lsp${exe}`),
+    path.join(__dirname, '..', 'target', 'debug', `lkr-lsp${exe}`),
+    path.join(__dirname, '..', '..', 'target', 'release', `lkr-lsp${exe}`),
+    path.join(__dirname, '..', 'target', 'release', `lkr-lsp${exe}`),
     // Common user install
-    expandHome(`~/.cargo/bin/qcl-lsp${exe}`),
+    expandHome(`~/.cargo/bin/lkr-lsp${exe}`),
   ];
 
   // Reduce noisy logs unless verbose
   // console.log('Extension __dirname:', __dirname);
-  // console.log('Searching for qcl-lsp binary in paths:');
+  // console.log('Searching for lkr-lsp binary in paths:');
   
   for (const possiblePath of possiblePaths) {
     if (!possiblePath) continue;
@@ -535,7 +535,7 @@ function getServerPath(): string | undefined {
   }
 
   // Fall back to PATH resolution by returning command name
-  return process.platform === 'win32' ? 'qcl-lsp.exe' : 'qcl-lsp';
+  return process.platform === 'win32' ? 'lkr-lsp.exe' : 'lkr-lsp';
 }
 
 function expandHome(p: string): string {
@@ -554,32 +554,32 @@ function updateStatusBar(state: string, customMessage?: string) {
   
   switch (state) {
     case 'starting':
-      statusBarItem.text = '$(sync~spin) QCL LSP: Starting...';
-      statusBarItem.tooltip = 'QCL Language Server is starting';
+      statusBarItem.text = '$(sync~spin) LKR LSP: Starting...';
+      statusBarItem.tooltip = 'LKR Language Server is starting';
       break;
     case 'checking':
-      statusBarItem.text = '$(sync~spin) QCL LSP: Checking...';
-      statusBarItem.tooltip = 'QCL Language Server is analyzing/validating';
+      statusBarItem.text = '$(sync~spin) LKR LSP: Checking...';
+      statusBarItem.tooltip = 'LKR Language Server is analyzing/validating';
       break;
     case 'running':
-      statusBarItem.text = '$(check) QCL LSP: Running';
-      statusBarItem.tooltip = 'QCL Language Server is running';
+      statusBarItem.text = '$(check) LKR LSP: Running';
+      statusBarItem.tooltip = 'LKR Language Server is running';
       break;
     case 'stopped':
-      statusBarItem.text = '$(circle-slash) QCL LSP: Stopped';
-      statusBarItem.tooltip = 'QCL Language Server is stopped';
+      statusBarItem.text = '$(circle-slash) LKR LSP: Stopped';
+      statusBarItem.tooltip = 'LKR Language Server is stopped';
       break;
     case 'error':
-      statusBarItem.text = '$(error) QCL LSP: Error';
-      statusBarItem.tooltip = customMessage ? `QCL Language Server error: ${customMessage}` : 'QCL Language Server error';
+      statusBarItem.text = '$(error) LKR LSP: Error';
+      statusBarItem.tooltip = customMessage ? `LKR Language Server error: ${customMessage}` : 'LKR Language Server error';
       break;
     case 'disabled':
-      statusBarItem.text = '$(circle-slash) QCL LSP: Disabled';
-      statusBarItem.tooltip = isManuallyDisabled ? 'QCL Language Server is temporarily disabled (click to enable)' : 'QCL Language Server is disabled in settings';
+      statusBarItem.text = '$(circle-slash) LKR LSP: Disabled';
+      statusBarItem.tooltip = isManuallyDisabled ? 'LKR Language Server is temporarily disabled (click to enable)' : 'LKR Language Server is disabled in settings';
       break;
     default:
-      statusBarItem.text = '$(question) QCL LSP: Unknown';
-      statusBarItem.tooltip = 'QCL Language Server status unknown';
+      statusBarItem.text = '$(question) LKR LSP: Unknown';
+      statusBarItem.tooltip = 'LKR Language Server status unknown';
   }
 }
 

@@ -2,8 +2,8 @@ use rustyline::{DefaultEditor, error::ReadlineError};
 use std::sync::Arc;
 
 #[cfg(feature = "concurrency")]
-use qcl_core::rt;
-use qcl_core::{
+use lkr_core::rt;
+use lkr_core::{
     module::ModuleRegistry,
     stmt::{self, ModuleResolver, StmtParser},
     token::Tokenizer,
@@ -115,8 +115,8 @@ pub fn run(_is_statement_mode: bool) -> anyhow::Result<()> {
 
     // Prepare stdlib and environment (persist across statements)
     let mut registry = ModuleRegistry::new();
-    qcl_stdlib::register_stdlib_globals(&mut registry);
-    qcl_stdlib::register_stdlib_modules(&mut registry);
+    lkr_stdlib::register_stdlib_globals(&mut registry);
+    lkr_stdlib::register_stdlib_modules(&mut registry);
     let resolver = Arc::new(ModuleResolver::with_registry(registry));
     let mut env = stmt::Environment::with_resolver(resolver);
 

@@ -1,16 +1,16 @@
 [package]
-name = "qcl-lsp"
+name = "lkr-lsp"
 version = "0.1.0"
 edition = "2021"
-description = "Language Server Protocol implementation for QCL"
+description = "Language Server Protocol implementation for LKR"
 
 [[bin]]
-name = "qcl-lsp"
+name = "lkr-lsp"
 path = "src/main.rs"
 
 [dependencies]
-qcl-core = { path = "../core" }
-qcl-stdlib = { path = "../stdlib" }
+lkr-core = { path = "../core" }
+lkr-stdlib = { path = "../stdlib" }
 tower-lsp = "0.20"
 tokio = { version = "1.0", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -26,5 +26,5 @@ twox-hash = "1"
 
 [features]
 default = ["all"]
-concurrency = ["qcl-core/concurrency", "qcl-stdlib/concurrency"]
-all = ["qcl-stdlib/all"]
+concurrency = ["lkr-core/concurrency", "lkr-stdlib/concurrency"]
+all = ["lkr-stdlib/all"]

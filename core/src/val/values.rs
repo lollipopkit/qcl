@@ -22,7 +22,7 @@ use crate::{
 #[cfg(feature = "slots")]
 use crate::resolve::slots::{FunctionLayout, SlotResolver};
 
-/// Type for Rust functions that can be called from QCL
+/// Type for Rust functions that can be called from LKR
 /// Context has been fully removed; functions receive only args and env.
 pub type RustFunction = fn(args: &[Val], env: &stmt::Environment) -> Result<Val>;
 
@@ -786,7 +786,15 @@ impl Add for &Val {
             (Val::Float(a), Val::Float(b)) => Ok(Val::Float(a + b)),
             (Val::Float(a), Val::Int(b)) => Ok(Val::Float(a + *b as f64)),
             (Val::Int(a), Val::Float(b)) => Ok(Val::Float(*a as f64 + b)),
-            (Val::Str(a), Val::Str(b)) => Ok(Val::concat_strings(a.as_ref(), b.as_ref())),
+            (Val::Str(a), Val::Str(b)) => {
+                if a.is_empty() {
+                    return Ok(Val::Str(b.clone()));
+                }
+                if b.is_empty() {
+                    return Ok(Val::Str(a.clone()));
+                }
+                Ok(Val::concat_strings(a.as_ref(), b.as_ref()))
+            }
             #[cfg(all(feature = "adv_arith", feature = "fast_numconv"))]
             (Val::Str(a), Val::Int(b)) => {
                 let mut buf = itoa::Buffer::new();

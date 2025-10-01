@@ -1,7 +1,7 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use qcl_core::{expr::Expr, stmt::Stmt, val::Val};
+use lkr_core::{expr::Expr, stmt::Stmt, val::Val};
 
-fn make_ic_mix_function() -> qcl_core::vm::Function {
+fn make_ic_mix_function() -> lkr_core::vm::Function {
     // Build program:
     // sum=0; j=0; i=0;
     // while (i < n) {
@@ -79,7 +79,7 @@ fn make_ic_mix_function() -> qcl_core::vm::Function {
 
     // Function parameters: (m, l, n)
     let params = vec!["m".to_string(), "l".to_string(), "n".to_string()];
-    qcl_core::vm::Compiler::new().compile_function(&params, &program)
+    lkr_core::vm::Compiler::new().compile_function(&params, &program)
 }
 
 fn bc32_ic_mix_bench(c: &mut Criterion) {
@@ -101,7 +101,7 @@ fn bc32_ic_mix_bench(c: &mut Criterion) {
     }
 
     // Prepare environment: define global 'g' and Rust function 'inc'
-    fn inc(args: &[Val], _env: &qcl_core::stmt::Environment) -> anyhow::Result<Val> {
+    fn inc(args: &[Val], _env: &lkr_core::stmt::Environment) -> anyhow::Result<Val> {
         let x = match args.get(0) {
             Some(Val::Int(i)) => *i,
             _ => 0,
@@ -111,8 +111,8 @@ fn bc32_ic_mix_bench(c: &mut Criterion) {
 
     c.bench_function("bc32_ic_mix_packed", |b| {
         b.iter(|| {
-            let mut vm = qcl_core::vm::Vm::new();
-            let mut env = qcl_core::stmt::Environment::new();
+            let mut vm = lkr_core::vm::Vm::new();
+            let mut env = lkr_core::stmt::Environment::new();
             env.define("g".into(), Val::Int(3));
             env.define("inc".into(), Val::RustFunction(inc));
             let out = vm.exec_with(&f_bc32, Some(&mut env), Some(&args)).unwrap();
@@ -123,8 +123,8 @@ fn bc32_ic_mix_bench(c: &mut Criterion) {
     #[cfg(feature = "bc32")]
     c.bench_function("bc32_ic_mix_enum", |b| {
         b.iter(|| {
-            let mut vm = qcl_core::vm::Vm::new();
-            let mut env = qcl_core::stmt::Environment::new();
+            let mut vm = lkr_core::vm::Vm::new();
+            let mut env = lkr_core::stmt::Environment::new();
             env.define("g".into(), Val::Int(3));
             env.define("inc".into(), Val::RustFunction(inc));
             let out = vm.exec_with(&f_enum, Some(&mut env), Some(&args)).unwrap();

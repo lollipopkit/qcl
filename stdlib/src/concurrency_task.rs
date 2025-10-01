@@ -1,10 +1,10 @@
-//! Concurrency module for QCL
+//! Concurrency module for LKR
 //!
 //! Provides Go-style concurrency primitives including tasks, channels, and synchronization.
 
 use anyhow::{Result, anyhow};
-use qcl_core::module::Module;
-use qcl_core::val::Val;
+use lkr_core::module::Module;
+use lkr_core::val::Val;
 use std::collections::HashMap;
 
 /// Task module - provides task management functions
@@ -37,7 +37,7 @@ impl Module for TaskModule {
         }
     }
 
-    fn register(&self, registry: &mut qcl_core::module::ModuleRegistry) -> Result<()> {
+    fn register(&self, registry: &mut lkr_core::module::ModuleRegistry) -> Result<()> {
         let exports = self.exports();
         for (name, value) in exports {
             registry.register_builtin(&format!("{}::{}", self.name(), name), value);
@@ -65,7 +65,7 @@ impl TaskModule {
 }
 
 /// Await a task to complete and return its result
-fn task_await(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn task_await(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("task::await() expects exactly 1 argument"));
     }
@@ -74,7 +74,7 @@ fn task_await(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         Val::Task { id, value: _ } => {
             #[cfg(feature = "concurrency")]
             {
-                match qcl_core::rt::with_runtime(|runtime| runtime.block_on(runtime.join_task(*id))) {
+                match lkr_core::rt::with_runtime(|runtime| runtime.block_on(runtime.join_task(*id))) {
                     Ok(result) => Ok(result),
                     Err(e) => Err(anyhow!("Failed to await task: {}", e)),
                 }
@@ -93,7 +93,7 @@ fn task_await(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
 }
 
 /// Try to await a task, returning None if not ready
-fn task_try_await(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn task_try_await(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("task::try_await() expects exactly 1 argument"));
     }
@@ -112,7 +112,7 @@ fn task_try_await(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Va
 }
 
 /// Join multiple tasks and return their results as a list
-fn task_join_all(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn task_join_all(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if args.is_empty() {
         return Ok(Val::List(vec![].into()));
     }
@@ -124,7 +124,7 @@ fn task_join_all(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val
             Val::Task { id, value: _ } => {
                 #[cfg(feature = "concurrency")]
                 {
-                    match qcl_core::rt::with_runtime(|runtime| runtime.block_on(runtime.join_task(*id))) {
+                    match lkr_core::rt::with_runtime(|runtime| runtime.block_on(runtime.join_task(*id))) {
                         Ok(result) => results.push(result),
                         Err(e) => return Err(anyhow!("Failed to await task: {}", e)),
                     }
@@ -145,7 +145,7 @@ fn task_join_all(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val
 }
 
 /// Sleep for the specified duration in milliseconds
-fn task_sleep(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn task_sleep(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("task::sleep() expects exactly 1 argument"));
     }
@@ -158,7 +158,7 @@ fn task_sleep(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
 
     #[cfg(feature = "concurrency")]
     {
-        match qcl_core::rt::with_runtime(|runtime| {
+        match lkr_core::rt::with_runtime(|runtime| {
             let duration = std::time::Duration::from_millis(duration_ms as u64);
             runtime.block_on(async {
                 tokio::time::sleep(duration).await;
@@ -177,7 +177,7 @@ fn task_sleep(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
 }
 
 /// Spawn a blocking task (CPU-intensive work)
-fn task_spawn_blocking(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn task_spawn_blocking(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("task::spawn_blocking() expects exactly 1 argument"));
     }
@@ -197,10 +197,10 @@ fn task_spawn_blocking(args: &[Val], _env: &qcl_core::stmt::Environment) -> Resu
     {
         // Note: This is a simplified implementation that doesn't capture env
         // In a full implementation, we'd need to handle the lifetime issues
-        match qcl_core::rt::with_runtime(|runtime| {
+        match lkr_core::rt::with_runtime(|runtime| {
             let future = async move {
                 // For now, execute with a new empty environment
-                func(&[], &qcl_core::stmt::Environment::new())
+                func(&[], &lkr_core::stmt::Environment::new())
             };
             runtime.spawn(future)
         }) {

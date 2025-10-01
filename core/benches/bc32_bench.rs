@@ -1,12 +1,12 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use qcl_core::{expr::Expr, stmt::Stmt, val::Val};
+use lkr_core::{expr::Expr, stmt::Stmt, val::Val};
 
-fn make_packable_function() -> qcl_core::vm::Function {
+fn make_packable_function() -> lkr_core::vm::Function {
     // Build expression by parsing: (a[1] + m["k"]) * s.len
     let expr = Expr::parse_cached_arc("(a[1] + m[\"k\"]) * s.len").unwrap();
     let body = Stmt::Expr(Box::new((*expr).clone()));
     let params = vec!["a".to_string(), "s".to_string(), "m".to_string()];
-    qcl_core::vm::Compiler::new().compile_function(&params, &body)
+    lkr_core::vm::Compiler::new().compile_function(&params, &body)
 }
 
 fn bc32_bench(c: &mut Criterion) {
@@ -32,8 +32,8 @@ fn bc32_bench(c: &mut Criterion) {
     // Run with bc32 (direct packed dispatch) when available
     c.bench_function("vm_exec_bc32_packed", |b| {
         b.iter(|| {
-            let mut vm = qcl_core::vm::Vm::new();
-            let mut env = qcl_core::stmt::Environment::new();
+            let mut vm = lkr_core::vm::Vm::new();
+            let mut env = lkr_core::stmt::Environment::new();
             let out = vm.exec_with(&f_bc32, Some(&mut env), Some(&args)).unwrap();
             black_box(out);
         })
@@ -43,8 +43,8 @@ fn bc32_bench(c: &mut Criterion) {
     #[cfg(feature = "bc32")]
     c.bench_function("vm_exec_enum_unpacked", |b| {
         b.iter(|| {
-            let mut vm = qcl_core::vm::Vm::new();
-            let mut env = qcl_core::stmt::Environment::new();
+            let mut vm = lkr_core::vm::Vm::new();
+            let mut env = lkr_core::stmt::Environment::new();
             let out = vm.exec_with(&f_normal, Some(&mut env), Some(&args)).unwrap();
             black_box(out);
         })

@@ -1,7 +1,7 @@
 {
-  "name": "vscode-qcl",
-  "displayName": "QCL Language Support",
-  "description": "Language support for QCL (Query Check Language) with LSP integration",
+  "name": "vscode-lkr",
+  "displayName": "LKR Language Support",
+  "description": "Language support for LKR (Query Check Language) with LSP integration",
   "version": "0.0.1",
   "publisher": "lollipopkit",
   "author": {
@@ -11,7 +11,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/lollipopkit/qcl.git"
+    "url": "https://github.com/lollipopkit/lkr.git"
   },
   "engines": {
     "vscode": "^1.103.0"
@@ -21,53 +21,53 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onLanguage:qcl",
-    "onCommand:qcl.restartServer",
-    "onCommand:qcl.startServer",
-    "onCommand:qcl.showStatusBarMenu",
-    "onCommand:qcl.analyzeCurrentFile"
+    "onLanguage:lkr",
+    "onCommand:lkr.restartServer",
+    "onCommand:lkr.startServer",
+    "onCommand:lkr.showStatusBarMenu",
+    "onCommand:lkr.analyzeCurrentFile"
   ],
   "contributes": {
     "commands": [
       {
-        "command": "qcl.startServer",
-        "title": "QCL: Start Language Server",
-        "category": "QCL"
+        "command": "lkr.startServer",
+        "title": "LKR: Start Language Server",
+        "category": "LKR"
       },
       {
-        "command": "qcl.restartServer",
-        "title": "QCL: Restart Language Server",
-        "category": "QCL"
+        "command": "lkr.restartServer",
+        "title": "LKR: Restart Language Server",
+        "category": "LKR"
       },
       {
-        "command": "qcl.showStatusBarMenu",
-        "title": "QCL: Show Status Bar Menu",
-        "category": "QCL"
+        "command": "lkr.showStatusBarMenu",
+        "title": "LKR: Show Status Bar Menu",
+        "category": "LKR"
       },
       {
-        "command": "qcl.analyzeCurrentFile",
-        "title": "QCL: Analyze Current File",
-        "category": "QCL"
+        "command": "lkr.analyzeCurrentFile",
+        "title": "LKR: Analyze Current File",
+        "category": "LKR"
       }
     ],
     "languages": [
       {
-        "id": "qcl",
+        "id": "lkr",
         "aliases": [
-          "QCL",
-          "qcl"
+          "LKR",
+          "lkr"
         ],
         "extensions": [
-          ".qcl"
+          ".lkr"
         ],
         "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
       {
-        "language": "qcl",
-        "scopeName": "source.qcl",
-        "path": "./syntaxes/qcl.tmLanguage.json"
+        "language": "lkr",
+        "scopeName": "source.lkr",
+        "path": "./syntaxes/lkr.tmLanguage.json"
       }
     ],
     "semanticTokenTypes": [
@@ -147,134 +147,134 @@
     ],
     "semanticTokenScopes": [
       {
-        "language": "qcl",
+        "language": "lkr",
         "scopes": {
           "comment": [
             "comment",
             "comment.line",
             "comment.block",
-            "punctuation.definition.comment.qcl",
-            "punctuation.definition.comment.begin.qcl",
-            "punctuation.definition.comment.end.qcl"
+            "punctuation.definition.comment.lkr",
+            "punctuation.definition.comment.begin.lkr",
+            "punctuation.definition.comment.end.lkr"
           ],
           "keyword": [
-            "keyword.control.qcl",
-            "keyword.other.qcl"
+            "keyword.control.lkr",
+            "keyword.other.lkr"
           ],
           "variable": [
-            "variable.other.qcl"
+            "variable.other.lkr"
           ],
           "function": [
-            "entity.name.function.qcl",
-            "support.function.qcl"
+            "entity.name.function.lkr",
+            "support.function.lkr"
           ],
           "string": [
-            "string.quoted.qcl"
+            "string.quoted.lkr"
           ],
           "number": [
-            "constant.numeric.qcl"
+            "constant.numeric.lkr"
           ],
           "operator": [
-            "keyword.operator.qcl"
+            "keyword.operator.lkr"
           ],
           "parameter": [
-            "variable.parameter.qcl"
+            "variable.parameter.lkr"
           ],
           "property": [
-            "variable.other.property.qcl",
-            "support.variable.property.qcl"
+            "variable.other.property.lkr",
+            "support.variable.property.lkr"
           ],
           "namespace": [
-            "entity.name.namespace.qcl"
+            "entity.name.namespace.lkr"
           ],
           "type": [
-            "support.type.qcl",
-            "entity.name.type.qcl"
+            "support.type.lkr",
+            "entity.name.type.lkr"
           ]
         }
       }
     ],
     "configuration": {
       "type": "object",
-      "title": "QCL Configuration",
+      "title": "LKR Configuration",
       "properties": {
-        "qcl.lsp.enabled": {
+        "lkr.lsp.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable/disable QCL Language Server Protocol integration"
+          "description": "Enable/disable LKR Language Server Protocol integration"
         },
-        "qcl.lsp.autoStart": {
+        "lkr.lsp.autoStart": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically start the QCL language server on activation"
+          "description": "Automatically start the LKR language server on activation"
         },
-        "qcl.lsp.serverPath": {
+        "lkr.lsp.serverPath": {
           "type": "string",
           "default": "",
-          "description": "Custom path to the QCL LSP server binary (leave empty to use PATH or auto-detection). Supports '~' for home directory."
+          "description": "Custom path to the LKR LSP server binary (leave empty to use PATH or auto-detection). Supports '~' for home directory."
         },
-        "qcl.lsp.trace": {
+        "lkr.lsp.trace": {
           "type": "string",
           "enum": ["off", "messages", "verbose"],
           "default": "off",
-          "description": "Trace communication between VSCode and the QCL language server"
+          "description": "Trace communication between VSCode and the LKR language server"
         },
-        "qcl.lsp.outputChannel.enabled": {
+        "lkr.lsp.outputChannel.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Show a dedicated output channel for QCL (may affect performance)"
+          "description": "Show a dedicated output channel for LKR (may affect performance)"
         },
-        "qcl.lsp.semanticTokens.enabled": {
+        "lkr.lsp.semanticTokens.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Enable semantic tokens; disable to rely on TextMate highlighting only"
         },
-        "qcl.lsp.semanticTokens.throttleMs": {
+        "lkr.lsp.semanticTokens.throttleMs": {
           "type": "number",
           "default": 25,
           "minimum": 0,
           "description": "Throttle consecutive semantic token requests per document (ms). Set 0 to disable."
         },
-        "qcl.lsp.inlayHints.enabled": {
+        "lkr.lsp.inlayHints.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable inlay hints (inline editor hints) from QCL LSP"
+          "description": "Enable inlay hints (inline editor hints) from LKR LSP"
         },
-        "qcl.lsp.inlayHints.throttleMs": {
+        "lkr.lsp.inlayHints.throttleMs": {
           "type": "number",
           "default": 25,
           "minimum": 0,
           "description": "Throttle consecutive inlay hint requests per document (ms). Set 0 to disable."
         },
-        "qcl.lsp.inlayHints.parameters.enabled": {
+        "lkr.lsp.inlayHints.parameters.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Show parameter name hints at call sites"
         },
-        "qcl.lsp.inlayHints.types.enabled": {
+        "lkr.lsp.inlayHints.types.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Show inferred type hints for declarations (let/define)"
         },
-        "qcl.lsp.performance.maxConcurrent": {
+        "lkr.lsp.performance.maxConcurrent": {
           "type": "number",
           "default": 2,
           "minimum": 1,
           "description": "Max concurrent heavy computations on the server (semantic tokens, inlay hints). Lower to reduce CPU spikes when scrolling."
         },
-        "qcl.lsp.performance.rangeTokenCacheLimit": {
+        "lkr.lsp.performance.rangeTokenCacheLimit": {
           "type": "number",
           "default": 64,
           "minimum": 1,
           "description": "Per-document capacity for semantic tokens range cache (version+range)."
         },
-        "qcl.lsp.performance.inlayHintCacheLimit": {
+        "lkr.lsp.performance.inlayHintCacheLimit": {
           "type": "number",
           "default": 64,
           "minimum": 1,
           "description": "Per-document capacity for inlay hints cache (version+range+settings)."
         },
-        "qcl.lsp.performance.inlayScanMarginLines": {
+        "lkr.lsp.performance.inlayScanMarginLines": {
           "type": "number",
           "default": 3,
           "minimum": 0,

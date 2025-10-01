@@ -1,7 +1,7 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use qcl_core::{expr::Expr, stmt::Stmt, val::Val};
+use lkr_core::{expr::Expr, stmt::Stmt, val::Val};
 
-fn make_hits_function() -> qcl_core::vm::Function {
+fn make_hits_function() -> lkr_core::vm::Function {
     // sum=0; j=0; i=0;
     // while (i < n) { sum = sum + l[j]; i = i + 1; }
     // return sum;
@@ -45,10 +45,10 @@ fn make_hits_function() -> qcl_core::vm::Function {
         ],
     };
     let params = vec!["l".to_string(), "n".to_string()];
-    qcl_core::vm::Compiler::new().compile_function(&params, &program)
+    lkr_core::vm::Compiler::new().compile_function(&params, &program)
 }
 
-fn make_misses_function() -> qcl_core::vm::Function {
+fn make_misses_function() -> lkr_core::vm::Function {
     // sum=0; j=0; i=0;
     // while (i < n) { sum = sum + l[j]; j = (j + 1) % 1024; i = i + 1; }
     // return sum;
@@ -98,7 +98,7 @@ fn make_misses_function() -> qcl_core::vm::Function {
         ],
     };
     let params = vec!["l".to_string(), "n".to_string()];
-    qcl_core::vm::Compiler::new().compile_function(&params, &program)
+    lkr_core::vm::Compiler::new().compile_function(&params, &program)
 }
 
 fn index_ic_bench(c: &mut Criterion) {
@@ -125,8 +125,8 @@ fn index_ic_bench(c: &mut Criterion) {
 
     c.bench_function("index_ic_hits_packed", |b| {
         b.iter(|| {
-            let mut vm = qcl_core::vm::Vm::new();
-            let mut env = qcl_core::stmt::Environment::new();
+            let mut vm = lkr_core::vm::Vm::new();
+            let mut env = lkr_core::stmt::Environment::new();
             let out = vm.exec_with(&f_hits, Some(&mut env), Some(&args)).unwrap();
             black_box(out);
         })
@@ -134,8 +134,8 @@ fn index_ic_bench(c: &mut Criterion) {
 
     c.bench_function("index_ic_misses_packed", |b| {
         b.iter(|| {
-            let mut vm = qcl_core::vm::Vm::new();
-            let mut env = qcl_core::stmt::Environment::new();
+            let mut vm = lkr_core::vm::Vm::new();
+            let mut env = lkr_core::stmt::Environment::new();
             let out = vm.exec_with(&f_misses, Some(&mut env), Some(&args)).unwrap();
             black_box(out);
         })
@@ -144,8 +144,8 @@ fn index_ic_bench(c: &mut Criterion) {
     #[cfg(feature = "bc32")]
     c.bench_function("index_ic_hits_enum", |b| {
         b.iter(|| {
-            let mut vm = qcl_core::vm::Vm::new();
-            let mut env = qcl_core::stmt::Environment::new();
+            let mut vm = lkr_core::vm::Vm::new();
+            let mut env = lkr_core::stmt::Environment::new();
             let out = vm.exec_with(&f_hits_enum, Some(&mut env), Some(&args)).unwrap();
             black_box(out);
         })
@@ -154,8 +154,8 @@ fn index_ic_bench(c: &mut Criterion) {
     #[cfg(feature = "bc32")]
     c.bench_function("index_ic_misses_enum", |b| {
         b.iter(|| {
-            let mut vm = qcl_core::vm::Vm::new();
-            let mut env = qcl_core::stmt::Environment::new();
+            let mut vm = lkr_core::vm::Vm::new();
+            let mut env = lkr_core::stmt::Environment::new();
             let out = vm.exec_with(&f_misses_enum, Some(&mut env), Some(&args)).unwrap();
             black_box(out);
         })

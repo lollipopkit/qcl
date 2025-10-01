@@ -7,16 +7,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in library 'qcl'",
+            "name": "Debug unit tests in library 'lkr-core'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
                     "--lib",
-                    "--package=qcl"
+                    "--package=lkr-core"
                 ],
                 "filter": {
-                    "name": "qcl",
+                    "name": "lkr-core",
                     "kind": "lib"
                 }
             },
@@ -28,28 +28,28 @@
             "type": "extensionHost",
             "request": "launch",
             "args": [
-                "--extensionDevelopmentPath=${workspaceFolder}/vscode-qcl"
+                "--extensionDevelopmentPath=${workspaceFolder}/vscode-lkr"
             ],
             "outFiles": [
-                "${workspaceFolder}/vscode-qcl/out/**/*.js"
+                "${workspaceFolder}/vscode-lkr/out/**/*.js"
             ],
             "preLaunchTask": "Build All"
         },
         {
-            "name": "Debug QCL LSP Server",
+            "name": "Debug LKR LSP Server",
             "type": "lldb",
             "request": "launch",
             "cargo": {
                 "args": [
                     "build",
-                    "--package=qcl-lsp"
+                    "--package=lkr-lsp"
                 ],
                 "filter": {
-                    "name": "qcl-lsp",
+                    "name": "lkr-lsp",
                     "kind": "bin"
                 }
             },
-            "program": "${workspaceFolder}/target/debug/qcl-lsp",
+            "program": "${workspaceFolder}/target/debug/lkr-lsp",
             "args": [],
             "cwd": "${workspaceFolder}"
         }

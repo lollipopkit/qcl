@@ -1,7 +1,7 @@
-// QCL 并发功能演示
+// LKR 并发功能演示
 // 展示 spawn, chan, send, recv, select 等并发原语
 
-println("=== QCL Concurrency Demo ===");
+println("=== LKR Concurrency Demo ===");
 
 // 1. 基本的任务创建
 println("\n1. Basic Task Creation:");

@@ -27,7 +27,7 @@ impl std::fmt::Display for TypeError {
 
 impl std::error::Error for TypeError {}
 
-/// Type checker for QCL expressions
+/// Type checker for LKR expressions
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeChecker {
     /// Type registry for custom types and traits

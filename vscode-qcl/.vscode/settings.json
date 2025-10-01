@@ -1,4 +1,0 @@
-{
-    "qcl.lsp.semanticTokens.enabled": true,
-    "qcl.lsp.semanticTokens.throttleMs": 150,
-}

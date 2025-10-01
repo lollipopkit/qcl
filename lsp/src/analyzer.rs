@@ -1,5 +1,5 @@
-use qcl_core::resolve::slots::{FunctionLayout, SlotResolver};
-use qcl_core::{
+use lkr_core::resolve::slots::{FunctionLayout, SlotResolver};
+use lkr_core::{
     ast::Parser as ExprParser,
     expr::Expr,
     module::ModuleRegistry,
@@ -20,7 +20,7 @@ const MAX_DIAGNOSTICS: usize = 200; // cap diagnostics volume
 const MAX_TOKENS_PER_DOC: usize = 20_000; // hard ceiling for full-document tokens
 const MAX_TOKENS_PER_RANGE: usize = 8_000; // hard ceiling for range tokens
 
-/// Result of analyzing QCL code, containing diagnostics, symbols, and identifier roots
+/// Result of analyzing LKR code, containing diagnostics, symbols, and identifier roots
 #[derive(Debug, Clone)]
 pub struct AnalysisResult {
     pub diagnostics: Vec<Diagnostic>,
@@ -28,11 +28,11 @@ pub struct AnalysisResult {
     pub identifier_roots: HashSet<String>,
 }
 
-/// QCL Language analyzer for providing LSP functionality
+/// LKR Language analyzer for providing LSP functionality
 #[derive(Default)]
-pub struct QclAnalyzer {
+pub struct LkrAnalyzer {
     // Cache for tokenization results to avoid re-tokenizing same content
-    token_cache: HashMap<String, (Vec<qcl_core::token::Token>, Vec<Span>)>,
+    token_cache: HashMap<String, (Vec<lkr_core::token::Token>, Vec<Span>)>,
     // Cache for completion items that don't change
     completion_cache: Option<Vec<CompletionItem>>,
     // Registered stdlib modules for resolution/completions
@@ -41,14 +41,14 @@ pub struct QclAnalyzer {
     base_dir: Option<PathBuf>,
 }
 
-impl QclAnalyzer {
-    /// Create a new QCL analyzer
+impl LkrAnalyzer {
+    /// Create a new LKR analyzer
     pub fn new() -> Self {
         // Initialize a registry preloaded with stdlib modules and globals
         let mut registry = ModuleRegistry::new();
         // Register stdlib globals and modules so LSP can recognize them
-        qcl_stdlib::register_stdlib_globals(&mut registry);
-        qcl_stdlib::register_stdlib_modules(&mut registry);
+        lkr_stdlib::register_stdlib_globals(&mut registry);
+        lkr_stdlib::register_stdlib_modules(&mut registry);
 
         Self {
             token_cache: HashMap::new(),
@@ -72,12 +72,12 @@ impl QclAnalyzer {
     /// Variant that reuses a pre-tokenized buffer for performance.
     pub fn compute_type_inlay_hints_from_tokens(
         &self,
-        tokens: &[qcl_core::token::Token],
+        tokens: &[lkr_core::token::Token],
         spans: &[Span],
         range: Range,
     ) -> Vec<InlayHint> {
         let mut hints: Vec<InlayHint> = Vec::new();
-        use qcl_core::token::Token as T;
+        use lkr_core::token::Token as T;
         let mut i = 0usize;
         while i < tokens.len() {
             if !matches!(tokens[i], T::Let) {
@@ -207,12 +207,12 @@ impl QclAnalyzer {
     /// Variant that reuses a pre-tokenized buffer for performance.
     pub fn compute_define_type_hints_from_tokens(
         &self,
-        tokens: &[qcl_core::token::Token],
+        tokens: &[lkr_core::token::Token],
         spans: &[Span],
         range: Range,
     ) -> Vec<InlayHint> {
         let mut hints: Vec<InlayHint> = Vec::new();
-        use qcl_core::token::Token as T;
+        use lkr_core::token::Token as T;
         let mut i = 0usize;
         while i + 2 < tokens.len() {
             match (&tokens[i], &tokens[i + 1], &tokens[i + 2]) {
@@ -286,12 +286,12 @@ impl QclAnalyzer {
     /// Variant that reuses a pre-tokenized buffer for performance.
     pub fn compute_function_return_type_hints_from_tokens(
         &self,
-        tokens: &[qcl_core::token::Token],
+        tokens: &[lkr_core::token::Token],
         spans: &[Span],
         range: Range,
     ) -> Vec<InlayHint> {
         let mut hints: Vec<InlayHint> = Vec::new();
-        use qcl_core::token::Token as T;
+        use lkr_core::token::Token as T;
         let mut i = 0usize;
         while i < tokens.len() {
             if !matches!(tokens[i], T::Fn) {
@@ -359,7 +359,7 @@ impl QclAnalyzer {
             }
             // Within body, scan for all `return <expr>;` occurrences (including inside branches)
             let mut k = body_start;
-            let mut return_types: Vec<qcl_core::val::Type> = Vec::new();
+            let mut return_types: Vec<lkr_core::val::Type> = Vec::new();
             while k < body_end {
                 if matches!(tokens[k], T::Return) {
                     // capture expression until next top-level `;` relative to paren/brace depth of this expression
@@ -379,8 +379,8 @@ impl QclAnalyzer {
                     if last > k {
                         let expr_tokens = &tokens[k + 1..=last];
                         if !expr_tokens.is_empty() {
-                            if let Ok(expr) = qcl_core::ast::Parser::new(expr_tokens).parse() {
-                                let mut checker = qcl_core::typ::TypeChecker::new();
+                            if let Ok(expr) = lkr_core::ast::Parser::new(expr_tokens).parse() {
+                                let mut checker = lkr_core::typ::TypeChecker::new();
                                 if let Ok(ret_ty) = checker.infer_resolved_type(&expr) {
                                     return_types.push(ret_ty);
                                 }
@@ -397,7 +397,7 @@ impl QclAnalyzer {
             if !return_types.is_empty() {
                 // Deduplicate by display string for stable union label
                 use std::collections::BTreeMap;
-                let mut by_key: BTreeMap<String, qcl_core::val::Type> = BTreeMap::new();
+                let mut by_key: BTreeMap<String, lkr_core::val::Type> = BTreeMap::new();
                 for t in return_types {
                     by_key.entry(t.display()).or_insert(t);
                 }
@@ -443,8 +443,8 @@ impl QclAnalyzer {
     }
 
     /// Scan tokens to add diagnostics for unknown stdlib modules and unknown exports with precise spans
-    fn add_import_diagnostics(&self, tokens: &[qcl_core::token::Token], spans: &[Span], result: &mut AnalysisResult) {
-        use qcl_core::token::Token as T;
+    fn add_import_diagnostics(&self, tokens: &[lkr_core::token::Token], spans: &[Span], result: &mut AnalysisResult) {
+        use lkr_core::token::Token as T;
 
         let mut i = 0usize;
         while i < tokens.len() {
@@ -467,12 +467,12 @@ impl QclAnalyzer {
                                         range,
                                         Some(DiagnosticSeverity::ERROR),
                                         None,
-                                        Some("qcl".to_string()),
+                                        Some("lkr".to_string()),
                                         format!("File not found: {}", path),
                                         None,
                                         None,
                                     );
-                                    d.code = Some(NumberOrString::String("qcl_file_not_found".to_string()));
+                                    d.code = Some(NumberOrString::String("lkr_file_not_found".to_string()));
                                     result.diagnostics.push(d);
                                 }
                             }
@@ -539,7 +539,7 @@ impl QclAnalyzer {
                                                             range,
                                                             Some(DiagnosticSeverity::ERROR),
                                                             None,
-                                                            Some("qcl".to_string()),
+                                                            Some("lkr".to_string()),
                                                             format!(
                                                                 "Unknown export '{}' from module '{}'",
                                                                 item_name, mod_name
@@ -561,7 +561,7 @@ impl QclAnalyzer {
                                             range,
                                             Some(DiagnosticSeverity::ERROR),
                                             None,
-                                            Some("qcl".to_string()),
+                                            Some("lkr".to_string()),
                                             format!("Unknown module: {}", mod_name),
                                             None,
                                             None,
@@ -595,7 +595,7 @@ impl QclAnalyzer {
                                             range,
                                             Some(DiagnosticSeverity::ERROR),
                                             None,
-                                            Some("qcl".to_string()),
+                                            Some("lkr".to_string()),
                                             format!("Unknown module: {}", mod_name),
                                             None,
                                             None,
@@ -623,7 +623,7 @@ impl QclAnalyzer {
                                     range,
                                     Some(DiagnosticSeverity::ERROR),
                                     None,
-                                    Some("qcl".to_string()),
+                                    Some("lkr".to_string()),
                                     format!("Unknown module: {}", mod_name),
                                     None,
                                     None,
@@ -661,9 +661,9 @@ impl QclAnalyzer {
             if p.exists() {
                 return true;
             }
-            // Try with .qcl appended if missing extension
+            // Try with .lkr appended if missing extension
             if p.extension().is_none() {
-                let with_ext = p.with_extension("qcl");
+                let with_ext = p.with_extension("lkr");
                 if with_ext.exists() {
                     return true;
                 }
@@ -676,7 +676,7 @@ impl QclAnalyzer {
     pub fn tokenize_with_spans_cached(
         &mut self,
         content: &str,
-    ) -> std::result::Result<(Vec<qcl_core::token::Token>, Vec<Span>), qcl_core::token::ParseError> {
+    ) -> std::result::Result<(Vec<lkr_core::token::Token>, Vec<Span>), lkr_core::token::ParseError> {
         if let Some(cached) = self.token_cache.get(content) {
             return Ok(cached.clone());
         }
@@ -694,7 +694,7 @@ impl QclAnalyzer {
         }
     }
 
-    /// Analyze QCL code and return diagnostics, symbols, and identifier roots
+    /// Analyze LKR code and return diagnostics, symbols, and identifier roots
     pub fn analyze(&mut self, content: &str) -> AnalysisResult {
         let mut result = AnalysisResult {
             diagnostics: Vec::new(),
@@ -742,7 +742,7 @@ impl QclAnalyzer {
                         range,
                         Some(DiagnosticSeverity::ERROR),
                         None,
-                        Some("qcl".to_string()),
+                        Some("lkr".to_string()),
                         format!("Tokenization error: {}", parse_err.message),
                         None,
                         None,
@@ -761,7 +761,7 @@ impl QclAnalyzer {
                 // Add expression symbol
                 let symbol = DocumentSymbol {
                     name: "expression".to_string(),
-                    detail: Some("QCL Expression".to_string()),
+                    detail: Some("LKR Expression".to_string()),
                     kind: SymbolKind::CONSTANT,
                     tags: None,
                     #[allow(deprecated)]
@@ -890,7 +890,7 @@ impl QclAnalyzer {
                                     range,
                                     Some(DiagnosticSeverity::ERROR),
                                     None,
-                                    Some("qcl".to_string()),
+                                    Some("lkr".to_string()),
                                     e.message,
                                     None,
                                     None,
@@ -914,7 +914,7 @@ impl QclAnalyzer {
                                     range,
                                     Some(DiagnosticSeverity::ERROR),
                                     None,
-                                    Some("qcl".to_string()),
+                                    Some("lkr".to_string()),
                                     e.message,
                                     None,
                                     None,
@@ -958,7 +958,7 @@ impl QclAnalyzer {
                                 range,
                                 Some(DiagnosticSeverity::ERROR),
                                 None,
-                                Some("qcl".to_string()),
+                                Some("lkr".to_string()),
                                 parse_err.message.clone(),
                                 None,
                                 None,
@@ -984,7 +984,7 @@ impl QclAnalyzer {
     pub(crate) fn enrich_layout_spans(
         &self,
         layout: &FunctionLayout,
-        tokens: &[qcl_core::token::Token],
+        tokens: &[lkr_core::token::Token],
         spans: &[Span],
     ) -> FunctionLayout {
         // Scan function blocks (including nested) and correlate with layouts
@@ -996,9 +996,9 @@ impl QclAnalyzer {
 
         // Helper to assign spans to decls from a queue per name
         fn assign_spans(
-            mut decls: Vec<qcl_core::resolve::slots::Decl>,
+            mut decls: Vec<lkr_core::resolve::slots::Decl>,
             pool: &mut HashMap<String, Vec<Span>>,
-        ) -> Vec<qcl_core::resolve::slots::Decl> {
+        ) -> Vec<lkr_core::resolve::slots::Decl> {
             for d in decls.iter_mut() {
                 if let Some(list) = pool.get_mut(&d.name) {
                     if !list.is_empty() {
@@ -1036,7 +1036,7 @@ impl QclAnalyzer {
             fb.param_spans.iter().map(|(n, _)| n.clone()).collect()
         }
         fn fb_locals_pool(
-            tokens: &[qcl_core::token::Token],
+            tokens: &[lkr_core::token::Token],
             spans: &[Span],
             fb: &FnBlockInfo,
         ) -> HashMap<String, Vec<Span>> {
@@ -1044,7 +1044,7 @@ impl QclAnalyzer {
             for (pname, pspan) in fb.param_spans.iter() {
                 pool.entry(pname.clone()).or_default().push(pspan.clone());
             }
-            let locals = QclAnalyzer::scan_decl_spans_in_range(tokens, spans, fb.body_start_idx, fb.body_end_idx);
+            let locals = LkrAnalyzer::scan_decl_spans_in_range(tokens, spans, fb.body_start_idx, fb.body_end_idx);
             for (n, sp) in locals {
                 pool.entry(n).or_default().push(sp);
             }
@@ -1157,10 +1157,10 @@ pub(crate) struct FnBlockInfo {
     param_spans: Vec<(String, Span)>,
 }
 
-impl QclAnalyzer {
+impl LkrAnalyzer {
     /// Scan function blocks in source order: name, name span, body token range, and param spans.
-    pub(crate) fn scan_function_blocks(tokens: &[qcl_core::token::Token], spans: &[Span]) -> Vec<FnBlockInfo> {
-        use qcl_core::token::Token as T;
+    pub(crate) fn scan_function_blocks(tokens: &[lkr_core::token::Token], spans: &[Span]) -> Vec<FnBlockInfo> {
+        use lkr_core::token::Token as T;
         let mut i = 0usize;
         let mut out: Vec<FnBlockInfo> = Vec::new();
         while i < tokens.len() {
@@ -1243,12 +1243,12 @@ impl QclAnalyzer {
 
     /// Scan variable declaration spans within [start_idx, end_idx] token range: let-patterns and short defines.
     fn scan_decl_spans_in_range(
-        tokens: &[qcl_core::token::Token],
+        tokens: &[lkr_core::token::Token],
         spans: &[Span],
         start_idx: usize,
         end_idx: usize,
     ) -> Vec<(String, Span)> {
-        use qcl_core::token::Token as T;
+        use lkr_core::token::Token as T;
         let mut out: Vec<(String, Span)> = Vec::new();
         let mut i = start_idx;
         while i <= end_idx && i < tokens.len() {
@@ -1306,11 +1306,11 @@ impl QclAnalyzer {
 
     /// Collect top-level declaration spans and function names (outside any function block body).
     fn scan_toplevel_decl_spans(
-        tokens: &[qcl_core::token::Token],
+        tokens: &[lkr_core::token::Token],
         spans: &[Span],
         fblocks: &Vec<FnBlockInfo>,
     ) -> Vec<(String, Span)> {
-        use qcl_core::token::Token as T;
+        use lkr_core::token::Token as T;
         let mut out: Vec<(String, Span)> = Vec::new();
         // Function names are top-level bindings
         for fb in fblocks {
@@ -1457,8 +1457,8 @@ impl QclAnalyzer {
     }
 
     /// Collect import symbols via token scanning and produce per-import DocumentSymbols.
-    fn collect_import_symbols_via_tokens(tokens: &[qcl_core::token::Token], spans: &[Span]) -> Vec<DocumentSymbol> {
-        use qcl_core::token::Token as T;
+    fn collect_import_symbols_via_tokens(tokens: &[lkr_core::token::Token], spans: &[Span]) -> Vec<DocumentSymbol> {
+        use lkr_core::token::Token as T;
         use tower_lsp::lsp_types::{DocumentSymbol, Position, Range, SymbolKind};
         let mut out: Vec<DocumentSymbol> = Vec::new();
         let mut i = 0usize;
@@ -1575,7 +1575,7 @@ impl QclAnalyzer {
         children_map: &[Vec<usize>],
         idx: usize,
         layout_opt: Option<&FunctionLayout>,
-        tokens: &[qcl_core::token::Token],
+        tokens: &[lkr_core::token::Token],
         spans: &[Span],
     ) -> DocumentSymbol {
         use tower_lsp::lsp_types::{DocumentSymbol, Position, Range, SymbolKind};
@@ -1698,14 +1698,14 @@ impl QclAnalyzer {
     }
 
     /// Infer a function's return type by scanning return statements inside its body.
-    fn infer_fn_return_type_for_block(tokens: &[qcl_core::token::Token], fb: &FnBlockInfo) -> Option<String> {
-        use qcl_core::token::Token as T;
+    fn infer_fn_return_type_for_block(tokens: &[lkr_core::token::Token], fb: &FnBlockInfo) -> Option<String> {
+        use lkr_core::token::Token as T;
         let mut k = fb.body_start_idx + 1;
         let body_end = fb.body_end_idx;
         if body_end <= k {
             return None;
         }
-        let mut return_types: Vec<qcl_core::val::Type> = Vec::new();
+        let mut return_types: Vec<lkr_core::val::Type> = Vec::new();
         while k < body_end {
             if matches!(tokens[k], T::Return) {
                 let mut e = k + 1;
@@ -1724,8 +1724,8 @@ impl QclAnalyzer {
                 if last > k {
                     let expr_tokens = &tokens[k + 1..=last];
                     if !expr_tokens.is_empty() {
-                        if let Ok(expr) = qcl_core::ast::Parser::new(expr_tokens).parse() {
-                            let mut checker = qcl_core::typ::TypeChecker::new();
+                        if let Ok(expr) = lkr_core::ast::Parser::new(expr_tokens).parse() {
+                            let mut checker = lkr_core::typ::TypeChecker::new();
                             if let Ok(ret_ty) = checker.infer_resolved_type(&expr) {
                                 return_types.push(ret_ty);
                             }
@@ -1741,7 +1741,7 @@ impl QclAnalyzer {
             return None;
         }
         use std::collections::BTreeMap;
-        let mut by_key: BTreeMap<String, qcl_core::val::Type> = BTreeMap::new();
+        let mut by_key: BTreeMap<String, lkr_core::val::Type> = BTreeMap::new();
         for t in return_types {
             by_key.entry(t.display()).or_insert(t);
         }
@@ -1810,7 +1810,7 @@ impl QclAnalyzer {
                         map.insert(alias.clone(), module.clone());
                     }
                     ImportStmt::Namespace { alias, source } => {
-                        if let qcl_core::stmt::ImportSource::Module(name) = source {
+                        if let lkr_core::stmt::ImportSource::Module(name) = source {
                             // import * as m from math; -> alias maps to module
                             map.insert(alias.clone(), name.clone());
                         }
@@ -1818,7 +1818,7 @@ impl QclAnalyzer {
                     ImportStmt::Items { source, .. } => {
                         // import { sqrt } from math; -> does not create a module alias
                         // We could track individual items in the future
-                        if let qcl_core::stmt::ImportSource::Module(_name) = source {
+                        if let lkr_core::stmt::ImportSource::Module(_name) = source {
                             // no alias to insert
                         }
                     }
@@ -2022,7 +2022,7 @@ impl QclAnalyzer {
                         range,
                         Some(DiagnosticSeverity::ERROR),
                         None,
-                        Some("qcl".to_string()),
+                        Some("lkr".to_string()),
                         format!("Tokenization error: {}", parse_err.message),
                         None,
                         None,
@@ -2066,7 +2066,7 @@ impl QclAnalyzer {
                                         range,
                                         Some(DiagnosticSeverity::ERROR),
                                         None,
-                                        Some("qcl".to_string()),
+                                        Some("lkr".to_string()),
                                         ee.message.clone(),
                                         None,
                                         None,
@@ -2096,7 +2096,7 @@ impl QclAnalyzer {
                                         range,
                                         Some(DiagnosticSeverity::ERROR),
                                         None,
-                                        Some("qcl".to_string()),
+                                        Some("lkr".to_string()),
                                         stmt_err.message.clone(),
                                         None,
                                         None,
@@ -2149,7 +2149,7 @@ impl QclAnalyzer {
                         range,
                         Some(DiagnosticSeverity::ERROR),
                         None,
-                        Some("qcl".to_string()),
+                        Some("lkr".to_string()),
                         format!("Tokenization error: {}", parse_err.message),
                         None,
                         None,
@@ -2188,7 +2188,7 @@ impl QclAnalyzer {
                                         range,
                                         Some(DiagnosticSeverity::ERROR),
                                         None,
-                                        Some("qcl".to_string()),
+                                        Some("lkr".to_string()),
                                         ee.message.clone(),
                                         None,
                                         None,
@@ -2212,7 +2212,7 @@ impl QclAnalyzer {
                                     range,
                                     Some(DiagnosticSeverity::ERROR),
                                     None,
-                                    Some("qcl".to_string()),
+                                    Some("lkr".to_string()),
                                     parse_err.message.clone(),
                                     None,
                                     None,
@@ -2359,7 +2359,7 @@ impl QclAnalyzer {
                             Range::new(Position::new(0, 0), Position::new(0, 100)),
                             Some(DiagnosticSeverity::WARNING),
                             None,
-                            Some("qcl".to_string()),
+                            Some("lkr".to_string()),
                             format!("Identifier root '{}' not found in provided variables", ctx_key),
                             None,
                             None,
@@ -2371,7 +2371,7 @@ impl QclAnalyzer {
                     Range::new(Position::new(0, 0), Position::new(0, 100)),
                     Some(DiagnosticSeverity::INFORMATION),
                     None,
-                    Some("qcl".to_string()),
+                    Some("lkr".to_string()),
                     format!("Expression references identifier roots: {:?}", required_ctx),
                     None,
                     None,
@@ -2402,7 +2402,7 @@ impl QclAnalyzer {
         true
     }
 
-    /// Generate semantic tokens for QCL code (optimized version)
+    /// Generate semantic tokens for LKR code (optimized version)
     pub fn generate_semantic_tokens(&self, content: &str) -> Vec<SemanticToken> {
         // Early return for empty content
         if content.trim().is_empty() {
@@ -2987,15 +2987,15 @@ impl QclAnalyzer {
 }
 
 /// Helper function to extract variable names from a pattern for LSP analysis
-pub fn extract_variables_from_pattern(pattern: &qcl_core::expr::Pattern) -> Option<Vec<String>> {
+pub fn extract_variables_from_pattern(pattern: &lkr_core::expr::Pattern) -> Option<Vec<String>> {
     let mut variables = Vec::new();
 
-    fn collect_vars(pattern: &qcl_core::expr::Pattern, vars: &mut Vec<String>) {
+    fn collect_vars(pattern: &lkr_core::expr::Pattern, vars: &mut Vec<String>) {
         match pattern {
-            qcl_core::expr::Pattern::Variable(name) => {
+            lkr_core::expr::Pattern::Variable(name) => {
                 vars.push(name.clone());
             }
-            qcl_core::expr::Pattern::List { patterns, rest } => {
+            lkr_core::expr::Pattern::List { patterns, rest } => {
                 for pattern in patterns {
                     collect_vars(pattern, vars);
                 }
@@ -3003,7 +3003,7 @@ pub fn extract_variables_from_pattern(pattern: &qcl_core::expr::Pattern) -> Opti
                     vars.push(rest_var.clone());
                 }
             }
-            qcl_core::expr::Pattern::Map { patterns, rest } => {
+            lkr_core::expr::Pattern::Map { patterns, rest } => {
                 for (_, pattern) in patterns {
                     collect_vars(pattern, vars);
                 }
@@ -3011,18 +3011,18 @@ pub fn extract_variables_from_pattern(pattern: &qcl_core::expr::Pattern) -> Opti
                     vars.push(rest_var.clone());
                 }
             }
-            qcl_core::expr::Pattern::Or(patterns) => {
+            lkr_core::expr::Pattern::Or(patterns) => {
                 for pattern in patterns {
                     collect_vars(pattern, vars);
                 }
             }
-            qcl_core::expr::Pattern::Guard { pattern, .. } => {
+            lkr_core::expr::Pattern::Guard { pattern, .. } => {
                 collect_vars(pattern, vars);
             }
             // Other pattern types don't bind variables
-            qcl_core::expr::Pattern::Literal(_)
-            | qcl_core::expr::Pattern::Wildcard
-            | qcl_core::expr::Pattern::Range { .. } => {}
+            lkr_core::expr::Pattern::Literal(_)
+            | lkr_core::expr::Pattern::Wildcard
+            | lkr_core::expr::Pattern::Range { .. } => {}
         }
     }
 
@@ -3042,11 +3042,11 @@ pub fn extract_variables_from_pattern(pattern: &qcl_core::expr::Pattern) -> Opti
 #[cfg(test)]
 mod tests {
     use super::*;
-    use qcl_core::val::Val;
+    use lkr_core::val::Val;
     use std::collections::HashMap;
 
-    fn create_analyzer() -> QclAnalyzer {
-        QclAnalyzer::new()
+    fn create_analyzer() -> LkrAnalyzer {
+        LkrAnalyzer::new()
     }
 
     #[test]
@@ -3143,8 +3143,8 @@ mod tests {
         let context = Val::from(context_map);
 
         // Parse expression that uses req.user.role
-        let tokens = qcl_core::token::Tokenizer::tokenize("req.user.role == 'admin'").unwrap();
-        let mut parser = qcl_core::ast::Parser::new(&tokens);
+        let tokens = lkr_core::token::Tokenizer::tokenize("req.user.role == 'admin'").unwrap();
+        let mut parser = lkr_core::ast::Parser::new(&tokens);
         let expr_result = parser.parse();
 
         let diagnostics = analyzer.validate_identifier_access(&expr_result, Some(&context));

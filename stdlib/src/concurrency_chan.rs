@@ -1,10 +1,10 @@
-//! Channel module for QCL
+//! Channel module for LKR
 //!
 //! Provides channel operations for inter-task communication.
 
 use anyhow::{Result, anyhow};
-use qcl_core::module::Module;
-use qcl_core::val::Val;
+use lkr_core::module::Module;
+use lkr_core::val::Val;
 use std::collections::HashMap;
 
 /// Channel module - provides channel operations
@@ -37,7 +37,7 @@ impl Module for ChannelModule {
         }
     }
 
-    fn register(&self, registry: &mut qcl_core::module::ModuleRegistry) -> Result<()> {
+    fn register(&self, registry: &mut lkr_core::module::ModuleRegistry) -> Result<()> {
         let exports = self.exports();
         for (name, value) in exports {
             registry.register_builtin(&format!("{}::{}", self.name(), name), value);
@@ -66,7 +66,7 @@ impl ChannelModule {
 }
 
 /// Close a channel
-fn chan_close(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn chan_close(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("chan::close() expects exactly 1 argument"));
     }
@@ -75,7 +75,7 @@ fn chan_close(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         Val::Channel { id, .. } => {
             #[cfg(feature = "concurrency")]
             {
-                match qcl_core::rt::with_runtime(|runtime| runtime.close_channel(*id)) {
+                match lkr_core::rt::with_runtime(|runtime| runtime.close_channel(*id)) {
                     Ok(()) => Ok(Val::Nil),
                     Err(e) => Err(anyhow!("Failed to close channel: {}", e)),
                 }
@@ -91,7 +91,7 @@ fn chan_close(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
 }
 
 /// Get the current length of a channel (number of buffered items)
-fn chan_len(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn chan_len(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("chan::len() expects exactly 1 argument"));
     }
@@ -115,7 +115,7 @@ fn chan_len(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
 }
 
 /// Get the capacity of a channel
-fn chan_capacity(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn chan_capacity(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("chan::capacity() expects exactly 1 argument"));
     }
@@ -132,7 +132,7 @@ fn chan_capacity(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val
 }
 
 /// Check if a channel is closed
-fn chan_is_closed(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn chan_is_closed(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("chan::is_closed() expects exactly 1 argument"));
     }
@@ -156,7 +156,7 @@ fn chan_is_closed(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Va
 }
 
 /// Try to send a value to a channel without blocking
-fn chan_try_send(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn chan_try_send(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if args.len() != 2 {
         return Err(anyhow!("chan::try_send() expects exactly 2 arguments"));
     }
@@ -168,7 +168,7 @@ fn chan_try_send(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val
         Val::Channel { id, .. } => {
             #[cfg(feature = "concurrency")]
             {
-                match qcl_core::rt::with_runtime(|runtime| runtime.try_send(*id, value.clone())) {
+                match lkr_core::rt::with_runtime(|runtime| runtime.try_send(*id, value.clone())) {
                     Ok(success) => Ok(Val::Bool(success)),
                     Err(e) => Err(anyhow!("Failed to send to channel: {}", e)),
                 }
@@ -184,7 +184,7 @@ fn chan_try_send(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val
 }
 
 /// Try to receive a value from a channel without blocking
-fn chan_try_recv(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn chan_try_recv(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("chan::try_recv() expects exactly 1 argument"));
     }
@@ -193,7 +193,7 @@ fn chan_try_recv(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val
         Val::Channel { id, .. } => {
             #[cfg(feature = "concurrency")]
             {
-                match qcl_core::rt::with_runtime(|runtime| runtime.try_recv(*id)) {
+                match lkr_core::rt::with_runtime(|runtime| runtime.try_recv(*id)) {
                     Ok(Some((ok, value))) => Ok(Val::List(vec![Val::Bool(ok), value].into())),
                     Ok(None) => Ok(Val::List(vec![Val::Bool(false), Val::Nil].into())),
                     Err(e) => Err(anyhow!("Failed to receive from channel: {}", e)),

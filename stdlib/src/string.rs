@@ -1,6 +1,6 @@
 use anyhow::Result;
-use qcl_core::module::Module;
-use qcl_core::val::Val;
+use lkr_core::module::Module;
+use lkr_core::val::Val;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -33,23 +33,23 @@ impl StringModule {
         functions.insert("join".to_string(), Val::RustFunction(Self::join));
 
         // Also register as meta-methods for String type
-        qcl_core::val::methods::register_method("String", "len", Self::len);
-        qcl_core::val::methods::register_method("String", "lower", Self::lower);
-        qcl_core::val::methods::register_method("String", "upper", Self::upper);
-        qcl_core::val::methods::register_method("String", "trim", Self::trim);
-        qcl_core::val::methods::register_method("String", "starts_with", Self::starts_with);
-        qcl_core::val::methods::register_method("String", "ends_with", Self::ends_with);
-        qcl_core::val::methods::register_method("String", "contains", Self::contains);
-        qcl_core::val::methods::register_method("String", "replace", Self::replace);
-        qcl_core::val::methods::register_method("String", "substring", Self::substring);
-        qcl_core::val::methods::register_method("String", "split", Self::split);
-        qcl_core::val::methods::register_method("String", "join", Self::join);
+        lkr_core::val::methods::register_method("String", "len", Self::len);
+        lkr_core::val::methods::register_method("String", "lower", Self::lower);
+        lkr_core::val::methods::register_method("String", "upper", Self::upper);
+        lkr_core::val::methods::register_method("String", "trim", Self::trim);
+        lkr_core::val::methods::register_method("String", "starts_with", Self::starts_with);
+        lkr_core::val::methods::register_method("String", "ends_with", Self::ends_with);
+        lkr_core::val::methods::register_method("String", "contains", Self::contains);
+        lkr_core::val::methods::register_method("String", "replace", Self::replace);
+        lkr_core::val::methods::register_method("String", "substring", Self::substring);
+        lkr_core::val::methods::register_method("String", "split", Self::split);
+        lkr_core::val::methods::register_method("String", "join", Self::join);
 
         Self { functions }
     }
 
     /// Get string length
-    fn len(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn len(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("len() takes exactly 1 argument"));
         }
@@ -61,7 +61,7 @@ impl StringModule {
     }
 
     /// Convert to lowercase
-    fn lower(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn lower(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("lower() takes exactly 1 argument"));
         }
@@ -73,7 +73,7 @@ impl StringModule {
     }
 
     /// Convert to uppercase
-    fn upper(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn upper(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("upper() takes exactly 1 argument"));
         }
@@ -85,7 +85,7 @@ impl StringModule {
     }
 
     /// Trim whitespace from both ends
-    fn trim(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn trim(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("trim() takes exactly 1 argument"));
         }
@@ -97,7 +97,7 @@ impl StringModule {
     }
 
     /// Check if string starts with prefix
-    fn starts_with(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn starts_with(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!(
                 "starts_with() takes exactly 2 arguments: string, prefix"
@@ -122,7 +122,7 @@ impl StringModule {
     }
 
     /// Check if string ends with suffix
-    fn ends_with(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn ends_with(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!("ends_with() takes exactly 2 arguments: string, suffix"));
         }
@@ -145,7 +145,7 @@ impl StringModule {
     }
 
     /// Check if string contains substring
-    fn contains(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn contains(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!(
                 "contains() takes exactly 2 arguments: string, substring"
@@ -170,7 +170,7 @@ impl StringModule {
     }
 
     /// Replace occurrences of substring
-    fn replace(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn replace(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if args.len() != 3 {
             return Err(anyhow::anyhow!("replace() takes exactly 3 arguments: string, old, new"));
         }
@@ -196,7 +196,7 @@ impl StringModule {
     }
 
     /// Extract substring
-    fn substring(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn substring(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if args.len() != 3 {
             return Err(anyhow::anyhow!(
                 "substring() takes exactly 3 arguments: string, start, length"
@@ -233,7 +233,7 @@ impl StringModule {
     }
 
     /// Split string by delimiter
-    fn split(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn split(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!("split() takes exactly 2 arguments: string, delimiter"));
         }
@@ -258,7 +258,7 @@ impl StringModule {
     }
 
     /// Join list of strings with delimiter
-    fn join(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn join(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!("join() takes exactly 2 arguments: list, delimiter"));
         }
@@ -294,7 +294,7 @@ impl Module for StringModule {
         "String manipulation functions"
     }
 
-    fn register(&self, _registry: &mut qcl_core::module::ModuleRegistry) -> Result<()> {
+    fn register(&self, _registry: &mut lkr_core::module::ModuleRegistry) -> Result<()> {
         // Don't register functions globally - they should be accessed via module.function()
         Ok(())
     }
@@ -308,7 +308,7 @@ impl Module for StringModule {
 mod tests {
     use crate::register_stdlib_modules;
     use anyhow::Result;
-    use qcl_core::{stmt::stmt_parser::StmtParser, token::Tokenizer, val::Val};
+    use lkr_core::{stmt::stmt_parser::StmtParser, token::Tokenizer, val::Val};
 
     #[test]
     fn test_string_len() -> Result<()> {
@@ -318,12 +318,12 @@ mod tests {
         let program = parser.parse_program()?;
 
         // Create registry and register stdlib modules
-        let mut registry = qcl_core::module::ModuleRegistry::new();
+        let mut registry = lkr_core::module::ModuleRegistry::new();
         register_stdlib_modules(&mut registry);
 
         // Create environment with stdlib modules
-        let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
-        let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
+        let resolver = std::sync::Arc::new(lkr_core::stmt::ModuleResolver::with_registry(registry));
+        let mut env = lkr_core::stmt::Environment::with_resolver(resolver);
 
         let result = program.execute_with_env(&mut env)?;
         assert_eq!(result, Val::Int(5));
@@ -339,12 +339,12 @@ mod tests {
         let program = parser.parse_program()?;
 
         // Create registry and register stdlib modules
-        let mut registry = qcl_core::module::ModuleRegistry::new();
+        let mut registry = lkr_core::module::ModuleRegistry::new();
         register_stdlib_modules(&mut registry);
 
         // Create environment with stdlib modules
-        let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
-        let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
+        let resolver = std::sync::Arc::new(lkr_core::stmt::ModuleResolver::with_registry(registry));
+        let mut env = lkr_core::stmt::Environment::with_resolver(resolver);
 
         let result = program.execute_with_env(&mut env)?;
         assert_eq!(result, Val::Str("hello".into()));
@@ -360,11 +360,11 @@ mod tests {
         let program = parser.parse_program()?;
 
         // Create registry and register stdlib modules (ensures methods are registered)
-        let mut registry = qcl_core::module::ModuleRegistry::new();
+        let mut registry = lkr_core::module::ModuleRegistry::new();
         register_stdlib_modules(&mut registry);
 
-        let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
-        let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
+        let resolver = std::sync::Arc::new(lkr_core::stmt::ModuleResolver::with_registry(registry));
+        let mut env = lkr_core::stmt::Environment::with_resolver(resolver);
 
         let result = program.execute_with_env(&mut env)?;
         assert_eq!(result, Val::Int(5));

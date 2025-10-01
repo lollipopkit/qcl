@@ -1,6 +1,6 @@
-# QCL Language Support for VS Code
+# LKR Language Support for VS Code
 
-This extension provides language support for QCL (Query Check Language) in Visual Studio Code, including syntax highlighting and language server features.
+This extension provides language support for LKR (Query Check Language) in Visual Studio Code, including syntax highlighting and language server features.
 
 ## Language Server Implementation Guide
 
@@ -11,7 +11,7 @@ This extension implements the VS Code Language Server Protocol (LSP) based on th
 The extension follows the standard VS Code Language Server pattern with two main components:
 
 - **Language Client**: A normal VS Code extension written in TypeScript that has access to the VS Code API
-- **Language Server**: The QCL language analysis tool (`qcl-lsp`) running in a separate process
+- **Language Server**: The LKR language analysis tool (`lkr-lsp`) running in a separate process
 
 ### Key Benefits
 
@@ -22,20 +22,20 @@ The extension follows the standard VS Code Language Server pattern with two main
 ### Implementation Structure
 
 ```
-vscode-qcl/
+vscode-lkr/
 ├── src/
 │   └── extension.ts          # Language Client implementation
 ├── syntaxes/
-│   └── qcl.tmLanguage.json   # TextMate grammar for syntax highlighting
+│   └── lkr.tmLanguage.json   # TextMate grammar for syntax highlighting
 ├── package.json              # Extension manifest
 └── ...                       # Other configuration files
 ```
 
-The QCL LSP server is built separately in the `lsp/` directory of the main QCL project.
+The LKR LSP server is built separately in the `lsp/` directory of the main LKR project.
 
 ## Features
 
-- Syntax highlighting for QCL files
+- Syntax highlighting for LKR files
 - Language Server Protocol (LSP) integration for:
   - Real-time error detection and diagnostics
   - Code completion
@@ -46,24 +46,24 @@ The QCL LSP server is built separately in the `lsp/` directory of the main QCL p
 
 ## Status Bar and Inlay Hints
 
-- The status bar shows QCL LSP state, including a spinner during analysis (Checking…). Click it for actions.
+- The status bar shows LKR LSP state, including a spinner during analysis (Checking…). Click it for actions.
 - Quick actions include restart/disable and toggles for inlay hints.
 - Configure inlay hints via settings:
-  - `qcl.lsp.inlayHints.enabled`
-  - `qcl.lsp.inlayHints.parameters.enabled`
-  - `qcl.lsp.inlayHints.types.enabled`
-  - `qcl.lsp.inlayHints.throttleMs`
+  - `lkr.lsp.inlayHints.enabled`
+  - `lkr.lsp.inlayHints.parameters.enabled`
+  - `lkr.lsp.inlayHints.types.enabled`
+  - `lkr.lsp.inlayHints.throttleMs`
 
 ## Requirements
 
-- The QCL LSP server (`qcl-lsp`) must be built and available in the system PATH or in the expected locations.
+- The LKR LSP server (`lkr-lsp`) must be built and available in the system PATH or in the expected locations.
 
 ## Installation
 
 1. Clone this repository
 2. Install dependencies: `npm install`
 3. Compile the extension: `npm run compile`
-4. Build the QCL LSP server: `cargo build -p qcl-lsp`
+4. Build the LKR LSP server: `cargo build -p lkr-lsp`
 5. Open the extension in VS Code and press F5 to run the extension
 
 ## Development
@@ -71,9 +71,9 @@ The QCL LSP server is built separately in the `lsp/` directory of the main QCL p
 - `npm run compile`: Compile the TypeScript source
 - `npm run watch`: Compile in watch mode
 
-## QCL Language Features
+## LKR Language Features
 
-The extension supports the QCL language with the following features:
+The extension supports the LKR language with the following features:
 
 ### Syntax Highlighting
 - Keywords: `if`, `else`, `while`, `let`, `return`, `fn`, `go`, `select`, `case`, `default`, `break`, `continue`, `import`, `from`, `as`, `in`

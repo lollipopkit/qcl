@@ -1,10 +1,10 @@
-//! Time module for QCL concurrency
+//! Time module for LKR concurrency
 //!
 //! Provides timing and scheduling functions for concurrent operations.
 
 use anyhow::{Result, anyhow};
-use qcl_core::module::Module;
-use qcl_core::val::Val;
+use lkr_core::module::Module;
+use lkr_core::val::Val;
 use std::collections::HashMap;
 
 /// Time module - provides timing functions
@@ -37,7 +37,7 @@ impl Module for TimeModule {
         }
     }
 
-    fn register(&self, registry: &mut qcl_core::module::ModuleRegistry) -> Result<()> {
+    fn register(&self, registry: &mut lkr_core::module::ModuleRegistry) -> Result<()> {
         let exports = self.exports();
         for (name, value) in exports {
             registry.register_builtin(&format!("{}::{}", self.name(), name), value);
@@ -65,7 +65,7 @@ impl TimeModule {
 }
 
 /// Sleep for the specified duration in milliseconds
-fn time_sleep(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn time_sleep(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("time::sleep() expects exactly 1 argument"));
     }
@@ -78,7 +78,7 @@ fn time_sleep(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
 
     #[cfg(feature = "concurrency")]
     {
-        match qcl_core::rt::with_runtime(|runtime| {
+        match lkr_core::rt::with_runtime(|runtime| {
             let duration = std::time::Duration::from_millis(duration_ms as u64);
             runtime.block_on(async {
                 tokio::time::sleep(duration).await;
@@ -99,7 +99,7 @@ fn time_sleep(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
 }
 
 /// Create a timeout channel that fires after the specified duration
-fn time_timeout(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn time_timeout(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("time::timeout() expects exactly 1 argument"));
     }
@@ -112,7 +112,7 @@ fn time_timeout(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val>
 
     #[cfg(feature = "concurrency")]
     {
-        match qcl_core::rt::with_runtime(|runtime| {
+        match lkr_core::rt::with_runtime(|runtime| {
             let duration = std::time::Duration::from_millis(duration_ms as u64);
 
             // Create a channel for the timeout
@@ -125,7 +125,7 @@ fn time_timeout(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val>
             let future = async move {
                 tokio::time::sleep(duration).await;
                 // Use a new runtime reference to send the signal
-                match qcl_core::rt::with_runtime(|rt| rt.try_send(timeout_channel_id, Val::Nil)) {
+                match lkr_core::rt::with_runtime(|rt| rt.try_send(timeout_channel_id, Val::Nil)) {
                     Ok(_success) => Ok(Val::Nil),
                     Err(e) => Err(anyhow!("Failed to send timeout signal: {}", e)),
                 }
@@ -136,7 +136,7 @@ fn time_timeout(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val>
             Ok(Val::Channel {
                 id: channel_id,
                 capacity: Some(1),
-                inner_type: Box::new(qcl_core::val::Type::Nil),
+                inner_type: Box::new(lkr_core::val::Type::Nil),
             })
         }) {
             Ok(channel) => Ok(channel),
@@ -149,13 +149,13 @@ fn time_timeout(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val>
         Ok(Val::Channel {
             id: 1,
             capacity: Some(1),
-            inner_type: Box::new(qcl_core::val::Type::Nil),
+            inner_type: Box::new(lkr_core::val::Type::Nil),
         })
     }
 }
 
 /// Create a one-shot timer that fires after the specified duration
-fn time_after(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn time_after(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow!("time::after() expects exactly 1 argument"));
     }
@@ -168,7 +168,7 @@ fn time_after(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
 
     #[cfg(feature = "concurrency")]
     {
-        match qcl_core::rt::with_runtime(|runtime| {
+        match lkr_core::rt::with_runtime(|runtime| {
             let duration = std::time::Duration::from_millis(duration_ms as u64);
 
             // Create a channel for the timer
@@ -185,7 +185,7 @@ fn time_after(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
                     .unwrap()
                     .as_millis() as i64;
                 // Use a new runtime reference to send the time
-                match qcl_core::rt::with_runtime(|rt| rt.try_send(timer_channel_id, Val::Int(current_time))) {
+                match lkr_core::rt::with_runtime(|rt| rt.try_send(timer_channel_id, Val::Int(current_time))) {
                     Ok(_success) => Ok(Val::Nil),
                     Err(e) => Err(anyhow!("Failed to send timer signal: {}", e)),
                 }
@@ -196,7 +196,7 @@ fn time_after(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
             Ok(Val::Channel {
                 id: channel_id,
                 capacity: Some(1),
-                inner_type: Box::new(qcl_core::val::Type::Int),
+                inner_type: Box::new(lkr_core::val::Type::Int),
             })
         }) {
             Ok(channel) => Ok(channel),
@@ -209,13 +209,13 @@ fn time_after(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
         Ok(Val::Channel {
             id: 1,
             capacity: Some(1),
-            inner_type: Box::new(qcl_core::val::Type::Int),
+            inner_type: Box::new(lkr_core::val::Type::Int),
         })
     }
 }
 
 /// Get the current time in milliseconds since Unix epoch
-fn time_now(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn time_now(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if !args.is_empty() {
         return Err(anyhow!("time::now() expects no arguments"));
     }
@@ -229,7 +229,7 @@ fn time_now(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
 }
 
 /// Calculate the duration between two timestamps in milliseconds
-fn time_since(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn time_since(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if args.len() != 2 {
         return Err(anyhow!("time::since() expects exactly 2 arguments"));
     }

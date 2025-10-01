@@ -88,7 +88,7 @@ pub struct Tokenizer {
     idx: usize,
     len: usize,
     pub tokens: Vec<Token>,
-    pub token_spans: Vec<Span>,
+    pub token_spans: Option<Vec<Span>>,
     line: u32,
     column: u32,
     input: String,
@@ -102,7 +102,7 @@ impl Tokenizer {
             chars,
             idx: 0,
             tokens: Vec::with_capacity(s.len() / 4), // Preallocate a reasonable size
-            token_spans: Vec::with_capacity(s.len() / 4),
+            token_spans: None,
             line: 1,
             column: 1,
             input: s.to_string(),
@@ -127,7 +127,7 @@ impl Tokenizer {
     pub fn tokenize_enhanced_with_spans(s: &str) -> std::result::Result<(Vec<Token>, Vec<Span>), ParseError> {
         let mut t = Tokenizer::new_enhanced(s);
         match t.parse() {
-            Ok(()) => Ok((t.tokens, t.token_spans)),
+            Ok(()) => Ok((t.tokens, t.token_spans.unwrap_or_default())),
             Err(err) => Err(t.enhanced_error(&format!("{}", err))),
         }
     }
@@ -146,7 +146,7 @@ impl Tokenizer {
             chars,
             idx: 0,
             tokens: Vec::with_capacity(input.len() / 4),
-            token_spans: Vec::with_capacity(input.len() / 4),
+            token_spans: Some(Vec::with_capacity(input.len() / 4)),
             line: 1,
             column: 1,
             input: input.to_string(),
@@ -1087,11 +1087,15 @@ impl Tokenizer {
 impl Tokenizer {
     fn push_with_span(&mut self, token: Token, start: Position, end: Position) {
         self.tokens.push(token);
-        self.token_spans.push(Span::new(start, end));
+        if let Some(spans) = &mut self.token_spans {
+            spans.push(Span::new(start, end));
+        }
     }
 
     fn push_span_only(&mut self, token: Token, span: Span) {
         self.tokens.push(token);
-        self.token_spans.push(span);
+        if let Some(spans) = &mut self.token_spans {
+            spans.push(span);
+        }
     }
 }

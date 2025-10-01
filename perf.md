@@ -1,4 +1,4 @@
-# QCL 性能优化方案（参考 Lua 设计）
+# LKR 性能优化方案（参考 Lua 设计）
 
 本文档描述三项面向高频路径的结构性优化方案，并给出可落地的实现步骤、数据结构设计与迁移策略。三项优化相互独立、可渐进交付；两两配合时能形成叠加收益。
 
@@ -6,7 +6,7 @@
 - 寄存器字节码 VM（减少解释器分派和装箱/拆箱）
 - 名称解析到槽位（移除运行期 HashMap 查找）
 
-> 备注：当前已落地的两点优化（数值 for 快路径、作用域开销削减/快速环境表）已显著改善 `examples/fib.qcl` 的热点，但函数调用与变量查找仍是主热点。本方案聚焦进一步消除这两类开销。
+> 备注：当前已落地的两点优化（数值 for 快路径、作用域开销削减/快速环境表）已显著改善 `examples/fib.lkr` 的热点，但函数调用与变量查找仍是主热点。本方案聚焦进一步消除这两类开销。
 
 ---
 
@@ -100,7 +100,7 @@ impl Environment {
 - 在 `Expr::eval`/`Stmt::execute` 前新增一个选择：
   - 体量小或频繁执行的函数/程序，编译为 Bytecode 后执行；
   - 其余沿用解释执行；
-- 可通过 feature/环境变量控制启用 VM：`qcl-core/vm`。（最小接入已完成：常量表达式在启用 `feature=vm` 且设置 `QCL_VM_LITE` 环境变量时走 VM）
+- 可通过 feature/环境变量控制启用 VM：`lkr-core/vm`。（最小接入已完成：常量表达式在启用 `feature=vm` 且设置 `LKR_VM_LITE` 环境变量时走 VM）
 
 ### 示例执行循环（简化）
 ```rust
@@ -169,11 +169,11 @@ loop {
   - `core/src/vm/{bytecode.rs,compiler.rs,vm.rs}`（VM 子系统）（已完成）
   - `core/src/resolve/slots.rs`（名称解析与槽位分配）（已完成）
 - 特性开关：
-  - `qcl-core` 新增 `vm`/`slots` feature，默认保持解释器路径可用（已完成）
+  - `lkr-core` 新增 `vm`/`slots` feature，默认保持解释器路径可用（已完成）
 - 基准与对比：
-  - 现有：`cargo bench -p qcl-core`
+  - 现有：`cargo bench -p lkr-core`
   - 端到端：
-    - `time cargo run -p qcl-cli -- examples/fib.qcl`
+    - `time cargo run -p lkr-cli -- examples/fib.lkr`
     - 对比 `lua examples/fib.lua`、`dart examples/fib.dart`
 
 ## 里程碑建议
@@ -186,4 +186,4 @@ loop {
 
 ---
 
-如需我在代码中起步搭建第 1 步的 `EnvFrame` 骨架与 `Val::Closure` 结构调整，可在一个小分支内增量提交，并附带针对 `fib.qcl` 的对比基准。
+如需我在代码中起步搭建第 1 步的 `EnvFrame` 骨架与 `Val::Closure` 结构调整，可在一个小分支内增量提交，并附带针对 `fib.lkr` 的对比基准。

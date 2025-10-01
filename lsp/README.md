@@ -1,13 +1,13 @@
-# QCL Language Server
+# LKR Language Server
 
-A Language Server Protocol (LSP) implementation for the QCL (Query Check Language) domain-specific language.
+A Language Server Protocol (LSP) implementation for the LKR (Query Check Language) domain-specific language.
 
 ## Features
 
-- **Syntax Diagnostics**: Real-time error detection for QCL expressions and statement programs
+- **Syntax Diagnostics**: Real-time error detection for LKR expressions and statement programs
 - **Hover Information**: Shows type information, identifier roots, and symbol counts
-- **Code Completion**: Auto-complete for QCL keywords, operators, common variables, and standard library functions
-- **Document Symbols**: Navigate through variables, functions, and imports in QCL programs
+- **Code Completion**: Auto-complete for LKR keywords, operators, common variables, and standard library functions
+- **Document Symbols**: Navigate through variables, functions, and imports in LKR programs
 - **Identifier Analysis**: Detects and analyzes top-level identifier roots used (req, record, etc.)
 
 ## Architecture
@@ -15,7 +15,7 @@ A Language Server Protocol (LSP) implementation for the QCL (Query Check Languag
 The LSP server consists of:
 
 - `main.rs`: Core LSP server implementation using tower-lsp
-- `analyzer.rs`: QCL language analysis engine that provides:
+- `analyzer.rs`: LKR language analysis engine that provides:
   - Expression and statement parsing
   - Symbol extraction (variables, functions, imports)
   - Identifier root collection
@@ -23,13 +23,13 @@ The LSP server consists of:
 
 ## Supported Language Features
 
-### QCL Expressions
+### LKR Expressions
 - Identifier/property access (`req.user.role`)
 - Arithmetic operations (`+`, `-`, `*`, `/`, `%`)
 - Logical operations (`&&`, `||`, `!`)
 - Comparison operations (`==`, `!=`, `<`, `>`, `<=`, `>=`, `in`)
 
-### QCL Statements
+### LKR Statements
 - Variable declarations (`let x = value;`)
 - Function definitions (`fn name(params) { body }`)
 - Import statements (`import math;`, `import { abs } from math;`)
@@ -64,12 +64,12 @@ The LSP server consists of:
 
 ### Building
 ```bash
-cargo build -p qcl-lsp
+cargo build -p lkr-lsp
 ```
 
 ### Running
 ```bash
-cargo run -p qcl-lsp
+cargo run -p lkr-lsp
 ```
 
 The server communicates via stdin/stdout using the LSP JSON-RPC protocol.
@@ -79,7 +79,7 @@ The server communicates via stdin/stdout using the LSP JSON-RPC protocol.
 Analyze a single file from the command line and print JSON containing diagnostics, symbols, identifier roots, and semantic tokens:
 
 ```bash
-cargo run -p qcl-lsp -- --analyze path/to/file.qcl
+cargo run -p lkr-lsp -- --analyze path/to/file.lkr
 ```
 
 Notes:
@@ -92,25 +92,25 @@ Notes:
 Create a VS Code extension that launches the LSP server:
 ```json
 {
-  "name": "qcl",
+  "name": "lkr",
   "engines": { "vscode": "^1.50.0" },
   "contributes": {
     "languages": [{
-      "id": "qcl",
-      "extensions": [".qcl"]
+      "id": "lkr",
+      "extensions": [".lkr"]
     }]
   },
-  "activationEvents": ["onLanguage:qcl"]
+  "activationEvents": ["onLanguage:lkr"]
 }
 ```
 
 #### Neovim
 Use nvim-lspconfig:
 ```lua
-require'lspconfig'.configs.qcl = {
+require'lspconfig'.configs.lkr = {
   default_config = {
-    cmd = {'qcl-lsp'},
-    filetypes = {'qcl'},
+    cmd = {'lkr-lsp'},
+    filetypes = {'lkr'},
     root_dir = require('lspconfig.util').root_pattern('.git'),
   }
 }
@@ -118,14 +118,14 @@ require'lspconfig'.configs.qcl = {
 
 ## Development
 
-The LSP server leverages the QCL core library for parsing and analysis:
-- Expression parsing via `qcl_core::expr::Expr`
-- Statement parsing via `qcl_core::stmt_parser::StmtParser`
-- Tokenization via `qcl_core::token::Tokenizer`
+The LSP server leverages the LKR core library for parsing and analysis:
+- Expression parsing via `lkr_core::expr::Expr`
+- Statement parsing via `lkr_core::stmt_parser::StmtParser`
+- Tokenization via `lkr_core::token::Tokenizer`
 
 ### Testing
-Test the LSP server with a QCL file containing:
-```qcl
+Test the LSP server with a LKR file containing:
+```lkr
 // Expression example
 req.user.role == 'admin' && req.user.level >= 5
 

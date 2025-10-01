@@ -421,11 +421,11 @@ impl Expr {
     /// 支持变量环境的表达式求值（已移除上下文参数）
     pub fn eval_with_env(&self, env: Option<&crate::stmt::Environment>) -> Result<Val> {
         // Optional fast-path: if VM feature is enabled and the environment flag
-        // `QCL_VM_LITE` is set, route trivially compilable expressions through the VM.
+        // `LKR_VM_LITE` is set, route trivially compilable expressions through the VM.
         // This is a minimal integration to validate the VM scaffold end-to-end.
         #[cfg(feature = "vm")]
         {
-            if std::env::var("QCL_VM_LITE").is_ok() && matches!(self, Expr::Val(_)) {
+            if std::env::var("LKR_VM_LITE").is_ok() && matches!(self, Expr::Val(_)) {
                 let c = crate::vm::Compiler::new();
                 let f = c.compile_expr(self);
                 let mut vm = crate::vm::Vm::new();

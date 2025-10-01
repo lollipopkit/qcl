@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
-    use qcl_core::{stmt::stmt_parser::StmtParser, token::Tokenizer, val::Val};
+    use lkr_core::{stmt::stmt_parser::StmtParser, token::Tokenizer, val::Val};
 
     #[test]
     fn test_global_printf_and_panic_available() -> Result<()> {
@@ -12,13 +12,13 @@ mod tests {
         let program = parser.parse_program()?;
 
         // Create registry, register modules + globals
-        let mut registry = qcl_core::module::ModuleRegistry::new();
+        let mut registry = lkr_core::module::ModuleRegistry::new();
         crate::register_stdlib_modules(&mut registry);
         crate::register_stdlib_globals(&mut registry);
 
         // Create environment with this registry
-        let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
-        let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
+        let resolver = std::sync::Arc::new(lkr_core::stmt::ModuleResolver::with_registry(registry));
+        let mut env = lkr_core::stmt::Environment::with_resolver(resolver);
 
         let result = program.execute_with_env(&mut env)?;
         assert_eq!(result, Val::Int(42));
@@ -32,12 +32,12 @@ mod tests {
         let mut parser = StmtParser::new(&tokens);
         let program = parser.parse_program().unwrap();
 
-        let mut registry = qcl_core::module::ModuleRegistry::new();
+        let mut registry = lkr_core::module::ModuleRegistry::new();
         crate::register_stdlib_modules(&mut registry);
         crate::register_stdlib_globals(&mut registry);
 
-        let resolver = std::sync::Arc::new(qcl_core::stmt::ModuleResolver::with_registry(registry));
-        let mut env = qcl_core::stmt::Environment::with_resolver(resolver);
+        let resolver = std::sync::Arc::new(lkr_core::stmt::ModuleResolver::with_registry(registry));
+        let mut env = lkr_core::stmt::Environment::with_resolver(resolver);
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _ = program.execute_with_env(&mut env);

@@ -733,6 +733,70 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "241eaef5fd12c88705a01fc1066c48c4b36e0dd4377dcdc7ec3942cea7a69956"
 
 [[package]]
+name = "lkr-cli"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "lkr-core",
+ "lkr-stdlib",
+ "rustyline",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "toml",
+]
+
+[[package]]
+name = "lkr-core"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "criterion",
+ "crossbeam",
+ "futures",
+ "itoa",
+ "once_cell",
+ "rustc-hash",
+ "ryu",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "toml",
+]
+
+[[package]]
+name = "lkr-lsp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dashmap",
+ "lkr-core",
+ "lkr-stdlib",
+ "regex",
+ "ropey",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower-lsp",
+ "tracing",
+ "tracing-subscriber",
+ "twox-hash",
+ "url",
+]
+
+[[package]]
+name = "lkr-stdlib"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "lkr-core",
+ "tokio",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -961,70 +1025,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a31971752e70b8b2686d7e46ec17fb38dad4051d94024c88df49b667caea9c84"
 dependencies = [
  "unicode-ident",
-]
-
-[[package]]
-name = "qcl-cli"
-version = "0.1.3"
-dependencies = [
- "anyhow",
- "qcl-core",
- "qcl-stdlib",
- "rustyline",
- "serde",
- "serde_json",
- "serde_yaml",
- "toml",
-]
-
-[[package]]
-name = "qcl-core"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "chrono",
- "criterion",
- "crossbeam",
- "futures",
- "itoa",
- "once_cell",
- "rustc-hash",
- "ryu",
- "serde",
- "serde_json",
- "serde_yaml",
- "tokio",
- "toml",
-]
-
-[[package]]
-name = "qcl-lsp"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "dashmap",
- "qcl-core",
- "qcl-stdlib",
- "regex",
- "ropey",
- "serde",
- "serde_json",
- "tokio",
- "tower-lsp",
- "tracing",
- "tracing-subscriber",
- "twox-hash",
- "url",
-]
-
-[[package]]
-name = "qcl-stdlib"
-version = "0.1.3"
-dependencies = [
- "anyhow",
- "chrono",
- "qcl-core",
- "tokio",
 ]
 
 [[package]]

@@ -1,22 +1,22 @@
 [package]
-name = "qcl-cli"
-description = "CLI for QCL (Query Check Language)"
+name = "lkr-cli"
+description = "CLI for LKR (Query Check Language)"
 version = "0.1.3"
 edition = "2024"
 authors = ["lollipopkit <a@lpkit.cn>"]
 license = "Apache-2.0"
-default-run = "qcl"
+default-run = "lkr"
 
 [[bin]]
-name = "qcl"
+name = "lkr"
 path = "src/main.rs"
 
 [package.metadata.cargo-bin]
-default-run = "qcl"
+default-run = "lkr"
 
 [dependencies]
-qcl-core = { path = "../core" }
-qcl-stdlib = { path = "../stdlib" }
+lkr-core = { path = "../core" }
+lkr-stdlib = { path = "../stdlib" }
 anyhow = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
@@ -26,6 +26,6 @@ rustyline = "17"
 
 [features]
 default = ["all"]
-concurrency = ["qcl-core/concurrency", "qcl-stdlib/concurrency"]
-vm = ["qcl-core/vm"]
-all = ["qcl-stdlib/all", "concurrency"]
+concurrency = ["lkr-core/concurrency", "lkr-stdlib/concurrency"]
+vm = ["lkr-core/vm"]
+all = ["lkr-stdlib/all", "concurrency"]

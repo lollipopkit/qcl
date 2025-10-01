@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::tcp::TcpModule;
-    use qcl_core::{
+    use lkr_core::{
         module::Module,
         stmt::{Environment, ModuleResolver},
         val::Val,

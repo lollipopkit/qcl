@@ -1,6 +1,6 @@
 ## 语言概览
 
-本文档描述了本仓库所实现的 QCL 语言（解析器、求值器、语句、类型以及标准库的对接）。
+本文档描述了本仓库所实现的 LKR 语言（解析器、求值器、语句、类型以及标准库的对接）。
 
 注释
 - 行注释：`// ...`
@@ -121,16 +121,16 @@ for 循环模式
 导入
 - 形式：
   - `import math;` —— 将标准库模块作为命名空间导入
-  - `import "path/to/file.qcl";` —— 将文件模块作为命名空间导入（命名为文件名的主干）
+  - `import "path/to/file.lkr";` —— 将文件模块作为命名空间导入（命名为文件名的主干）
   - `import { abs, sqrt } from math;` —— 挑选条目导入
-  - `import { f as g } from "m.qcl";` —— 带别名
+  - `import { f as g } from "m.lkr";` —— 带别名
   - `import * as m from math;` —— 命名空间别名
   - `import math as m;` —— 模块别名
 
 - 文件导入解析与安全：
   - 仅允许相对且净化后的路径：拒绝绝对路径与任何包含 `..` 的路径。
-  - 解析顺序：优先尝试 `${MOD_NAME}.qcl`，若不存在再尝试 `${MOD_NAME}/mod.qcl`（相对于当前工作目录）。
-  - 若传入已带 `.qcl` 的相对路径（如 `"lib/foo.qcl"`），在存在时将被直接使用。
+  - 解析顺序：优先尝试 `${MOD_NAME}.lkr`，若不存在再尝试 `${MOD_NAME}/mod.lkr`（相对于当前工作目录）。
+  - 若传入已带 `.lkr` 的相对路径（如 `"lib/foo.lkr"`），在存在时将被直接使用。
 
 内建与标准库
 - 内建全局：`print(fmt, ...args)`、`println(fmt, ...args)`、`panic([msg])`。

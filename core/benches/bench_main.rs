@@ -1,7 +1,7 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use qcl_core::expr::Expr;
-use qcl_core::stmt::Environment;
-use qcl_core::val::Val;
+use lkr_core::expr::Expr;
+use lkr_core::stmt::Environment;
+use lkr_core::val::Val;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -12,8 +12,8 @@ fn bench_parsing(c: &mut Criterion) {
     // Parsing without cache
     c.bench_function("parse_without_cache", |b| {
         b.iter(|| {
-            let tokens = qcl_core::token::Tokenizer::tokenize(expr_str).unwrap();
-            let expr = qcl_core::ast::Parser::new(&tokens).parse().unwrap();
+            let tokens = lkr_core::token::Tokenizer::tokenize(expr_str).unwrap();
+            let expr = lkr_core::ast::Parser::new(&tokens).parse().unwrap();
             black_box(&expr);
         })
     });

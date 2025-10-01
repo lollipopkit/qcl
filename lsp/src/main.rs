@@ -15,8 +15,8 @@ use tracing::info;
 use twox_hash::XxHash64;
 
 mod analyzer;
-use analyzer::{AnalysisResult, QclAnalyzer};
-use qcl_core::{token::Span as CoreSpan, token::Token as CoreToken};
+use analyzer::{AnalysisResult, LkrAnalyzer};
+use lkr_core::{token::Span as CoreSpan, token::Token as CoreToken};
 
 // Hard cap on number of semantic tokens sent to the client to avoid
 // excessive payloads and UI work on very large files.
@@ -50,21 +50,21 @@ struct Document {
     _last_content_hash: Option<u64>,
 }
 
-struct QclLanguageServer {
+struct LkrLanguageServer {
     client: Client,
     documents: Arc<DashMap<Url, Document>>,
-    analyzer: std::sync::Mutex<QclAnalyzer>,
+    analyzer: std::sync::Mutex<LkrAnalyzer>,
     config: std::sync::Mutex<ServerConfig>,
     // Limit concurrent heavy computations (tokens/hints) to avoid CPU spikes while scrolling
     compute_limiter: std::sync::Mutex<Arc<Semaphore>>,
 }
 
-impl QclLanguageServer {
+impl LkrLanguageServer {
     fn new(client: Client) -> Self {
         Self {
             client,
             documents: Arc::new(DashMap::new()),
-            analyzer: std::sync::Mutex::new(QclAnalyzer::new()),
+            analyzer: std::sync::Mutex::new(LkrAnalyzer::new()),
             config: std::sync::Mutex::new(ServerConfig::default()),
             compute_limiter: std::sync::Mutex::new(Arc::new(Semaphore::new(2))),
         }
@@ -122,7 +122,7 @@ impl QclLanguageServer {
     fn get_completions(&self) -> Vec<CompletionItem> {
         let mut items = Vec::new();
 
-        // QCL keywords
+        // LKR keywords
         let keywords = [
             "if", "else", "while", "let", "fn", "return", "break", "continue", "import", "from", "as", "go", "select",
             "case", "default", "true", "false", "nil", "spawn", "chan", "send", "recv",
@@ -132,7 +132,7 @@ impl QclLanguageServer {
             items.push(CompletionItem {
                 label: keyword.to_string(),
                 kind: Some(CompletionItemKind::KEYWORD),
-                detail: Some("QCL keyword".to_string()),
+                detail: Some("LKR keyword".to_string()),
                 ..Default::default()
             });
         }
@@ -143,7 +143,7 @@ impl QclLanguageServer {
             items.push(CompletionItem {
                 label: op.to_string(),
                 kind: Some(CompletionItemKind::OPERATOR),
-                detail: Some("QCL operator".to_string()),
+                detail: Some("LKR operator".to_string()),
                 ..Default::default()
             });
         }
@@ -202,7 +202,7 @@ impl Default for ServerConfig {
 
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-struct QclLspConfigSection {
+struct LkrLspConfigSection {
     #[serde(default)]
     inlay_hints: InlayHintsConfig,
     #[serde(default)]
@@ -239,16 +239,16 @@ struct PerformanceConfig {
     inlay_scan_margin_lines: Option<usize>,
 }
 
-impl QclLanguageServer {
+impl LkrLanguageServer {
     async fn load_config(&self) {
-        // Ask client for the 'qcl.lsp' section
+        // Ask client for the 'lkr.lsp' section
         let items = vec![ConfigurationItem {
             scope_uri: None,
-            section: Some("qcl.lsp".to_string()),
+            section: Some("lkr.lsp".to_string()),
         }];
         if let Ok(values) = self.client.configuration(items).await {
             if let Some(val) = values.into_iter().next() {
-                if let Ok(cfg) = serde_json::from_value::<QclLspConfigSection>(val) {
+                if let Ok(cfg) = serde_json::from_value::<LkrLspConfigSection>(val) {
                     let mut guard = self.config.lock().unwrap();
                     // Defaults are true unless explicitly disabled
                     guard.inlay_hints_enabled = cfg.inlay_hints.enabled.unwrap_or(true);
@@ -279,9 +279,9 @@ impl QclLanguageServer {
 }
 
 #[tower_lsp::async_trait]
-impl LanguageServer for QclLanguageServer {
+impl LanguageServer for LkrLanguageServer {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
-        info!("QCL Language Server initializing with params: {:?}", params.root_uri);
+        info!("LKR Language Server initializing with params: {:?}", params.root_uri);
 
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
@@ -306,7 +306,7 @@ impl LanguageServer for QclLanguageServer {
                 document_highlight_provider: Some(OneOf::Left(true)),
                 rename_provider: Some(OneOf::Left(true)),
                 diagnostic_provider: Some(DiagnosticServerCapabilities::Options(DiagnosticOptions {
-                    identifier: Some("qcl".to_string()),
+                    identifier: Some("lkr".to_string()),
                     inter_file_dependencies: false,
                     workspace_diagnostics: false,
                     work_done_progress_options: Default::default(),
@@ -355,24 +355,24 @@ impl LanguageServer for QclLanguageServer {
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
-                name: "QCL Language Server".to_string(),
+                name: "LKR Language Server".to_string(),
                 version: Some("0.1.0".to_string()),
             }),
         })
     }
 
     async fn initialized(&self, _: InitializedParams) {
-        info!("QCL Language Server initialized");
+        info!("LKR Language Server initialized");
         let _ = self
             .client
-            .log_message(MessageType::INFO, "QCL Language Server started")
+            .log_message(MessageType::INFO, "LKR Language Server started")
             .await;
         // Load initial configuration from client
         self.load_config().await;
     }
 
     async fn shutdown(&self) -> Result<()> {
-        info!("QCL Language Server shutting down");
+        info!("LKR Language Server shutting down");
         Ok(())
     }
 
@@ -490,7 +490,7 @@ impl LanguageServer for QclLanguageServer {
                                 items.push(CompletionItem {
                                     label: m,
                                     kind: Some(CompletionItemKind::MODULE),
-                                    detail: Some("QCL stdlib module".to_string()),
+                                    detail: Some("LKR stdlib module".to_string()),
                                     ..Default::default()
                                 });
                             }
@@ -504,7 +504,7 @@ impl LanguageServer for QclLanguageServer {
                                 items.push(CompletionItem {
                                     label: m,
                                     kind: Some(CompletionItemKind::MODULE),
-                                    detail: Some("QCL stdlib module".to_string()),
+                                    detail: Some("LKR stdlib module".to_string()),
                                     ..Default::default()
                                 });
                             }
@@ -662,7 +662,7 @@ impl LanguageServer for QclLanguageServer {
                 NumberOrString::String(s) => Some(s.as_str()),
                 _ => None,
             });
-            if code == Some("qcl_file_not_found") || diag.message.starts_with("File not found:") {
+            if code == Some("lkr_file_not_found") || diag.message.starts_with("File not found:") {
                 // Extract quoted string at diagnostic range
                 let start = position_to_char_idx(&rope, diag.range.start);
                 let end = position_to_char_idx(&rope, diag.range.end);
@@ -674,8 +674,8 @@ impl LanguageServer for QclLanguageServer {
                 let current = slice.trim_matches('"');
 
                 let mut candidates: Vec<String> = Vec::new();
-                if !current.ends_with(".qcl") {
-                    candidates.push(format!("{}.qcl", current));
+                if !current.ends_with(".lkr") {
+                    candidates.push(format!("{}.lkr", current));
                 }
                 if !current.starts_with("./") && !current.starts_with('/') {
                     candidates.push(format!("./{}", current));
@@ -683,8 +683,8 @@ impl LanguageServer for QclLanguageServer {
                 for prefix in ["lib/", "modules/"] {
                     if !current.starts_with(prefix) {
                         candidates.push(format!("{}{}", prefix, current));
-                        if !current.ends_with(".qcl") {
-                            candidates.push(format!("{}{}.qcl", prefix, current));
+                        if !current.ends_with(".lkr") {
+                            candidates.push(format!("{}{}.lkr", prefix, current));
                         }
                     }
                 }
@@ -830,14 +830,14 @@ impl LanguageServer for QclLanguageServer {
         // Prefer precise scope-restricted references using resolver + spans
         let locations = {
             // Tokenize to compute function body line ranges
-            if let Ok((tokens, spans)) = qcl_core::token::Tokenizer::tokenize_enhanced_with_spans(&content) {
-                let _analyzer = crate::analyzer::QclAnalyzer::default();
+            if let Ok((tokens, spans)) = lkr_core::token::Tokenizer::tokenize_enhanced_with_spans(&content) {
+                let _analyzer = crate::analyzer::LkrAnalyzer::default();
                 // Try to find definition precisely to determine scope
                 if let Some(def_loc) = self
                     .find_definition_precise(&content, &symbol_name, position, uri)
                     .await
                 {
-                    let fbodies = crate::analyzer::QclAnalyzer::scan_function_blocks(&tokens, &spans);
+                    let fbodies = crate::analyzer::LkrAnalyzer::scan_function_blocks(&tokens, &spans);
                     // Identify if this def is inside a function body by comparing lines (0-based)
                     let def_line0 = def_loc.range.start.line;
                     // Build line ranges for each function body
@@ -1167,7 +1167,7 @@ impl LanguageServer for QclLanguageServer {
             range: Range::new(Position::new(0, 0), Position::new(0, 0)),
             command: Some(Command {
                 title: "Analyze file".to_string(),
-                command: "qcl.analyzeCurrentFile".to_string(),
+                command: "lkr.analyzeCurrentFile".to_string(),
                 arguments: None,
             }),
             data: None,
@@ -1187,7 +1187,7 @@ impl LanguageServer for QclLanguageServer {
                     range: Range::new(Position::new(0, 0), Position::new(0, 0)),
                     command: Some(Command {
                         title: format!("Identifier roots: {}", preview),
-                        command: "qcl.showStatusBarMenu".to_string(),
+                        command: "lkr.showStatusBarMenu".to_string(),
                         arguments: None,
                     }),
                     data: None,
@@ -1206,7 +1206,7 @@ impl LanguageServer for QclLanguageServer {
         } else {
             String::new()
         };
-        let formatted = format_qcl(&content, &options);
+        let formatted = format_lkr(&content, &options);
         if formatted == content {
             return Ok(Some(vec![]));
         }
@@ -1265,8 +1265,8 @@ impl LanguageServer for QclLanguageServer {
             }
             if want_types {
                 // Tokenize once and reuse across individual computations
-                if let Ok((tokens, spans)) = qcl_core::token::Tokenizer::tokenize_enhanced_with_spans(&content) {
-                    let analyzer = QclAnalyzer::new();
+                if let Ok((tokens, spans)) = lkr_core::token::Tokenizer::tokenize_enhanced_with_spans(&content) {
+                    let analyzer = LkrAnalyzer::new();
                     let mut h1 = analyzer.compute_type_inlay_hints_from_tokens(&tokens, &spans, range);
                     let mut h2 = analyzer.compute_define_type_hints_from_tokens(&tokens, &spans, range);
                     let mut h3 = analyzer.compute_function_return_type_hints_from_tokens(&tokens, &spans, range);
@@ -1372,7 +1372,7 @@ impl LanguageServer for QclLanguageServer {
 
         // Generate range tokens off the async runtime
         let generated = tokio::task::spawn_blocking(move || {
-            let analyzer = QclAnalyzer::new();
+            let analyzer = LkrAnalyzer::new();
             analyzer.generate_semantic_tokens_in_range(&slice_string, range)
         })
         .await
@@ -1487,7 +1487,7 @@ fn compute_content_hash(content: &str) -> u64 {
     hasher.finish()
 }
 
-impl QclLanguageServer {
+impl LkrLanguageServer {
     // Get cached analysis or compute and store it atomically
     async fn get_or_compute_analysis(&self, uri: &Url) -> Option<Arc<AnalysisResult>> {
         // Fast path: try read cache
@@ -1511,7 +1511,7 @@ impl QclLanguageServer {
             .ok()
             .and_then(|p| p.parent().map(|p| p.to_path_buf()));
         let computed_result = tokio::task::spawn_blocking(move || {
-            let mut analyzer = QclAnalyzer::new();
+            let mut analyzer = LkrAnalyzer::new();
             if let Some(b) = base_dir {
                 analyzer.set_base_dir(b);
             }
@@ -1554,7 +1554,7 @@ impl QclLanguageServer {
         let _permit = sem.acquire().await.ok();
         // Generate tokens off the async runtime to avoid blocking
         let generated_result = tokio::task::spawn_blocking(move || {
-            let mut analyzer = QclAnalyzer::new();
+            let mut analyzer = LkrAnalyzer::new();
             if let Some(b) = base_dir {
                 analyzer.set_base_dir(b);
             }
@@ -1586,7 +1586,7 @@ impl QclLanguageServer {
             };
 
             // Create and begin a work-done progress to surface checking state in clients
-            let token = NumberOrString::String(format!("qcl:diag:{}", uri));
+            let token = NumberOrString::String(format!("lkr:diag:{}", uri));
             let _ = client
                 .send_request::<WorkDoneProgressCreate>(WorkDoneProgressCreateParams { token: token.clone() })
                 .await;
@@ -1594,7 +1594,7 @@ impl QclLanguageServer {
                 .send_notification::<ProgressNotification>(ProgressParams {
                     token: token.clone(),
                     value: ProgressParamsValue::WorkDone(WorkDoneProgress::Begin(WorkDoneProgressBegin {
-                        title: "QCL: Checking".to_string(),
+                        title: "LKR: Checking".to_string(),
                         cancellable: Some(false),
                         message: Some(uri.to_string()),
                         percentage: None,
@@ -1611,7 +1611,7 @@ impl QclLanguageServer {
                 .ok()
                 .and_then(|p| p.parent().map(|p| p.to_path_buf()));
             let analysis = match tokio::task::spawn_blocking(move || {
-                let mut analyzer = QclAnalyzer::new();
+                let mut analyzer = LkrAnalyzer::new();
                 if let Some(b) = base_dir {
                     analyzer.set_base_dir(b);
                 }
@@ -1687,7 +1687,7 @@ impl QclLanguageServer {
 
                 // Find token at this offset
                 if let Some((_, token)) = find_token_at_offset(&spans, &tokens, absolute_offset) {
-                    use qcl_core::token::Token;
+                    use lkr_core::token::Token;
                     if let Token::Id(name) = token {
                         return Some(name);
                     }
@@ -1834,20 +1834,20 @@ impl QclLanguageServer {
         uri: &Url,
     ) -> Option<Location> {
         // Tokenize with spans
-        let (tokens, spans) = match qcl_core::token::Tokenizer::tokenize_enhanced_with_spans(content) {
+        let (tokens, spans) = match lkr_core::token::Tokenizer::tokenize_enhanced_with_spans(content) {
             Ok(p) => p,
             Err(_) => return None,
         };
         // Parse statements (we only need structure to drive resolver)
-        let mut parser = qcl_core::stmt::stmt_parser::StmtParser::new_with_spans(&tokens, &spans);
+        let mut parser = lkr_core::stmt::stmt_parser::StmtParser::new_with_spans(&tokens, &spans);
         let program = parser.parse_program_with_enhanced_errors(content).ok()?;
         // Resolve and enrich with spans
-        let mut resolver = qcl_core::resolve::slots::SlotResolver::new();
+        let mut resolver = lkr_core::resolve::slots::SlotResolver::new();
         let resolution = resolver.resolve_program_slots(&program);
-        let analyzer = crate::analyzer::QclAnalyzer::default();
+        let analyzer = crate::analyzer::LkrAnalyzer::default();
         let enriched = analyzer.enrich_layout_spans(&resolution.root, &tokens, &spans);
         // Find function blocks to locate the innermost function for position
-        let fblocks = crate::analyzer::QclAnalyzer::scan_function_blocks(&tokens, &spans);
+        let fblocks = crate::analyzer::LkrAnalyzer::scan_function_blocks(&tokens, &spans);
         // Compute an approximate offset based on line/column
         let cursor_line = pos.line + 1;
         let cursor_col = pos.character + 1;
@@ -1860,7 +1860,7 @@ impl QclLanguageServer {
             }
         }
         // Determine if inside a function body and pick that child layout
-        let mut candidate_spans: Vec<qcl_core::token::Span> = Vec::new();
+        let mut candidate_spans: Vec<lkr_core::token::Span> = Vec::new();
         let mut pick_child: Option<usize> = None;
         for (i, fb) in fblocks.iter().enumerate() {
             let s = spans.get(fb.body_start_idx)?.start.offset;
@@ -2227,7 +2227,7 @@ fn sig_owned(label: String, params: Vec<String>, doc: &str) -> SignatureInformat
     }
 }
 
-fn format_qcl(input: &str, options: &FormattingOptions) -> String {
+fn format_lkr(input: &str, options: &FormattingOptions) -> String {
     // Simple indentation formatter based on braces and parentheses.
     let mut out = String::with_capacity(input.len() + 16);
     let use_spaces = options.insert_spaces;
@@ -2635,7 +2635,7 @@ fn make_param_hint(param: &str, ofs: usize, line_starts: &[usize]) -> InlayHint 
 async fn main() {
     // Check CLI args for one-shot analysis mode before starting LSP server
     if let Some(output) = try_cli_analyze().unwrap_or_else(|e| {
-        eprintln!("qcl-lsp analyze error: {e}");
+        eprintln!("lkr-lsp analyze error: {e}");
         std::process::exit(2);
     }) {
         // Print JSON result to stdout and exit
@@ -2649,7 +2649,7 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(QclLanguageServer::new);
+    let (service, socket) = LspService::new(LkrLanguageServer::new);
 
     // Start the server
     Server::new(stdin, stdout, socket).serve(service).await;
@@ -2670,7 +2670,7 @@ fn try_cli_analyze() -> anyhow::Result<Option<String>> {
         }
 
         let path = args.get(path_index).cloned().ok_or_else(|| {
-            anyhow::anyhow!("Usage: qcl-lsp --analyze [--errors-only] <relative-file-path>\n  --analyze <file>     : Full analysis with JSON output\n  --errors-only        : Show only errors in simple format")
+            anyhow::anyhow!("Usage: lkr-lsp --analyze [--errors-only] <relative-file-path>\n  --analyze <file>     : Full analysis with JSON output\n  --errors-only        : Show only errors in simple format")
         })?;
 
         // Check if --errors-only flag is present
@@ -2680,7 +2680,7 @@ fn try_cli_analyze() -> anyhow::Result<Option<String>> {
         let content = read_file_content(&path)?;
 
         // Run analysis using the same analyzer used by the LSP
-        let mut analyzer = QclAnalyzer::new();
+        let mut analyzer = LkrAnalyzer::new();
         let analysis = analyzer.analyze(&content);
 
         if errors_only {

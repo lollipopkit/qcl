@@ -1,5 +1,5 @@
 use anyhow::Result;
-use qcl_core::{module::Module, val::Val};
+use lkr_core::{module::Module, val::Val};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -15,7 +15,7 @@ impl EnvObject {
         methods.into()
     }
 
-    fn get(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn get(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 && args.len() != 2 {
             return Err(anyhow::anyhow!(
                 "env.get() takes 1 or 2 arguments: variable_name [, default_value]"
@@ -50,7 +50,7 @@ impl EnvObject {
         }
     }
 
-    fn set(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn set(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if args.len() != 2 {
             return Err(anyhow::anyhow!(
                 "env.set() takes exactly 2 arguments: variable_name, value"
@@ -73,7 +73,7 @@ impl EnvObject {
         Ok(Val::Bool(true))
     }
 
-    fn unset(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn unset(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("env.unset() takes exactly 1 argument: variable_name"));
         }
@@ -101,7 +101,7 @@ impl DirObject {
         methods.into()
     }
 
-    fn list(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn list(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("dir.list() takes exactly 1 argument: path"));
         }
@@ -130,14 +130,14 @@ impl DirObject {
         }
     }
 
-    fn temp_dir(_args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn temp_dir(_args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         Ok(match std::env::temp_dir().into_os_string().into_string() {
             Ok(path) => Val::Str(path.into()),
             Err(_) => Val::Nil,
         })
     }
 
-    fn current_dir(_args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn current_dir(_args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         Ok(match std::env::current_dir() {
             Ok(path) => match path.into_os_string().into_string() {
                 Ok(path_str) => Val::Str(path_str.into()),
@@ -179,7 +179,7 @@ impl OsModule {
     }
 
     /// Get system hostname
-    fn hostname(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn hostname(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if !args.is_empty() {
             return Err(anyhow::anyhow!("hostname() takes no arguments"));
         }
@@ -200,7 +200,7 @@ impl OsModule {
     }
 
     /// Get system architecture
-    fn arch(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn arch(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if !args.is_empty() {
             return Err(anyhow::anyhow!("arch() takes no arguments"));
         }
@@ -209,7 +209,7 @@ impl OsModule {
     }
 
     /// Get operating system
-    fn os(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn os(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if !args.is_empty() {
             return Err(anyhow::anyhow!("os() takes no arguments"));
         }
@@ -218,7 +218,7 @@ impl OsModule {
     }
 
     /// Exit the program
-    fn exit(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+    fn exit(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
         if args.len() > 1 {
             return Err(anyhow::anyhow!("exit() takes at most 1 argument: exit_code"));
         }
@@ -245,7 +245,7 @@ impl Module for OsModule {
         "Operating system interface"
     }
 
-    fn register(&self, _registry: &mut qcl_core::module::ModuleRegistry) -> Result<()> {
+    fn register(&self, _registry: &mut lkr_core::module::ModuleRegistry) -> Result<()> {
         Ok(())
     }
 

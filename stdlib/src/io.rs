@@ -1,6 +1,6 @@
 use anyhow::Result;
-use qcl_core::module::Module;
-use qcl_core::val::Val;
+use lkr_core::module::Module;
+use lkr_core::val::Val;
 use std::collections::HashMap;
 use std::io::{BufRead, Read, Write};
 
@@ -30,7 +30,7 @@ fn make_stderr_object() -> Val {
     methods.into()
 }
 
-fn stdin_read(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn stdin_read(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if args.len() > 1 {
         return Err(anyhow::anyhow!("stdin.read() takes at most 1 argument: [bytes]"));
     }
@@ -75,19 +75,19 @@ fn stdin_read(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
     }
 }
 
-fn stdin_read_line(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn stdin_read_line(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if !args.is_empty() {
         return Err(anyhow::anyhow!("stdin.read_line() takes no arguments"));
     }
     stdin_read(&[], _env)
 }
 
-fn stdin_flush(_args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn stdin_flush(_args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     // No-op; included for API symmetry. Return true for convenience.
     Ok(Val::Bool(true))
 }
 
-fn stdin_read_all(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn stdin_read_all(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if !args.is_empty() {
         return Err(anyhow::anyhow!("stdin.read_all() takes no arguments"));
     }
@@ -99,7 +99,7 @@ fn stdin_read_all(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Va
     }
 }
 
-fn stdout_write(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn stdout_write(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow::anyhow!("stdout.write() requires 1 argument: data"));
     }
@@ -113,7 +113,7 @@ fn stdout_write(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val>
     }
 }
 
-fn stdout_writeln(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn stdout_writeln(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow::anyhow!("stdout.writeln() requires 1 argument: data"));
     }
@@ -127,14 +127,14 @@ fn stdout_writeln(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Va
     }
 }
 
-fn stdout_flush(_args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn stdout_flush(_args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     match std::io::stdout().flush() {
         Ok(()) => Ok(Val::Bool(true)),
         Err(e) => Err(anyhow::anyhow!("stdout flush error: {}", e)),
     }
 }
 
-fn stderr_write(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn stderr_write(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow::anyhow!("stderr.write() requires 1 argument: data"));
     }
@@ -148,7 +148,7 @@ fn stderr_write(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val>
     }
 }
 
-fn stderr_writeln(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn stderr_writeln(args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     if args.len() != 1 {
         return Err(anyhow::anyhow!("stderr.writeln() requires 1 argument: data"));
     }
@@ -162,7 +162,7 @@ fn stderr_writeln(args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Va
     }
 }
 
-fn stderr_flush(_args: &[Val], _env: &qcl_core::stmt::Environment) -> Result<Val> {
+fn stderr_flush(_args: &[Val], _env: &lkr_core::stmt::Environment) -> Result<Val> {
     match std::io::stderr().flush() {
         Ok(()) => Ok(Val::Bool(true)),
         Err(e) => Err(anyhow::anyhow!("stderr flush error: {}", e)),
@@ -201,7 +201,7 @@ impl Module for IoModule {
         "io"
     }
 
-    fn register(&self, _registry: &mut qcl_core::module::ModuleRegistry) -> Result<()> {
+    fn register(&self, _registry: &mut lkr_core::module::ModuleRegistry) -> Result<()> {
         // Don't register functions globally - they should be accessed via module.function()
         Ok(())
     }
@@ -219,7 +219,7 @@ fn read_all_to_string() -> anyhow::Result<String> {
     Ok(s)
 }
 
-fn mod_read(args: &[Val], _env: &qcl_core::stmt::Environment) -> anyhow::Result<Val> {
+fn mod_read(args: &[Val], _env: &lkr_core::stmt::Environment) -> anyhow::Result<Val> {
     if !args.is_empty() {
         return Err(anyhow::anyhow!("io.read() takes no arguments"));
     }
@@ -229,7 +229,7 @@ fn mod_read(args: &[Val], _env: &qcl_core::stmt::Environment) -> anyhow::Result<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use qcl_core::stmt::Environment;
+    use lkr_core::stmt::Environment;
 
     #[test]
     fn test_io_module_has_objects() -> Result<()> {

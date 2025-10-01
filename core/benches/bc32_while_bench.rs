@@ -1,7 +1,7 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use qcl_core::{expr::Expr, stmt::Stmt, val::Val};
+use lkr_core::{expr::Expr, stmt::Stmt, val::Val};
 
-fn make_while_function(n: i64) -> qcl_core::vm::Function {
+fn make_while_function(n: i64) -> lkr_core::vm::Function {
     // i = 0; while (i < n) { i = i + 1 }; return i
     let cond = Expr::parse_cached_arc(&format!("i < {}", n)).unwrap();
     let incr = Expr::parse_cached_arc("i + 1").unwrap();
@@ -27,7 +27,7 @@ fn make_while_function(n: i64) -> qcl_core::vm::Function {
             }),
         ],
     };
-    qcl_core::vm::Compiler::new().compile_stmt(&program)
+    lkr_core::vm::Compiler::new().compile_stmt(&program)
 }
 
 fn bc32_while_bench(c: &mut Criterion) {
@@ -42,8 +42,8 @@ fn bc32_while_bench(c: &mut Criterion) {
 
     c.bench_function("bc32_while_packed", |b| {
         b.iter(|| {
-            let mut vm = qcl_core::vm::Vm::new();
-            let mut env = qcl_core::stmt::Environment::new();
+            let mut vm = lkr_core::vm::Vm::new();
+            let mut env = lkr_core::stmt::Environment::new();
             let out = vm.exec_with(&f_bc32, Some(&mut env), None).unwrap();
             black_box(out);
         })
@@ -52,8 +52,8 @@ fn bc32_while_bench(c: &mut Criterion) {
     #[cfg(feature = "bc32")]
     c.bench_function("bc32_while_enum", |b| {
         b.iter(|| {
-            let mut vm = qcl_core::vm::Vm::new();
-            let mut env = qcl_core::stmt::Environment::new();
+            let mut vm = lkr_core::vm::Vm::new();
+            let mut env = lkr_core::stmt::Environment::new();
             let out = vm.exec_with(&f_enum, Some(&mut env), None).unwrap();
             black_box(out);
         })

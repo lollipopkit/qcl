@@ -10,7 +10,7 @@
                 "compile"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/vscode-qcl"
+                "cwd": "${workspaceFolder}/vscode-lkr"
             },
             "group": {
                 "kind": "build"
@@ -18,13 +18,13 @@
             "problemMatcher": ["$tsc"]
         },
         {
-            "label": "Build QCL LSP Server",
+            "label": "Build LKR LSP Server",
             "type": "shell",
             "command": "cargo",
             "args": [
                 "build",
                 "-p",
-                "qcl-lsp"
+                "lkr-lsp"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
@@ -35,7 +35,7 @@
         {
             "label": "Build All",
             "dependsOn": [
-                "Build QCL LSP Server",
+                "Build LKR LSP Server",
                 "Build VS Code Extension"
             ],
             "group": {
@@ -51,7 +51,7 @@
                 "install"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/vscode-qcl"
+                "cwd": "${workspaceFolder}/vscode-lkr"
             },
             "problemMatcher": []
         }
