@@ -88,13 +88,7 @@ mod tests {
     #[test]
     fn keywords() {
         let t6 = Tokenizer::new(">true false nil in");
-        let e6 = vec![
-            Token::Gt,
-            Token::Bool(true),
-            Token::Bool(false),
-            Token::Nil,
-            Token::In,
-        ];
+        let e6 = vec![Token::Gt, Token::Bool(true), Token::Bool(false), Token::Nil, Token::In];
         assert_eq!(t6.unwrap(), e6);
     }
 
@@ -177,12 +171,7 @@ mod tests {
     #[test]
     fn list_access() {
         let t = Tokenizer::new("@list.0");
-        let e = vec![
-            Token::At,
-            Token::Id("list".to_string()),
-            Token::Dot,
-            Token::Int(0),
-        ];
+        let e = vec![Token::At, Token::Id("list".to_string()), Token::Dot, Token::Int(0)];
         assert_eq!(t.unwrap(), e);
 
         let t = Tokenizer::new("@list.1.2");
@@ -548,10 +537,7 @@ mod tests {
     #[test]
     fn test_comment() {
         let t = Tokenizer::new("123 // 这是一个注释\n456");
-        let e = vec![
-            Token::Int(123),
-            Token::Int(456),
-        ];
+        let e = vec![Token::Int(123), Token::Int(456)];
         assert_eq!(t.unwrap(), e);
     }
 }

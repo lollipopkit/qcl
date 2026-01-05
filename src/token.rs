@@ -47,11 +47,14 @@ pub struct Tokenizer {
 }
 
 impl Tokenizer {
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(s: &str) -> Result<Vec<Token>> {
+        let chars: Vec<char> = s.chars().collect();
+        let len = chars.len();
         let mut t = Tokenizer {
-            chars: s.chars().collect(),
+            chars,
             idx: 0,
-            len: s.chars().count(), // More accurate than s.len() for Unicode
+            len,                                     // More accurate than s.len() for Unicode
             tokens: Vec::with_capacity(s.len() / 4), // Preallocate a reasonable size
         };
         t.parse()?;
@@ -85,7 +88,7 @@ impl Tokenizer {
         } else {
             self.len
         };
-        let l_idx = if self.idx > 5 { self.idx - 5 } else { 0 };
+        let l_idx = self.idx.saturating_sub(5);
         let r_idx = if r_idx > self.len { self.len } else { r_idx };
         let chars = &self.chars[l_idx..r_idx];
         let chars: String = chars.iter().collect();
@@ -138,41 +141,40 @@ impl Tokenizer {
     /// - @a.b -> [At, Id("a"), Dot, Id("b")]
     /// - @a.0.1 -> [At, Id("a"), Dot, Int(0), Dot, Int(1)]
     fn parse_num(&mut self) -> Result<()> {
-        let mut num = String::new();
+        let start_idx = self.idx;
         let mut dot_count = 0;
         while !self.eof() {
             let c = self.chars[self.idx];
-            if c.is_digit(10) {
-                num.push(c);
+            if c.is_ascii_digit() {
                 self.idx += 1;
             } else if c == '.' {
                 if dot_count > 0 {
                     return Err(anyhow!(self.err("Invalid float, multiple '.'")));
                 }
-                num.push(c);
                 self.idx += 1;
                 dot_count += 1;
-            } else if (c == '-' || c == '+') && num.is_empty() {
-                num.push(c);
+            } else if (c == '-' || c == '+') && self.idx == start_idx {
                 self.idx += 1;
             } else {
                 break;
             }
         }
 
-        if num.ends_with('.') {
+        if self.idx > start_idx && self.chars[self.idx - 1] == '.' {
             return Err(anyhow!(self.err("Invalid float, ends with '.'")));
         }
 
-        let num = if num.contains('.') {
-            match num.parse() {
+        let num_str: String = self.chars[start_idx..self.idx].iter().collect();
+
+        let num = if dot_count > 0 {
+            match num_str.parse() {
                 Ok(f) => Token::Float(f),
-                Err(_) => return Err(anyhow!("{}: {}", self.err("Invalid float"), num)),
+                Err(_) => return Err(anyhow!("{}: {}", self.err("Invalid float"), num_str)),
             }
         } else {
-            match num.parse() {
+            match num_str.parse() {
                 Ok(i) => Token::Int(i),
-                Err(_) => return Err(anyhow!("{}: {}", self.err("Invalid int"), num)),
+                Err(_) => return Err(anyhow!("{}: {}", self.err("Invalid int"), num_str)),
             }
         };
         self.tokens.push(num);
@@ -180,16 +182,15 @@ impl Tokenizer {
     }
 
     fn parse_id(&mut self) -> Result<()> {
-        let mut id = String::new();
+        let start_idx = self.idx;
         while !self.eof() {
             let c = self.chars[self.idx];
-            if c.is_alphanumeric() || c == '_' || c == '-' {
-                id.push(c);
-                self.idx += 1;
-            } else {
+            if !(c.is_alphanumeric() || c == '_' || c == '-') {
                 break;
             }
+            self.idx += 1;
         }
+        let id: String = self.chars[start_idx..self.idx].iter().collect();
         self.tokens.push(Token::Id(id));
         Ok(())
     }
@@ -224,7 +225,7 @@ impl Tokenizer {
         while !self.eof() {
             let c = self.chars[self.idx];
             let is_field = c.is_alphanumeric() || c == '_' || c == '-';
-            let is_num = c.is_digit(10);
+            let is_num = c.is_ascii_digit();
             if is_field && !is_num {
                 self.parse_id()?;
                 continue;
@@ -244,19 +245,20 @@ impl Tokenizer {
     }
 
     fn parse_int(&mut self) -> Result<()> {
-        let mut num = String::new();
+        let start_idx = self.idx;
         while !self.eof() {
             let c = self.chars[self.idx];
-            if c.is_digit(10) {
-                num.push(c);
+            if c.is_ascii_digit() {
                 self.idx += 1;
             } else {
                 break;
             }
         }
-        let num = match num.parse() {
+
+        let num_str: String = self.chars[start_idx..self.idx].iter().collect();
+        let num = match num_str.parse() {
             Ok(i) => i,
-            Err(_) => return Err(anyhow!("{}: {}", self.err("Invalid int"), num)),
+            Err(_) => return Err(anyhow!("{}: {}", self.err("Invalid int"), num_str)),
         };
         self.tokens.push(Token::Int(num));
         Ok(())
@@ -311,14 +313,13 @@ impl Tokenizer {
                 Ok(())
             }
             '.' => {
-                let next = self.chars.get(self.idx + 1);
-                if let Some(&c) = next {
-                    if c.is_digit(10) {
-                        self.idx += 1;
-                        self.tokens.push(Token::Dot);
-                        // To avoid confusion with Dot in float, only parse int here
-                        return self.parse_int();
-                    }
+                if let Some(&c) = self.chars.get(self.idx + 1)
+                    && c.is_ascii_digit()
+                {
+                    self.idx += 1;
+                    self.tokens.push(Token::Dot);
+                    // To avoid confusion with Dot in float, only parse int here
+                    return self.parse_int();
                 }
                 self.idx += 1;
                 self.tokens.push(Token::Dot);
@@ -341,22 +342,20 @@ impl Tokenizer {
                 }
             }
             '+' => {
-                let next = self.chars.get(self.idx + 1);
-                if let Some(&c) = next {
-                    if c.is_digit(10) {
-                        return self.parse_num();
-                    }
+                if let Some(&c) = self.chars.get(self.idx + 1)
+                    && c.is_ascii_digit()
+                {
+                    return self.parse_num();
                 }
                 self.idx += 1;
                 self.tokens.push(Token::Add);
                 Ok(())
             }
             '-' => {
-                let next = self.chars.get(self.idx + 1);
-                if let Some(&c) = next {
-                    if c.is_digit(10) {
-                        return self.parse_num();
-                    }
+                if let Some(&c) = self.chars.get(self.idx + 1)
+                    && c.is_ascii_digit()
+                {
+                    return self.parse_num();
                 }
                 self.idx += 1;
                 self.tokens.push(Token::Sub);
@@ -463,10 +462,29 @@ impl Tokenizer {
     }
 
     fn is_punctuation(&self, c: char) -> bool {
-        match c {
-            '(' | ')' | '{' | '}' | '[' | ']' | '.' | ':' | ',' | ';' | '&' | '|' | '+' | '-'
-            | '*' | '/' | '%' | '@' | '=' | '!' | '>' | '<' => true,
-            _ => false,
-        }
+        matches!(
+            c,
+            '(' | ')'
+                | '{'
+                | '}'
+                | '['
+                | ']'
+                | '.'
+                | ':'
+                | ','
+                | ';'
+                | '&'
+                | '|'
+                | '+'
+                | '-'
+                | '*'
+                | '/'
+                | '%'
+                | '@'
+                | '='
+                | '!'
+                | '>'
+                | '<'
+        )
     }
 }

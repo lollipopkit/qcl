@@ -1,6 +1,6 @@
 use core::ops::{Add, Sub};
 use std::{
-    collections::HashMap,
+    collections::{hash_map::Entry, HashMap},
     fmt::Debug,
     ops::{Div, Mul, Rem},
     sync::Arc,
@@ -9,9 +9,9 @@ use std::{
 use anyhow::Result;
 use serde::{Serialize, Serializer};
 
-use crate::op::{err_op, BinOp};
+use crate::op::{BinOp, err_op};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum Val {
     /// String type, wrapped in Arc<str> for efficient cloning
     Str(Arc<str>),
@@ -22,6 +22,7 @@ pub enum Val {
     Map(Arc<HashMap<String, Val>>),
     /// List type, wrapped in Arc<Vec> for efficient cloning
     List(Arc<Vec<Val>>),
+    #[default]
     Nil,
 }
 
@@ -49,7 +50,7 @@ impl Val {
             let mut result = String::with_capacity(a.len() + b.len());
             result.push_str(a);
             result.push_str(b);
-            Val::Str(Arc::from(result.as_str()))
+            Val::Str(Arc::<str>::from(result.into_boxed_str()))
         }
     }
 }
@@ -71,36 +72,46 @@ impl Add for &Val {
             (Val::Str(a), Val::Int(b)) => {
                 let b_str = b.to_string();
                 Ok(Val::concat_strings(a.as_ref(), &b_str))
-            },
+            }
             #[cfg(feature = "adv_arith")]
             (Val::Str(a), Val::Float(b)) => {
                 let b_str = b.to_string();
                 Ok(Val::concat_strings(a.as_ref(), &b_str))
-            },
+            }
             #[cfg(feature = "adv_arith")]
             (Val::Int(a), Val::Str(b)) => {
                 let a_str = a.to_string();
                 Ok(Val::concat_strings(&a_str, b.as_ref()))
-            },
+            }
             #[cfg(feature = "adv_arith")]
             (Val::Float(a), Val::Str(b)) => {
                 let a_str = a.to_string();
                 Ok(Val::concat_strings(&a_str, b.as_ref()))
-            },
+            }
             #[cfg(feature = "adv_arith")]
             (Val::Map(l), Val::Map(r)) => {
-                // Map + Map: merge with right side overriding left side for same keys
-                // Use with_capacity for better performance
-                let mut merged = HashMap::with_capacity(l.len() + r.len());
-                // First insert all from left map
-                for (k, v) in l.iter() {
-                    merged.insert(k.clone(), v.clone());
+                // Map + Map: right side overrides left side for same keys.
+                // Prefer cloning the larger side to avoid re-hashing every entry.
+                if l.len() >= r.len() {
+                    let mut merged = (**l).clone();
+                    merged.reserve(r.len());
+                    for (k, v) in r.iter() {
+                        merged.insert(k.clone(), v.clone());
+                    }
+                    Ok(merged.into())
+                } else {
+                    let mut merged = (**r).clone();
+                    merged.reserve(l.len());
+                    for (k, v) in l.iter() {
+                        match merged.entry(k.clone()) {
+                            Entry::Vacant(e) => {
+                                e.insert(v.clone());
+                            }
+                            Entry::Occupied(_) => {}
+                        }
+                    }
+                    Ok(merged.into())
                 }
-                // Then insert from right map (overriding duplicates)
-                for (k, v) in r.iter() {
-                    merged.insert(k.clone(), v.clone());
-                }
-                Ok(merged.into())
             }
             #[cfg(feature = "adv_arith")]
             (Val::List(l), Val::List(r)) => {
@@ -241,7 +252,7 @@ impl Rem for &Val {
 impl From<String> for Val {
     #[inline]
     fn from(s: String) -> Self {
-        Val::Str(Arc::from(s.as_str()))
+        Val::Str(Arc::<str>::from(s.into_boxed_str()))
     }
 }
 
@@ -279,10 +290,7 @@ where
     S: AsRef<str>,
 {
     fn from(m: HashMap<S, V>) -> Self {
-        let inner = m
-            .into_iter()
-            .map(|(k, v)| (k.as_ref().to_string(), v.into()))
-            .collect();
+        let inner = m.into_iter().map(|(k, v)| (k.as_ref().to_string(), v.into())).collect();
         Val::Map(Arc::new(inner))
     }
 }
@@ -328,7 +336,7 @@ impl From<()> for Val {
 impl From<serde_json::Value> for Val {
     fn from(val: serde_json::Value) -> Self {
         match val {
-            serde_json::Value::String(s) => Val::Str(Arc::from(s.as_str())),
+            serde_json::Value::String(s) => Val::Str(Arc::<str>::from(s.into_boxed_str())),
             serde_json::Value::Number(n) => {
                 if let Some(i) = n.as_i64() {
                     Val::Int(i)
@@ -344,10 +352,7 @@ impl From<serde_json::Value> for Val {
                 Val::List(Arc::new(v))
             }
             serde_json::Value::Object(o) => {
-                let m = o
-                    .into_iter()
-                    .map(|(k, v)| (k.into(), Val::from(v)))
-                    .collect();
+                let m = o.into_iter().map(|(k, v)| (k, Val::from(v))).collect();
                 Val::Map(Arc::new(m))
             }
             serde_json::Value::Null => Val::Nil,
@@ -359,7 +364,7 @@ impl From<serde_json::Value> for Val {
 impl From<serde_yaml::Value> for Val {
     fn from(val: serde_yaml::Value) -> Self {
         match val {
-            serde_yaml::Value::String(s) => Val::Str(Arc::from(s.as_str())),
+            serde_yaml::Value::String(s) => Val::Str(Arc::<str>::from(s.into_boxed_str())),
             serde_yaml::Value::Number(n) => {
                 if let Some(i) = n.as_i64() {
                     Val::Int(i)
@@ -403,12 +408,6 @@ impl Val {
     }
 }
 
-impl Default for Val {
-    fn default() -> Self {
-        Val::Nil
-    }
-}
-
 impl PartialOrd for Val {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         match (self, other) {
@@ -446,26 +445,35 @@ impl core::fmt::Display for Val {
             Val::Float(fl) => write!(f, "{fl}"),
             Val::Bool(b) => write!(f, "{b}"),
             Val::Str(s) => write!(f, "{}", s.as_ref()),
-            Val::Map(m) => {
-                // Avoid serialization errors by using debug fallback
-                #[cfg(feature = "json")]
-                match serde_json::to_string(&**m) {
-                    Ok(s) => write!(f, "{}", s),
-                    Err(_) => write!(f, "{:?}", m),
-                }
-                #[cfg(not(feature = "json"))]
-                write!(f, "{:?}", m)
-            }
-            Val::List(l) => {
-                #[cfg(feature = "json")]
-                match serde_json::to_string(&**l) {
-                    Ok(s) => write!(f, "{}", s),
-                    Err(_) => write!(f, "{:?}", l),
-                }
-                #[cfg(not(feature = "json"))]
-                write!(f, "{:?}", l)
-            },
+            Val::Map(m) => fmt_map(f, m),
+            Val::List(l) => fmt_list(f, l),
             Val::Nil => write!(f, "nil"),
         }
     }
+}
+
+#[cfg(feature = "json")]
+fn fmt_map(f: &mut core::fmt::Formatter<'_>, m: &Arc<HashMap<String, Val>>) -> core::fmt::Result {
+    match serde_json::to_string(&**m) {
+        Ok(s) => write!(f, "{s}"),
+        Err(_) => write!(f, "{:?}", m),
+    }
+}
+
+#[cfg(not(feature = "json"))]
+fn fmt_map(f: &mut core::fmt::Formatter<'_>, m: &Arc<HashMap<String, Val>>) -> core::fmt::Result {
+    write!(f, "{:?}", m)
+}
+
+#[cfg(feature = "json")]
+fn fmt_list(f: &mut core::fmt::Formatter<'_>, l: &Arc<Vec<Val>>) -> core::fmt::Result {
+    match serde_json::to_string(&**l) {
+        Ok(s) => write!(f, "{s}"),
+        Err(_) => write!(f, "{:?}", l),
+    }
+}
+
+#[cfg(not(feature = "json"))]
+fn fmt_list(f: &mut core::fmt::Formatter<'_>, l: &Arc<Vec<Val>>) -> core::fmt::Result {
+    write!(f, "{:?}", l)
 }

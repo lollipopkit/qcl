@@ -1,10 +1,12 @@
-use std::io::BufRead;
+use std::io::Read;
 
-use qcl::{expr::Expr, val::Val, de};
+use qcl::{de, expr::Expr, val::Val};
 
+#[allow(clippy::vec_init_then_push)]
 fn main() -> anyhow::Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
     if args.len() < 2 {
+        #[allow(clippy::vec_init_then_push)]
         let mut formats = Vec::new();
         #[cfg(feature = "json")]
         formats.push("json");
@@ -12,21 +14,18 @@ fn main() -> anyhow::Result<()> {
         formats.push("yaml");
         #[cfg(feature = "toml")]
         formats.push("toml");
-        
+
         let format_str = formats.join("|");
         let flag_str = formats.iter().map(|f| format!("--{}", f)).collect::<Vec<_>>().join("|");
-        
+
         eprintln!("Usage: cat <{}> | {} [{}] <expr>", format_str, args[0], flag_str);
         eprintln!("  Format is auto-detected unless {} is specified", flag_str);
         std::process::exit(1);
     }
 
-    let raw = std::io::stdin()
-        .lock()
-        .lines()
-        .collect::<Result<Vec<_>, _>>()?
-        .join("\n");
-    
+    let mut raw = String::new();
+    std::io::stdin().read_to_string(&mut raw)?;
+
     let (format_override, expr) = if args.len() > 2 {
         match args[1].as_str() {
             #[cfg(feature = "json")]
@@ -42,9 +41,9 @@ fn main() -> anyhow::Result<()> {
     };
 
     let ctx: Val = de::parse_with_format(&raw, format_override)?;
-    
-    let val = Expr::parse_cached(&expr)?;
-    let res = val.eval(&ctx)?;
+
+    let expr = Expr::parse_cached_arc(&expr)?;
+    let res = expr.eval(&ctx)?;
     println!("{}", res);
     Ok(())
 }

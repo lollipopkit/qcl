@@ -2,9 +2,20 @@ use core::cmp::Ordering;
 use core::fmt::Debug;
 use std::fmt::Display;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
 use crate::{expr::Expr, val::Val};
+
+fn list_contains(list: &[Val], needle: &Val) -> bool {
+    match needle {
+        Val::Int(i) => list.iter().any(|v| matches!(v, Val::Int(x) if x == i)),
+        Val::Str(s) => list
+            .iter()
+            .any(|v| matches!(v, Val::Str(t) if t.as_ref() == s.as_ref())),
+        Val::Bool(b) => list.iter().any(|v| matches!(v, Val::Bool(x) if x == b)),
+        _ => list.contains(needle),
+    }
+}
 
 pub(crate) fn err_op<T: Display, R>(l: &Val, op: T, r: &Val) -> Result<R> {
     Err(anyhow!("Invalid op: {l} {op} {r}"))
@@ -55,19 +66,14 @@ pub enum BinOp {
 
 impl BinOp {
     pub(crate) fn is_arith(&self) -> bool {
-        match self {
-            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => true,
-            _ => false,
-        }
+        matches!(self, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod)
     }
 
     pub(crate) fn is_cmp(&self) -> bool {
-        match self {
-            BinOp::Eq | BinOp::Ne | BinOp::Gt | BinOp::Lt | BinOp::Ge | BinOp::Le | BinOp::In => {
-                true
-            }
-            _ => false,
-        }
+        matches!(
+            self,
+            BinOp::Eq | BinOp::Ne | BinOp::Gt | BinOp::Lt | BinOp::Ge | BinOp::Le | BinOp::In
+        )
     }
 
     fn arith(&self, l: &Val, r: &Val) -> Result<Val> {
@@ -89,36 +95,65 @@ impl BinOp {
                 (Val::Str(l), Val::Str(r)) => Ok(r.as_ref().contains(l.as_ref())),
 
                 // All elements in l must be in r
-                (Val::List(l), Val::List(r)) => Ok((**l).iter().all(|x| (**r).contains(x))),
-                // Single element membership: use HashSet for large lists
-                (_, Val::List(r)) => {
-                    if r.len() > 32 {
-                        use std::collections::HashSet;
-                        match l {
-                            Val::Int(i) => {
-                                let set: HashSet<_> = (**r).iter()
-                                    .filter_map(|v| if let Val::Int(x) = v { Some(*x) } else { None })
-                                    .collect();
-                                Ok(set.contains(i))
-                            }
-                            Val::Str(s) => {
-                                let set: HashSet<_> = (**r).iter()
-                                    .filter_map(|v| if let Val::Str(t) = v { Some(t.as_ref()) } else { None })
-                                    .collect();
-                                Ok(set.contains(s.as_ref()))
-                            }
-                            Val::Bool(b) => {
-                                let set: HashSet<_> = (**r).iter()
-                                    .filter_map(|v| if let Val::Bool(x) = v { Some(*x) } else { None })
-                                    .collect();
-                                Ok(set.contains(b))
-                            }
-                            _ => Ok((**r).contains(l)),
-                        }
-                    } else {
-                        Ok((**r).contains(l))
+                (Val::List(l), Val::List(r)) => {
+                    if l.is_empty() {
+                        return Ok(true);
                     }
-                },
+
+                    if r.is_empty() {
+                        return Ok(false);
+                    }
+
+                    if l.len() <= 32 || r.len() <= 32 {
+                        return Ok((**l).iter().all(|x| list_contains(r, x)));
+                    }
+
+                    use std::collections::HashSet;
+
+                    if (**l).iter().all(|v| matches!(v, Val::Int(_))) {
+                        let mut set = HashSet::with_capacity(r.len());
+                        for v in (**r).iter() {
+                            if let Val::Int(x) = v {
+                                set.insert(*x);
+                            }
+                        }
+                        return Ok((**l)
+                            .iter()
+                            .filter_map(|v| if let Val::Int(x) = v { Some(*x) } else { None })
+                            .all(|x| set.contains(&x)));
+                    }
+
+                    if (**l).iter().all(|v| matches!(v, Val::Str(_))) {
+                        let mut set: HashSet<&str> = HashSet::with_capacity(r.len());
+                        for v in (**r).iter() {
+                            if let Val::Str(s) = v {
+                                set.insert(s.as_ref());
+                            }
+                        }
+                        return Ok((**l)
+                            .iter()
+                            .filter_map(|v| if let Val::Str(s) = v { Some(s.as_ref()) } else { None })
+                            .all(|s| set.contains(s)));
+                    }
+
+                    if (**l).iter().all(|v| matches!(v, Val::Bool(_))) {
+                        let mut set: HashSet<bool> = HashSet::with_capacity(r.len());
+                        for v in (**r).iter() {
+                            if let Val::Bool(b) = v {
+                                set.insert(*b);
+                            }
+                        }
+                        return Ok((**l)
+                            .iter()
+                            .filter_map(|v| if let Val::Bool(b) = v { Some(*b) } else { None })
+                            .all(|b| set.contains(&b)));
+                    }
+
+                    Ok((**l).iter().all(|x| list_contains(r, x)))
+                }
+
+                // Single element membership
+                (_, Val::List(r)) => Ok(list_contains(r, l)),
 
                 // Map key lookup optimization
                 (Val::Str(s), Val::Map(m)) => Ok(m.contains_key(s.as_ref())),

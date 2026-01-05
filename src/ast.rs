@@ -4,8 +4,8 @@ use crate::{
     token::Token,
     val::Val,
 };
-use std::sync::Arc;
 use anyhow::{Result, anyhow};
+use std::sync::Arc;
 
 pub struct Parser<'a> {
     tokens: &'a [Token],
@@ -67,7 +67,7 @@ impl<'a> Parser<'a> {
 
     /// - `expr == expr`
     /// - `expr != expr`
-    /// ...
+    ///   ...
     fn parse_cmp(&mut self) -> Result<Expr> {
         let mut expr = self.parse_add_sub()?;
         while !self.eof() {
@@ -429,8 +429,7 @@ impl<'a> Parser<'a> {
                     }
                     Token::RBrace => break,
                     _ => {
-                        let msg =
-                            format!("Expecting ',' or '}}', found {:?}", self.tokens[self.pos]);
+                        let msg = format!("Expecting ',' or '}}', found {:?}", self.tokens[self.pos]);
                         return Err(anyhow!(self.err(&msg)));
                     }
                 }
@@ -490,10 +489,7 @@ impl<'a> Parser<'a> {
             }
             Token::At => self.parse_at(),
             _ => {
-                let msg = format!(
-                    "Unexpected token in field accessor: {:?}",
-                    self.tokens[self.pos]
-                );
+                let msg = format!("Unexpected token in field accessor: {:?}", self.tokens[self.pos]);
                 Err(anyhow!(self.err(&msg)))
             }
         }
@@ -547,20 +543,20 @@ impl<'a> Parser<'a> {
             return false;
         }
 
-        match self.tokens[self.pos] {
+        matches!(
+            self.tokens[self.pos],
             Token::Nil
-            | Token::Bool(_)
-            | Token::Int(_)
-            | Token::Float(_)
-            | Token::Str(_)
-            | Token::Id(_)
-            | Token::At
-            | Token::LBracket
-            | Token::LBrace
-            | Token::LParen
-            | Token::Not => true,
-            _ => false,
-        }
+                | Token::Bool(_)
+                | Token::Int(_)
+                | Token::Float(_)
+                | Token::Str(_)
+                | Token::Id(_)
+                | Token::At
+                | Token::LBracket
+                | Token::LBrace
+                | Token::LParen
+                | Token::Not
+        )
     }
 
     /// Check if the current token is an invalid separator
@@ -569,21 +565,14 @@ impl<'a> Parser<'a> {
             return false;
         }
 
-        match self.tokens[self.pos] {
-            Token::Semicolon => true,
-            _ => false,
-        }
+        matches!(self.tokens[self.pos], Token::Semicolon)
     }
 }
 
 impl<'a> Parser<'a> {
     pub fn new(tokens: &'a [Token]) -> Self {
         let len = tokens.len();
-        Self {
-            tokens,
-            pos: 0,
-            len,
-        }
+        Self { tokens, pos: 0, len }
     }
 
     fn eof(&self) -> bool {
@@ -596,7 +585,7 @@ impl<'a> Parser<'a> {
         } else {
             self.len
         };
-        let l_idx = if self.pos > 5 { self.pos - 5 } else { 0 };
+        let l_idx = self.pos.saturating_sub(5);
         let r_idx = if r_idx > self.len { self.len } else { r_idx };
         let chars = &self.tokens[l_idx..r_idx];
         let chars: Vec<_> = chars.iter().collect();

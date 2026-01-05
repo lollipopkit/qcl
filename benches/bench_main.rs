@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use qcl::expr::Expr;
 use qcl::val::Val;
 use std::collections::HashMap;
@@ -12,8 +12,14 @@ fn make_context() -> Val {
     ctx_map.insert("val_large".to_string(), Val::Int(9999));
     ctx_map.insert("x".to_string(), Val::Int(1));
     // Lists (small and large)
-    ctx_map.insert("smalllist".to_string(), (1..=10).map(Val::Int).collect::<Vec<_>>().into());
-    ctx_map.insert("biglist".to_string(), (0..1000).map(Val::Int).collect::<Vec<_>>().into());
+    ctx_map.insert(
+        "smalllist".to_string(),
+        (1..=10).map(Val::Int).collect::<Vec<_>>().into(),
+    );
+    ctx_map.insert(
+        "biglist".to_string(),
+        (0..1000).map(Val::Int).collect::<Vec<_>>().into(),
+    );
     // Map and keys
     ctx_map.insert("key".to_string(), Val::Str(Arc::from("key50")));
     let mut bigmap_inner = HashMap::new();
@@ -24,13 +30,21 @@ fn make_context() -> Val {
     // Long string
     let big_string = "a".repeat(1000) + "z";
     ctx_map.insert("bigstr".to_string(), Val::Str(Arc::from(big_string.as_str())));
+
+    // Nested maps for @-path access
+    let mut user = HashMap::new();
+    user.insert("role".to_string(), Val::Str(Arc::from("admin")));
+    user.insert("age".to_string(), Val::Int(18));
+    let mut req = HashMap::new();
+    req.insert("user".to_string(), Val::Map(Arc::new(user)));
+    ctx_map.insert("req".to_string(), Val::Map(Arc::new(req)));
     Val::Map(Arc::new(ctx_map))
 }
 
 // Benchmark 1: Expression parsing performance (without cache vs with cache)
 fn bench_parsing(c: &mut Criterion) {
     let expr_str = "(@user.age + 2) * (3 + 4) && @user.name == \"Alice\" || [1, 2, 3].1 in [0, 1, 2]";
-    
+
     // Parsing without cache
     c.bench_function("parse_without_cache", |b| {
         b.iter(|| {
@@ -39,9 +53,9 @@ fn bench_parsing(c: &mut Criterion) {
             black_box(&expr);
         })
     });
-    
+
     // Parsing with cache (warm up cache then repeatedly parse same expression)
-    let _ = Expr::parse_cached(expr_str).unwrap();  // Warm up cache
+    let _ = Expr::parse_cached(expr_str).unwrap(); // Warm up cache
     c.bench_function("parse_with_cache", |b| {
         b.iter(|| {
             let expr = Expr::parse_cached(expr_str).unwrap();
@@ -53,7 +67,7 @@ fn bench_parsing(c: &mut Criterion) {
 // Benchmark 2: Expression evaluation performance (constant folding vs no folding)
 fn bench_evaluation(c: &mut Criterion) {
     let ctx = make_context();
-    
+
     // Build long expression: pure constants and containing context variables
     let expr_const_str = concat!(
         "1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + ",
@@ -68,18 +82,18 @@ fn bench_evaluation(c: &mut Criterion) {
         "91 + 92 + 93 + 94 + 95 + 96 + 97 + 98 + 99 + 100"
     );
     let expr_nonconst_str = "@x + ".repeat(99) + "@x";
-    
+
     // Parse expressions (constant folding will happen during parsing)
-    let expr_constant = Expr::parse_cached(expr_const_str).unwrap();      // Will fold to a constant
-    let expr_nonconstant = Expr::parse_cached(&expr_nonconst_str).unwrap();  // Keep chain of @x additions
-    
+    let expr_constant = Expr::parse_cached(expr_const_str).unwrap(); // Will fold to a constant
+    let expr_nonconstant = Expr::parse_cached(&expr_nonconst_str).unwrap(); // Keep chain of @x additions
+
     // Evaluate constant-folded expression
     c.bench_function("eval_constant_folded", |b| {
         b.iter(|| {
             black_box(expr_constant.eval(&ctx).unwrap());
         })
     });
-    
+
     // Evaluate non-folded expression
     c.bench_function("eval_not_folded", |b| {
         b.iter(|| {
@@ -91,34 +105,42 @@ fn bench_evaluation(c: &mut Criterion) {
 // Benchmark 3: 'in' operator performance comparison (small list vs large list vs Map vs string)
 fn bench_in_operator(c: &mut Criterion) {
     let ctx = make_context();
-    
+
     // Build test expressions containing 'in' (using predefined data in context)
     let expr_in_list_small = Expr::parse_cached("@val_small in @smalllist").unwrap();
     let expr_in_list_large = Expr::parse_cached("@val_large in @biglist").unwrap();
+    let expr_in_list_all = Expr::parse_cached("@smalllist in @biglist").unwrap();
     let expr_in_map = Expr::parse_cached("@key in @bigmap").unwrap();
     let expr_in_str = Expr::parse_cached("\"z\" in @bigstr").unwrap();
-    
+
     // Small list membership
     c.bench_function("in_list_small", |b| {
         b.iter(|| {
             black_box(expr_in_list_small.eval(&ctx).unwrap());
         })
     });
-    
+
     // Large list membership
     c.bench_function("in_list_large", |b| {
         b.iter(|| {
             black_box(expr_in_list_large.eval(&ctx).unwrap());
         })
     });
-    
+
+    // List-in-list membership
+    c.bench_function("in_list_all", |b| {
+        b.iter(|| {
+            black_box(expr_in_list_all.eval(&ctx).unwrap());
+        })
+    });
+
     // Map key lookup
     c.bench_function("in_map_keys", |b| {
         b.iter(|| {
             black_box(expr_in_map.eval(&ctx).unwrap());
         })
     });
-    
+
     // String substring lookup
     c.bench_function("in_string", |b| {
         b.iter(|| {
@@ -127,7 +149,20 @@ fn bench_in_operator(c: &mut Criterion) {
     });
 }
 
-// Benchmark 4: Val cloning and arithmetic operations (large data structures)
+// Benchmark 4: @-path access performance (deep nested access)
+fn bench_at_access(c: &mut Criterion) {
+    let ctx = make_context();
+    let expr = Expr::parse_cached("@req.user.role").unwrap();
+
+    c.bench_function("at_access_deep", |b| {
+        b.iter(|| {
+            black_box(expr.eval(&ctx).unwrap());
+        })
+    });
+}
+
+// Benchmark 5: Val cloning and arithmetic operations (large data structures)
+#[cfg(feature = "adv_arith")]
 fn bench_val_operations(c: &mut Criterion) {
     // Create large Map and List for testing
     let mut large_map = HashMap::new();
@@ -135,19 +170,19 @@ fn bench_val_operations(c: &mut Criterion) {
         large_map.insert(format!("key{}", i), Val::Int(i));
     }
     let val_map = Val::Map(Arc::new(large_map));
-    
+
     let large_list: Vec<Val> = (0..1000).map(Val::Int).collect();
     let val_list = Val::List(Arc::new(large_list));
-    
+
     let mut small_map = HashMap::new();
     for i in 0..10 {
         small_map.insert(format!("key{}", i), Val::Int(i));
     }
     let val_map_small = Val::Map(Arc::new(small_map));
-    
+
     let small_list: Vec<Val> = (0..10).map(Val::Int).collect();
     let val_list_small = Val::List(Arc::new(small_list));
-    
+
     // Benchmark Map + Map operations (merge with capacity optimization)
     c.bench_function("map_add_large", |b| {
         b.iter(|| {
@@ -155,7 +190,7 @@ fn bench_val_operations(c: &mut Criterion) {
             black_box(result);
         })
     });
-    
+
     // Benchmark List + List operations (with capacity optimization)
     c.bench_function("list_add_large", |b| {
         b.iter(|| {
@@ -163,7 +198,7 @@ fn bench_val_operations(c: &mut Criterion) {
             black_box(result);
         })
     });
-    
+
     // Benchmark List + Val operations (append single element)
     c.bench_function("list_add_element", |b| {
         b.iter(|| {
@@ -171,7 +206,7 @@ fn bench_val_operations(c: &mut Criterion) {
             black_box(result);
         })
     });
-    
+
     // Benchmark List - List operations (set difference with filtering)
     c.bench_function("list_subtract_large", |b| {
         b.iter(|| {
@@ -179,7 +214,7 @@ fn bench_val_operations(c: &mut Criterion) {
             black_box(result);
         })
     });
-    
+
     // Benchmark Map - Map operations (key removal)
     c.bench_function("map_subtract_large", |b| {
         b.iter(|| {
@@ -187,7 +222,7 @@ fn bench_val_operations(c: &mut Criterion) {
             black_box(result);
         })
     });
-    
+
     // Benchmark Map - String operations (single key removal)
     c.bench_function("map_subtract_key", |b| {
         b.iter(|| {
@@ -197,14 +232,19 @@ fn bench_val_operations(c: &mut Criterion) {
     });
 }
 
-// Benchmark 5: String concatenation performance
+#[cfg(not(feature = "adv_arith"))]
+fn bench_val_operations(_: &mut Criterion) {}
+
+// Benchmark 6: String concatenation performance
 fn bench_string_operations(c: &mut Criterion) {
     let short_str = Val::Str(Arc::from("short"));
     let long_str = Val::Str(Arc::from("a".repeat(1000).as_str()));
     let empty_str = Val::Str(Arc::from(""));
+    #[cfg(feature = "adv_arith")]
     let number = Val::Int(12345);
+    #[cfg(feature = "adv_arith")]
     let float = Val::Float(123.456);
-    
+
     // String + String concatenation (optimized with capacity)
     c.bench_function("string_concat_short", |b| {
         b.iter(|| {
@@ -212,14 +252,14 @@ fn bench_string_operations(c: &mut Criterion) {
             black_box(result);
         })
     });
-    
+
     c.bench_function("string_concat_long", |b| {
         b.iter(|| {
             let result = (&long_str + &short_str).unwrap();
             black_box(result);
         })
     });
-    
+
     // String + empty optimization
     c.bench_function("string_concat_empty", |b| {
         b.iter(|| {
@@ -227,7 +267,7 @@ fn bench_string_operations(c: &mut Criterion) {
             black_box(result);
         })
     });
-    
+
     // String + Number concatenation (with feature flag)
     #[cfg(feature = "adv_arith")]
     {
@@ -237,7 +277,7 @@ fn bench_string_operations(c: &mut Criterion) {
                 black_box(result);
             })
         });
-        
+
         c.bench_function("string_concat_float", |b| {
             b.iter(|| {
                 let result = (&short_str + &float).unwrap();
@@ -247,10 +287,10 @@ fn bench_string_operations(c: &mut Criterion) {
     }
 }
 
-// Benchmark 6: Memory allocation patterns (Vec/HashMap with_capacity vs default)
+// Benchmark 7: Memory allocation patterns (Vec/HashMap with_capacity vs default)
 fn bench_memory_allocation(c: &mut Criterion) {
     let size = 1000;
-    
+
     // Benchmark HashMap creation with capacity vs without
     c.bench_function("hashmap_with_capacity", |b| {
         b.iter(|| {
@@ -261,7 +301,7 @@ fn bench_memory_allocation(c: &mut Criterion) {
             black_box(map);
         })
     });
-    
+
     c.bench_function("hashmap_default_capacity", |b| {
         b.iter(|| {
             let mut map = HashMap::new();
@@ -271,7 +311,7 @@ fn bench_memory_allocation(c: &mut Criterion) {
             black_box(map);
         })
     });
-    
+
     // Benchmark Vec creation with capacity vs without
     c.bench_function("vec_with_capacity", |b| {
         b.iter(|| {
@@ -282,7 +322,7 @@ fn bench_memory_allocation(c: &mut Criterion) {
             black_box(vec);
         })
     });
-    
+
     c.bench_function("vec_default_capacity", |b| {
         b.iter(|| {
             let mut vec = Vec::new();
@@ -294,16 +334,17 @@ fn bench_memory_allocation(c: &mut Criterion) {
     });
 }
 
-// Benchmark 7: Expression evaluation with complex arithmetic (measures overall cloning impact)
+// Benchmark 8: Expression evaluation with complex arithmetic (measures overall cloning impact)
+#[cfg(feature = "adv_arith")]
 fn bench_complex_arithmetic(c: &mut Criterion) {
     let mut ctx_map = HashMap::new();
-    
+
     // Create large lists for complex operations
     let list1: Vec<Val> = (0..100).map(Val::Int).collect();
     let list2: Vec<Val> = (50..150).map(Val::Int).collect();
     ctx_map.insert("list1".to_string(), Val::List(Arc::new(list1)));
     ctx_map.insert("list2".to_string(), Val::List(Arc::new(list2)));
-    
+
     // Create large maps for merging operations
     let mut map1 = HashMap::new();
     let mut map2 = HashMap::new();
@@ -313,28 +354,28 @@ fn bench_complex_arithmetic(c: &mut Criterion) {
     }
     ctx_map.insert("map1".to_string(), Val::Map(Arc::new(map1)));
     ctx_map.insert("map2".to_string(), Val::Map(Arc::new(map2)));
-    
+
     let ctx = Val::Map(Arc::new(ctx_map));
-    
+
     // Complex arithmetic operations that trigger multiple clones
     let expr_list_ops = Expr::parse_cached("@list1 + @list2 - [75, 76, 77]").unwrap();
     let expr_map_ops = Expr::parse_cached("@map1 + @map2 - \"key25\"").unwrap();
     let expr_mixed = Expr::parse_cached("(@list1 + [999]) + (@list2 - [100, 101])").unwrap();
-    
+
     c.bench_function("complex_list_arithmetic", |b| {
         b.iter(|| {
             let result = expr_list_ops.eval(&ctx).unwrap();
             black_box(result);
         })
     });
-    
+
     c.bench_function("complex_map_arithmetic", |b| {
         b.iter(|| {
             let result = expr_map_ops.eval(&ctx).unwrap();
             black_box(result);
         })
     });
-    
+
     c.bench_function("complex_mixed_arithmetic", |b| {
         b.iter(|| {
             let result = expr_mixed.eval(&ctx).unwrap();
@@ -343,12 +384,16 @@ fn bench_complex_arithmetic(c: &mut Criterion) {
     });
 }
 
+#[cfg(not(feature = "adv_arith"))]
+fn bench_complex_arithmetic(_: &mut Criterion) {}
+
 // Criterion benchmark group definition
 criterion_group!(
-    benches, 
-    bench_parsing, 
-    bench_evaluation, 
+    benches,
+    bench_parsing,
+    bench_evaluation,
     bench_in_operator,
+    bench_at_access,
     bench_val_operations,
     bench_string_operations,
     bench_memory_allocation,

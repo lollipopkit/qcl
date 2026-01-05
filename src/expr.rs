@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashSet, HashMap},
+    collections::{HashMap, HashSet},
     fmt::{Debug, Display},
     sync::Arc,
 };
@@ -13,7 +13,7 @@ use crate::{
     val::Val,
 };
 use once_cell::sync::Lazy;
-use std::sync::Mutex;
+use std::sync::RwLock;
 
 /// Grammar:
 /// exp     ::= paren
@@ -120,18 +120,35 @@ impl Expr {
 
                 let mut val = ctx;
                 for path in paths {
-                    val = match val.access(&path.eval(ctx)?) {
+                    let tmp;
+                    let key = match &**path {
+                        Expr::Val(v) => v,
+                        _ => {
+                            tmp = path.eval(ctx)?;
+                            &tmp
+                        }
+                    };
+
+                    val = match val.access(key) {
                         Some(v) => v,
                         None => return Ok(Val::Nil),
-                    }
+                    };
                 }
                 // Return a clone only at the end of evaluation to reduce allocations
                 Ok(val.clone())
             }
             Expr::Access(expr, field) => {
                 let val = expr.eval(ctx)?;
-                let field_val = field.eval(ctx)?;
-                match val.access(&field_val) {
+                let tmp;
+                let field_val = match &**field {
+                    Expr::Val(v) => v,
+                    _ => {
+                        tmp = field.eval(ctx)?;
+                        &tmp
+                    }
+                };
+
+                match val.access(field_val) {
                     Some(v) => Ok(v.clone()),
                     None => Ok(Val::Nil),
                 }
@@ -156,10 +173,7 @@ impl Expr {
                         Val::Float(f) => f.to_string(),
                         Val::Bool(b) => b.to_string(),
                         _ => {
-                            return Err(anyhow!(
-                                "Map key must be a primitive type, got: {:?}",
-                                key_val
-                            ));
+                            return Err(anyhow!("Map key must be a primitive type, got: {:?}", key_val));
                         }
                     };
 
@@ -241,24 +255,33 @@ impl Expr {
 
     /// Cached parsing: parse expression string to Expr with caching to avoid repeated parsing overhead
     pub fn parse_cached(expression: &str) -> Result<Expr> {
-        // Global static cache: Key is expression string, Value is parsed Expr wrapped in Arc
-        static PARSE_CACHE: Lazy<Mutex<HashMap<String, Arc<Expr>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
-        let mut cache = PARSE_CACHE.lock().unwrap();
-        if let Some(cached) = cache.get(expression) {
-            // Cache hit, clone the Arc (cheap)
-            return Ok((*cached.clone()).clone());
+        Ok((*Self::parse_cached_arc(expression)?).clone())
+    }
+
+    /// Cached parsing variant that avoids cloning the parsed AST on cache hits.
+    pub fn parse_cached_arc(expression: &str) -> Result<Arc<Expr>> {
+        static PARSE_CACHE: Lazy<RwLock<HashMap<String, Arc<Expr>>>> = Lazy::new(|| RwLock::new(HashMap::new()));
+
+        if let Some(cached) = PARSE_CACHE.read().unwrap().get(expression).cloned() {
+            return Ok(cached);
         }
-        // Cache miss, perform normal parsing
+
         let tokens = Tokenizer::new(expression)?;
-        let expr = Parser::new(&tokens).parse()?;  // Internal constant folding happens in parser
-        cache.insert(expression.to_string(), Arc::new(expr.clone()));
+        let expr = Parser::new(&tokens).parse()?; // Internal constant folding happens in parser
+        let expr = Arc::new(expr);
+
+        PARSE_CACHE
+            .write()
+            .unwrap()
+            .insert(expression.to_string(), expr.clone());
+
         Ok(expr)
     }
 
     /// Constant folding: calculate pure constant sub-expressions as Val constants
     pub(crate) fn fold_constants(self) -> Expr {
         match self {
-            Expr::Val(_) => self,  // Constant value, return directly
+            Expr::Val(_) => self, // Constant value, return directly
             Expr::Bin(l_box, op, r_box) => {
                 // Recursively fold left and right sub-expressions
                 let left = (*l_box).fold_constants();
@@ -353,19 +376,24 @@ impl Expr {
                 let folded_elems: Vec<Expr> = exprs.into_iter().map(|e| e.fold_constants()).collect();
                 if folded_elems.iter().all(|e| matches!(e, Expr::Val(_))) {
                     // Extract all constant values as new list elements
-                    let const_vals: Vec<Val> = folded_elems.into_iter().map(|e| {
-                        if let Expr::Val(v) = e { v } else { unreachable!() }
-                    }).collect();
+                    let const_vals: Vec<Val> = folded_elems
+                        .into_iter()
+                        .map(|e| if let Expr::Val(v) = e { v } else { unreachable!() })
+                        .collect();
                     return Expr::Val(Val::List(Arc::new(const_vals)));
                 }
                 Expr::List(folded_elems.into_iter().map(Box::new).collect())
             }
             Expr::Map(pairs) => {
                 // Map constant folding: if all keys and values are constants, then construct constant Map
-                let folded_pairs: Vec<(Box<Expr>, Box<Expr>)> = pairs.into_iter()
-                    .map(|(k, v)| (Box::new(k.fold_constants()), Box::new(v.fold_constants())) )
+                let folded_pairs: Vec<(Box<Expr>, Box<Expr>)> = pairs
+                    .into_iter()
+                    .map(|(k, v)| (Box::new(k.fold_constants()), Box::new(v.fold_constants())))
                     .collect();
-                if folded_pairs.iter().all(|(k, v)| matches!(&**k, Expr::Val(_)) && matches!(&**v, Expr::Val(_))) {
+                if folded_pairs
+                    .iter()
+                    .all(|(k, v)| matches!(&**k, Expr::Val(_)) && matches!(&**v, Expr::Val(_)))
+                {
                     let mut const_map = HashMap::with_capacity(folded_pairs.len());
                     for (k_expr, v_expr) in &folded_pairs {
                         if let (Expr::Val(k_val), Expr::Val(v_val)) = (&**k_expr, &**v_expr) {
@@ -448,8 +476,7 @@ impl Display for Expr {
                 write!(f, "[{}]", exprs.join(", "))
             }
             Expr::Map(pairs) => {
-                let pairs: Vec<String> =
-                    pairs.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
+                let pairs: Vec<String> = pairs.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
                 write!(f, "{{{}}}", pairs.join(", "))
             }
             Expr::Paren(expr) => write!(f, "{expr}"),

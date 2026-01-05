@@ -157,10 +157,7 @@ mod test {
         let mut expected = HashMap::new();
         expected.insert("user_name".to_string(), Val::Str("lk".into()));
         expected.insert("user_age".to_string(), Val::Int(18));
-        expect(
-            r#"{"user_name": @user.name, "user_age": @user.age}"#,
-            expected,
-        );
+        expect(r#"{"user_name": @user.name, "user_age": @user.age}"#, expected);
 
         // Map with different key types
         let mut expected = HashMap::new();
@@ -251,9 +248,7 @@ mod test {
         assert_eq!(names, expected);
 
         // Test with list/map literals containing context access
-        let expr =
-            Expr::try_from(r#"[@user.name, @list.0] == {"name": @user.name, "first": @list.0}"#)
-                .unwrap();
+        let expr = Expr::try_from(r#"[@user.name, @list.0] == {"name": @user.name, "first": @list.0}"#).unwrap();
         let names = expr.requested_ctx();
 
         let mut expected = HashSet::new();
@@ -276,25 +271,25 @@ mod test {
     fn test_quoted_field_access() {
         // Basic quoted field access
         expect(r#"@"with.&=""#, true);
-        
+
         // Nested quoted field access
         expect(r#"@req."user"."name""#, "lk");
-        
+
         // Mixed quoted and unquoted access
         expect(r#"@user."name""#, "lk");
         expect(r#"@"user".name"#, "lk");
         expect(r#"@"user"."name""#, "lk");
-        
+
         // Quoted field with special characters
         expect(r#"@"special-chars""#, "test-value");
-        
+
         // Quoted field in complex expression
         expect(r#"@"with.&=" && @user.age > 17"#, true);
         expect(r#"@user."name" + "-suffix""#, "lk-suffix");
-        
+
         // Quoted numeric field name
         expect(r#"@"123""#, "numeric-field");
-        
+
         // Single quotes vs double quotes
         expect(r#"@'special-chars'"#, "test-value");
     }

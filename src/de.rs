@@ -1,27 +1,27 @@
+use crate::val::Val;
+use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
-use serde::de::{Deserialize, Deserializer, Visitor, SeqAccess, MapAccess};
-use crate::val::Val;
 
 /// Custom Visitor for deserializing any JSON value to Val enum
 struct ValVisitor;
 
 impl<'de> Visitor<'de> for ValVisitor {
     type Value = Val;
-    
+
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         formatter.write_str("a JSON value of any type")
     }
-    
+
     fn visit_bool<E>(self, value: bool) -> Result<Val, E> {
         Ok(Val::Bool(value))
     }
-    
+
     fn visit_i64<E>(self, value: i64) -> Result<Val, E> {
         Ok(Val::Int(value))
     }
-    
+
     fn visit_u64<E>(self, value: u64) -> Result<Val, E> {
         // Convert u64 to i64 if possible, otherwise to f64
         if value <= i64::MAX as u64 {
@@ -30,27 +30,27 @@ impl<'de> Visitor<'de> for ValVisitor {
             Ok(Val::Float(value as f64))
         }
     }
-    
+
     fn visit_f64<E>(self, value: f64) -> Result<Val, E> {
         Ok(Val::Float(value))
     }
-    
+
     fn visit_str<E>(self, value: &str) -> Result<Val, E> {
         Ok(Val::Str(Arc::from(value)))
     }
-    
+
     fn visit_string<E>(self, value: String) -> Result<Val, E> {
-        Ok(Val::Str(Arc::from(value.as_str())))
+        Ok(Val::from(value))
     }
-    
+
     fn visit_none<E>(self) -> Result<Val, E> {
         Ok(Val::Nil)
     }
-    
+
     fn visit_unit<E>(self) -> Result<Val, E> {
         Ok(Val::Nil)
     }
-    
+
     fn visit_seq<A>(self, mut seq: A) -> Result<Val, A::Error>
     where
         A: SeqAccess<'de>,
@@ -62,7 +62,7 @@ impl<'de> Visitor<'de> for ValVisitor {
         }
         Ok(Val::List(Arc::new(elements)))
     }
-    
+
     fn visit_map<M>(self, mut map_access: M) -> Result<Val, M::Error>
     where
         M: MapAccess<'de>,
@@ -116,7 +116,7 @@ pub enum Format {
 /// Automatically detect format based on content
 pub fn detect_format(input: &str) -> Format {
     let trimmed = input.trim();
-    
+
     // Empty input defaults to first available format
     if trimmed.is_empty() {
         #[cfg(feature = "json")]
@@ -126,46 +126,46 @@ pub fn detect_format(input: &str) -> Format {
         #[cfg(all(feature = "toml", not(feature = "json"), not(feature = "yaml")))]
         return Format::Toml;
     }
-    
+
     // Check for obvious JSON markers
     #[cfg(feature = "json")]
-    if (trimmed.starts_with('{') && trimmed.ends_with('}')) ||
-       (trimmed.starts_with('[') && trimmed.ends_with(']')) {
+    if (trimmed.starts_with('{') && trimmed.ends_with('}')) || (trimmed.starts_with('[') && trimmed.ends_with(']')) {
         return Format::Json;
     }
-    
+
     // Check for obvious YAML markers
     #[cfg(feature = "yaml")]
     if trimmed.contains("---") ||  // YAML document separator
        trimmed.contains("...") ||  // YAML document end
-       has_yaml_indicators(trimmed) {
+       has_yaml_indicators(trimmed)
+    {
         return Format::Yaml;
     }
-    
+
     // Check for obvious TOML markers
     #[cfg(feature = "toml")]
     if has_toml_indicators(trimmed) {
         return Format::Toml;
     }
-    
+
     // Try parsing as JSON first (faster and more common)
     #[cfg(feature = "json")]
     if serde_json::from_str::<serde_json::Value>(input).is_ok() {
         return Format::Json;
     }
-    
+
     // Try parsing as YAML
     #[cfg(feature = "yaml")]
     if serde_yaml::from_str::<serde_yaml::Value>(input).is_ok() {
         return Format::Yaml;
     }
-    
+
     // Try parsing as TOML
     #[cfg(feature = "toml")]
     if toml::from_str::<toml::Value>(input).is_ok() {
         return Format::Toml;
     }
-    
+
     // Default to first available format if all fail
     #[cfg(feature = "json")]
     return Format::Json;
@@ -173,6 +173,55 @@ pub fn detect_format(input: &str) -> Format {
     return Format::Yaml;
     #[cfg(all(feature = "toml", not(feature = "json"), not(feature = "yaml")))]
     return Format::Toml;
+}
+
+/// Parse input by trying supported formats, returning the detected format and parsed value.
+pub fn parse_auto(input: &str) -> anyhow::Result<(Format, Val)> {
+    let trimmed = input.trim();
+
+    #[cfg(feature = "json")]
+    let looks_like_json =
+        (trimmed.starts_with('{') && trimmed.ends_with('}')) || (trimmed.starts_with('[') && trimmed.ends_with(']'));
+
+    #[cfg(feature = "yaml")]
+    let looks_like_yaml = trimmed.contains("---") || trimmed.contains("...") || has_yaml_indicators(trimmed);
+
+    #[cfg(feature = "toml")]
+    let looks_like_toml = has_toml_indicators(trimmed);
+
+    // Heuristic-first attempts
+    #[cfg(feature = "json")]
+    if looks_like_json && let Ok(val) = from_json_str(input) {
+        return Ok((Format::Json, val));
+    }
+
+    #[cfg(feature = "yaml")]
+    if looks_like_yaml && let Ok(val) = from_yaml_str(input) {
+        return Ok((Format::Yaml, val));
+    }
+
+    #[cfg(feature = "toml")]
+    if looks_like_toml && let Ok(val) = from_toml_str(input) {
+        return Ok((Format::Toml, val));
+    }
+
+    // Fallback attempts in preferred order
+    #[cfg(feature = "json")]
+    if let Ok(val) = from_json_str(input) {
+        return Ok((Format::Json, val));
+    }
+    #[cfg(feature = "yaml")]
+    if let Ok(val) = from_yaml_str(input) {
+        return Ok((Format::Yaml, val));
+    }
+    #[cfg(feature = "toml")]
+    if let Ok(val) = from_toml_str(input) {
+        return Ok((Format::Toml, val));
+    }
+
+    Err(anyhow::anyhow!(
+        "Unable to parse input as any supported format (enable at least one of: json/yaml/toml)"
+    ))
 }
 
 /// Check for YAML-specific indicators
@@ -183,7 +232,7 @@ pub fn has_yaml_indicators(input: &str) -> bool {
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        
+
         // Look for YAML key-value patterns without quotes
         if trimmed.contains(':') && !trimmed.starts_with('"') && !trimmed.starts_with('{') {
             // Check if it's a YAML-style key: value (not JSON "key": value)
@@ -195,18 +244,18 @@ pub fn has_yaml_indicators(input: &str) -> bool {
                 }
             }
         }
-        
+
         // Look for YAML list indicators
         if trimmed.starts_with("- ") || trimmed.starts_with("-\t") {
             return true;
         }
-        
+
         // Look for YAML multi-line indicators
         if trimmed.ends_with("|") || trimmed.ends_with(">") {
             return true;
         }
     }
-    
+
     false
 }
 
@@ -218,51 +267,56 @@ pub fn has_toml_indicators(input: &str) -> bool {
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        
+
         // Look for TOML section headers [section]
         if trimmed.starts_with('[') && trimmed.ends_with(']') && trimmed.len() > 2 {
             return true;
         }
-        
+
         // Look for TOML table arrays [[table]]
         if trimmed.starts_with("[[") && trimmed.ends_with("]]") && trimmed.len() > 4 {
             return true;
         }
-        
+
         // Look for TOML key = value patterns (with equals sign)
         if trimmed.contains(" = ") || trimmed.contains("=") {
             // Check if it's a simple key = value pattern
             if let Some(eq_pos) = trimmed.find('=') {
                 let key_part = trimmed[..eq_pos].trim();
                 let value_part = trimmed[eq_pos + 1..].trim();
-                
+
                 // TOML keys are usually unquoted identifiers or quoted strings
                 // Values can be strings, numbers, booleans, arrays, etc.
                 if !key_part.is_empty() && !value_part.is_empty() {
                     // Check if key looks like a TOML identifier
-                    if key_part.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.') ||
-                       (key_part.starts_with('"') && key_part.ends_with('"')) ||
-                       (key_part.starts_with('\'') && key_part.ends_with('\'')) {
+                    if key_part
+                        .chars()
+                        .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.')
+                        || (key_part.starts_with('"') && key_part.ends_with('"'))
+                        || (key_part.starts_with('\'') && key_part.ends_with('\''))
+                    {
                         return true;
                     }
                 }
             }
         }
     }
-    
+
     false
 }
 
 /// Parse input using automatic format detection or specified format
 pub fn parse_with_format(input: &str, format_override: Option<Format>) -> anyhow::Result<Val> {
-    let format = format_override.unwrap_or_else(|| detect_format(input));
-    
-    match format {
-        #[cfg(feature = "json")]
-        Format::Json => from_json_str(input),
-        #[cfg(feature = "yaml")]
-        Format::Yaml => from_yaml_str(input),
-        #[cfg(feature = "toml")]
-        Format::Toml => from_toml_str(input),
+    if let Some(format) = format_override {
+        return match format {
+            #[cfg(feature = "json")]
+            Format::Json => from_json_str(input),
+            #[cfg(feature = "yaml")]
+            Format::Yaml => from_yaml_str(input),
+            #[cfg(feature = "toml")]
+            Format::Toml => from_toml_str(input),
+        };
     }
+
+    Ok(parse_auto(input)?.1)
 }
