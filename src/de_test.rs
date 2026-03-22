@@ -357,6 +357,13 @@ role = "user"
         assert_eq!(detect_format("- item1\n- item2"), Format::Yaml);
         assert_eq!(detect_format("multiline: |\n  content"), Format::Yaml);
         assert_eq!(detect_format("folded: >\n  content"), Format::Yaml);
+
+        #[cfg(feature = "json")]
+        {
+            assert_eq!(detect_format("note --- not a yaml doc"), Format::Json);
+            assert_eq!(detect_format("note ... not a yaml doc"), Format::Json);
+            assert_eq!(detect_format("https://example.test/path"), Format::Json);
+        }
     }
 
     #[test]
@@ -382,6 +389,10 @@ role = "user"
         // Complex nested structures
         assert_eq!(detect_format("user:\n  name: test\n  age: 25"), Format::Yaml);
         assert_eq!(detect_format("[user]\nname = \"test\"\nage = 25"), Format::Toml);
+
+        // Ambiguous plain text should not trigger YAML document markers.
+        assert_eq!(detect_format("prefix --- suffix"), Format::Json);
+        assert_eq!(detect_format("prefix ... suffix"), Format::Json);
     }
 
     #[test]
@@ -397,13 +408,48 @@ role = "user"
             panic!("Expected Map");
         }
 
-        // Test auto-detection
+        // Default parser remains JSON-only unless auto-detect is explicitly requested.
         let val = parse_with_format(json_data, None).unwrap();
         if let Val::Map(map) = val {
             assert_eq!(map.get("key"), Some(&Val::Str(Arc::from("value"))));
         } else {
             panic!("Expected Map");
         }
+    }
+
+    #[test]
+    #[cfg(all(feature = "json", feature = "yaml", feature = "toml"))]
+    fn test_parse_with_format_default_is_json_only() {
+        let yaml_data = "key: value\nother: 123";
+        assert!(parse_with_format(yaml_data, None).is_err());
+
+        let toml_data = "key = \"value\"\nother = 123";
+        assert!(parse_with_format(toml_data, None).is_err());
+    }
+
+    #[test]
+    #[cfg(all(feature = "json", feature = "yaml", feature = "toml"))]
+    fn test_parse_auto_requires_explicit_opt_in() {
+        let yaml_data = "key: value\nother: 123";
+        let (format, val) = parse_auto(yaml_data).unwrap();
+        assert_eq!(format, Format::Yaml);
+        if let Val::Map(map) = val {
+            assert_eq!(map.get("key"), Some(&Val::Str(Arc::from("value"))));
+        } else {
+            panic!("Expected Map");
+        }
+
+        let toml_data = "key = \"value\"\nother = 123";
+        let (format, val) = parse_auto(toml_data).unwrap();
+        assert_eq!(format, Format::Toml);
+        if let Val::Map(map) = val {
+            assert_eq!(map.get("key"), Some(&Val::Str(Arc::from("value"))));
+        } else {
+            panic!("Expected Map");
+        }
+
+        assert!(parse_auto("plain text without structured markers").is_err());
+        assert!(parse_auto("prefix --- suffix").is_err());
     }
 
     #[test]

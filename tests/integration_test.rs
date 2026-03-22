@@ -1,5 +1,5 @@
 use std::io::Write;
-use std::process::Command;
+use std::process::{Command, Output};
 
 fn create_cargo_command(args: &[&str]) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_qcl"));
@@ -7,10 +7,8 @@ fn create_cargo_command(args: &[&str]) -> Command {
     cmd
 }
 
-#[test]
-#[cfg(feature = "json")]
-fn test_cli_json_auto_detection() {
-    let mut cmd = create_cargo_command(&["@name == \"test\""])
+fn run_cli(args: &[&str], stdin_bytes: &[u8]) -> Output {
+    let mut cmd = create_cargo_command(args)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -18,245 +16,135 @@ fn test_cli_json_auto_detection() {
         .expect("Failed to spawn command");
 
     let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
-    stdin
-        .write_all(b"{\"name\": \"test\", \"age\": 25}")
-        .expect("Failed to write to stdin");
+    stdin.write_all(stdin_bytes).expect("Failed to write to stdin");
     stdin.flush().expect("Failed to flush stdin");
     let _ = stdin;
 
-    let output = cmd.wait_with_output().expect("Failed to wait for command");
+    cmd.wait_with_output().expect("Failed to wait for command")
+}
+
+#[test]
+#[cfg(feature = "json")]
+fn test_cli_json_default_parser() {
+    let output = run_cli(&["@name == \"test\""], b"{\"name\": \"test\", \"age\": 25}");
     let stdout = String::from_utf8_lossy(&output.stdout);
 
+    assert!(output.status.success());
     assert!(stdout.contains("true"));
 }
 
 #[test]
 #[cfg(feature = "json")]
 fn test_cli_json_explicit_flag() {
-    let mut cmd = create_cargo_command(&["--json", "@name == \"test\""])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("Failed to spawn command");
-
-    let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
-    stdin
-        .write_all(b"{\"name\": \"test\", \"age\": 25}")
-        .expect("Failed to write to stdin");
-    stdin.flush().expect("Failed to flush stdin");
-    let _ = stdin;
-
-    let output = cmd.wait_with_output().expect("Failed to wait for command");
+    let output = run_cli(&["--json", "@name == \"test\""], b"{\"name\": \"test\", \"age\": 25}");
     let stdout = String::from_utf8_lossy(&output.stdout);
 
+    assert!(output.status.success());
     assert!(stdout.contains("true"));
 }
 
 #[test]
-#[cfg(feature = "yaml")]
-fn test_cli_yaml_auto_detection() {
-    let mut cmd = create_cargo_command(&["@name == \"test\""])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("Failed to spawn command");
+#[cfg(all(feature = "json", feature = "yaml"))]
+fn test_cli_default_parser_rejects_yaml() {
+    let output = run_cli(&["@name == \"test\""], b"name: test\nage: 25");
+    let stderr = String::from_utf8_lossy(&output.stderr);
 
-    let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
-    stdin
-        .write_all(b"name: test\nage: 25")
-        .expect("Failed to write to stdin");
-    stdin.flush().expect("Failed to flush stdin");
-    let _ = stdin;
-
-    let output = cmd.wait_with_output().expect("Failed to wait for command");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    assert!(stdout.contains("true"));
+    assert!(!output.status.success());
+    assert!(!stderr.trim().is_empty());
 }
 
 #[test]
 #[cfg(feature = "yaml")]
 fn test_cli_yaml_explicit_flag() {
-    let mut cmd = create_cargo_command(&["--yaml", "@name == \"test\""])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("Failed to spawn command");
-
-    let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
-    stdin
-        .write_all(b"name: test\nage: 25")
-        .expect("Failed to write to stdin");
-    stdin.flush().expect("Failed to flush stdin");
-    let _ = stdin;
-
-    let output = cmd.wait_with_output().expect("Failed to wait for command");
+    let output = run_cli(&["--yaml", "@name == \"test\""], b"name: test\nage: 25");
     let stdout = String::from_utf8_lossy(&output.stdout);
 
+    assert!(output.status.success());
     assert!(stdout.contains("true"));
 }
 
 #[test]
-#[cfg(feature = "toml")]
-fn test_cli_toml_auto_detection() {
-    let mut cmd = create_cargo_command(&["@name == \"test\""])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("Failed to spawn command");
+#[cfg(all(feature = "json", feature = "toml"))]
+fn test_cli_default_parser_rejects_toml() {
+    let output = run_cli(&["@name == \"test\""], b"name = \"test\"\nage = 25");
+    let stderr = String::from_utf8_lossy(&output.stderr);
 
-    let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
-    stdin
-        .write_all(b"name = \"test\"\nage = 25")
-        .expect("Failed to write to stdin");
-    stdin.flush().expect("Failed to flush stdin");
-    let _ = stdin;
-
-    let output = cmd.wait_with_output().expect("Failed to wait for command");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    assert!(stdout.contains("true"));
+    assert!(!output.status.success());
+    assert!(!stderr.trim().is_empty());
 }
 
 #[test]
 #[cfg(feature = "toml")]
 fn test_cli_toml_explicit_flag() {
-    let mut cmd = create_cargo_command(&["--toml", "@name == \"test\""])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("Failed to spawn command");
-
-    let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
-    stdin
-        .write_all(b"name = \"test\"\nage = 25")
-        .expect("Failed to write to stdin");
-    stdin.flush().expect("Failed to flush stdin");
-    let _ = stdin;
-
-    let output = cmd.wait_with_output().expect("Failed to wait for command");
+    let output = run_cli(&["--toml", "@name == \"test\""], b"name = \"test\"\nage = 25");
     let stdout = String::from_utf8_lossy(&output.stdout);
 
+    assert!(output.status.success());
     assert!(stdout.contains("true"));
 }
 
 #[test]
 #[cfg(feature = "yaml")]
 fn test_cli_yaml_nested_structures() {
-    let mut cmd = create_cargo_command(&["@req.user.role == \"admin\""])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("Failed to spawn command");
-
-    let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
-    stdin
-        .write_all(b"req:\n  user:\n    role: admin\n    name: test")
-        .expect("Failed to write to stdin");
-    stdin.flush().expect("Failed to flush stdin");
-    let _ = stdin;
-
-    let output = cmd.wait_with_output().expect("Failed to wait for command");
+    let output = run_cli(
+        &["--yaml", "@req.user.role == \"admin\""],
+        b"req:\n  user:\n    role: admin\n    name: test",
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
 
+    assert!(output.status.success());
     assert!(stdout.contains("true"));
 }
 
 #[test]
 #[cfg(feature = "toml")]
 fn test_cli_toml_nested_structures() {
-    let mut cmd = create_cargo_command(&["@req.user.role == \"admin\""])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("Failed to spawn command");
-
-    let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
-    stdin
-        .write_all(b"[req.user]\nrole = \"admin\"\nname = \"test\"")
-        .expect("Failed to write to stdin");
-    stdin.flush().expect("Failed to flush stdin");
-    let _ = stdin;
-
-    let output = cmd.wait_with_output().expect("Failed to wait for command");
+    let output = run_cli(
+        &["--toml", "@req.user.role == \"admin\""],
+        b"[req.user]\nrole = \"admin\"\nname = \"test\"",
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
 
+    assert!(output.status.success());
     assert!(stdout.contains("true"));
 }
 
 #[test]
 #[cfg(feature = "yaml")]
 fn test_cli_yaml_arrays() {
-    let mut cmd = create_cargo_command(&["@permissions.0 == \"read\""])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("Failed to spawn command");
-
-    let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
-    stdin
-        .write_all(b"permissions:\n  - read\n  - write\n  - execute")
-        .expect("Failed to write to stdin");
-    stdin.flush().expect("Failed to flush stdin");
-    let _ = stdin;
-
-    let output = cmd.wait_with_output().expect("Failed to wait for command");
+    let output = run_cli(
+        &["--yaml", "@permissions.0 == \"read\""],
+        b"permissions:\n  - read\n  - write\n  - execute",
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
 
+    assert!(output.status.success());
     assert!(stdout.contains("true"));
 }
 
 #[test]
 #[cfg(feature = "toml")]
 fn test_cli_toml_arrays() {
-    let mut cmd = create_cargo_command(&["@permissions.0 == \"read\""])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("Failed to spawn command");
-
-    let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
-    stdin
-        .write_all(b"permissions = [\"read\", \"write\", \"execute\"]")
-        .expect("Failed to write to stdin");
-    stdin.flush().expect("Failed to flush stdin");
-    let _ = stdin;
-
-    let output = cmd.wait_with_output().expect("Failed to wait for command");
+    let output = run_cli(
+        &["--toml", "@permissions.0 == \"read\""],
+        b"permissions = [\"read\", \"write\", \"execute\"]",
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
 
+    assert!(output.status.success());
     assert!(stdout.contains("true"));
 }
 
 #[test]
 #[cfg(feature = "toml")]
 fn test_cli_toml_table_arrays() {
-    let mut cmd = create_cargo_command(&["@users.0.name == \"alice\""])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("Failed to spawn command");
-
-    let stdin = cmd.stdin.as_mut().expect("Failed to get stdin");
-    stdin
-        .write_all(b"[[users]]\nname = \"alice\"\nrole = \"admin\"\n\n[[users]]\nname = \"bob\"\nrole = \"user\"")
-        .expect("Failed to write to stdin");
-    stdin.flush().expect("Failed to flush stdin");
-    let _ = stdin;
-
-    let output = cmd.wait_with_output().expect("Failed to wait for command");
+    let output = run_cli(
+        &["--toml", "@users.0.name == \"alice\""],
+        b"[[users]]\nname = \"alice\"\nrole = \"admin\"\n\n[[users]]\nname = \"bob\"\nrole = \"user\"",
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
 
+    assert!(output.status.success());
     assert!(stdout.contains("true"));
 }
 

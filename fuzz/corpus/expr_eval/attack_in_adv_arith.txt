@@ -1,0 +1,3 @@
+@req.user.level in @record.min_level
+--CTX--
+{"req":{"user":{"level":1}},"record":{"min_level":2}}

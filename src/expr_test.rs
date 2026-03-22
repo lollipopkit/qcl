@@ -4,8 +4,17 @@ mod test {
     #[cfg(feature = "json")]
     use serde_json::json;
     use std::collections::HashSet;
+    use std::sync::Mutex;
 
-    use crate::{expr::Expr, val::Val};
+    use crate::{
+        expr::{
+            Expr, parse_cache_entries_per_shard_for_tests, parse_cache_entry_count_for_tests,
+            parse_cache_shard_count_for_tests, parse_cache_shard_idx_for_tests, reset_parse_cache_for_tests,
+        },
+        val::Val,
+    };
+
+    static PARSE_CACHE_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     #[cfg(feature = "json")]
@@ -169,6 +178,58 @@ mod test {
 
     #[test]
     #[cfg(feature = "json")]
+    fn map_literal_key_stringification_constant_and_runtime() {
+        use std::collections::HashMap;
+
+        let mut folded_expected = HashMap::new();
+        folded_expected.insert("folded".to_string(), Val::Str("string".into()));
+        folded_expected.insert("42".to_string(), Val::Str("number".into()));
+        folded_expected.insert("true".to_string(), Val::Str("bool".into()));
+        expect(r#"{"folded": "string", 42: "number", true: "bool"}"#, folded_expected);
+
+        let mut runtime_expected = HashMap::new();
+        runtime_expected.insert("lk".to_string(), Val::Str("string".into()));
+        runtime_expected.insert("18".to_string(), Val::Str("number".into()));
+        runtime_expected.insert("true".to_string(), Val::Str("bool".into()));
+        expect(
+            r#"{@user.name: "string", @user.age: "number", @pub: "bool"}"#,
+            runtime_expected,
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn map_literal_invalid_key_types_error() {
+        panic(r#"{[1, 2]: "invalid"}"#);
+        panic(r#"{{}: "invalid"}"#);
+        panic(r#"{@list: "invalid"}"#);
+        panic(r#"{@nested: "invalid"}"#);
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn constant_folding_large_list_and_map() {
+        let list_expr = format!("[{}]", (0..128).map(|i| i.to_string()).collect::<Vec<_>>().join(", "));
+        let parsed_list = Expr::try_from(list_expr.as_str()).unwrap();
+        let expected_list = Val::List((0..128).map(Val::Int).collect::<Vec<_>>().into());
+        assert_eq!(parsed_list, Expr::Val(expected_list));
+
+        let map_expr = format!(
+            "{{{}}}",
+            (0..128).map(|i| format!("{i}: {i}")).collect::<Vec<_>>().join(", ")
+        );
+        let parsed_map = Expr::try_from(map_expr.as_str()).unwrap();
+        let expected_map = Val::Map(
+            (0..128)
+                .map(|i| (i.to_string(), Val::Int(i)))
+                .collect::<std::collections::HashMap<_, _>>()
+                .into(),
+        );
+        assert_eq!(parsed_map, Expr::Val(expected_map));
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
     fn nested_structures() {
         use std::collections::HashMap;
 
@@ -259,11 +320,119 @@ mod test {
     }
 
     #[test]
+    fn parse_cache_remains_functional_under_pressure() {
+        let _guard = PARSE_CACHE_TEST_LOCK.lock().unwrap();
+        reset_parse_cache_for_tests();
+
+        for i in 0..5000 {
+            let text = format!("{i} == {i}");
+            let expr = Expr::parse_cached_arc(text.as_str()).unwrap();
+            assert_eq!(expr.eval(&Val::Nil).unwrap(), Val::Bool(true));
+        }
+
+        let payload = "x".repeat(5000);
+        let large = format!(r#""{payload}" == "{payload}""#);
+        let expr = Expr::parse_cached_arc(large.as_str()).unwrap();
+        assert_eq!(expr.eval(&Val::Nil).unwrap(), Val::Bool(true));
+    }
+
+    #[test]
+    fn parse_cache_eviction_stays_local_to_shards() {
+        let _guard = PARSE_CACHE_TEST_LOCK.lock().unwrap();
+        reset_parse_cache_for_tests();
+
+        let protected_expr = "1 == 1";
+        let protected = Expr::parse_cached_arc(protected_expr).unwrap();
+        let protected_shard = parse_cache_shard_idx_for_tests(protected_expr);
+        let target_shard = (protected_shard + 1) % parse_cache_shard_count_for_tests();
+
+        let hot_exprs = collect_exprs_for_shard(target_shard, 4096 + 64);
+        for expr in &hot_exprs {
+            let parsed = Expr::parse_cached_arc(expr).unwrap();
+            assert_eq!(parsed.eval(&Val::Nil).unwrap(), Val::Bool(true));
+        }
+
+        let protected_again = Expr::parse_cached_arc(protected_expr).unwrap();
+        assert!(std::sync::Arc::ptr_eq(&protected, &protected_again));
+        assert!(parse_cache_entry_count_for_tests() <= parse_cache_entries_per_shard_for_tests() + 1);
+    }
+
+    #[test]
+    fn parse_cache_uses_smooth_local_fifo_eviction() {
+        let _guard = PARSE_CACHE_TEST_LOCK.lock().unwrap();
+        reset_parse_cache_for_tests();
+
+        let target_shard = 0usize;
+        let exprs = collect_exprs_for_shard(target_shard, parse_cache_entries_per_shard_for_tests() + 2);
+
+        let first = Expr::parse_cached_arc(exprs[0].as_str()).unwrap();
+        for expr in &exprs[1..] {
+            let parsed = Expr::parse_cached_arc(expr).unwrap();
+            assert_eq!(parsed.eval(&Val::Nil).unwrap(), Val::Bool(true));
+        }
+
+        let first_again = Expr::parse_cached_arc(exprs[0].as_str()).unwrap();
+        let newest_again = Expr::parse_cached_arc(exprs.last().unwrap().as_str()).unwrap();
+
+        assert!(!std::sync::Arc::ptr_eq(&first, &first_again));
+        assert!(std::sync::Arc::ptr_eq(
+            &Expr::parse_cached_arc(exprs.last().unwrap().as_str()).unwrap(),
+            &newest_again
+        ));
+        assert!(parse_cache_entry_count_for_tests() <= parse_cache_entries_per_shard_for_tests());
+    }
+
+    #[test]
     #[cfg(feature = "json")]
     fn test_nil_handling() {
-        expect("@nonexistent == nil", true);
-        expect("@nonexistent.field == nil", true);
+        expect("@nonexistent", Val::Missing);
+        expect("@existing_null == nil", true);
+        expect("@nonexistent == nil", false);
+        expect("@nonexistent.field == nil", false);
         expect("nil", None::<Val>);
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn missing_fields_fail_closed() {
+        let ctx: Val = json!({
+            "req": {"user": {"id": 7}},
+            "record": {}
+        })
+        .into();
+
+        let expr = Expr::try_from("@req.user.id == @record.owner.id").unwrap();
+        assert_eq!(expr.eval(&ctx).unwrap(), Val::Bool(false));
+
+        let expr = Expr::try_from(r#"@req.user.status != "blocked" && @req.user.id == 7"#).unwrap();
+        assert_eq!(expr.eval(&ctx).unwrap(), Val::Bool(false));
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn unsupported_in_membership_fails_closed() {
+        panic(r#"@user.age in {"18": true}"#);
+
+        #[cfg(feature = "adv_arith")]
+        panic("@user.age in 21");
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn zero_division_and_modulo_fail_closed() {
+        let static_mod = Expr::try_from("1 % 0").unwrap();
+        assert!(static_mod.eval(&Val::Nil).is_err());
+
+        let static_div = Expr::try_from("1 / 0").unwrap();
+        assert!(static_div.eval(&Val::Nil).is_err());
+
+        let ctx: Val = json!({ "x": 1 }).into();
+
+        let dynamic_mod = Expr::try_from("@x % 0").unwrap();
+        assert!(dynamic_mod.eval(&ctx).is_err());
+
+        let dynamic_div = Expr::try_from("@x / 0").unwrap();
+        assert!(dynamic_div.eval(&ctx).is_err());
     }
 
     #[test]
@@ -292,6 +461,9 @@ mod test {
 
         // Single quotes vs double quotes
         expect(r#"@'special-chars'"#, "test-value");
+        expect(r#"@escaped."field\"name""#, "quoted-field");
+        expect(r#"@escaped."path\\segment""#, "backslash-field");
+        expect(r#"@escaped.'field\'name'"#, "single-quoted-field");
     }
 
     #[cfg(feature = "json")]
@@ -303,6 +475,7 @@ mod test {
             "list-2": [2],
             "pub": true,
             "index": 1,
+            "existing_null": null,
             "nested": {
                 "level1": {
                     "level2": "value"
@@ -310,7 +483,12 @@ mod test {
             },
             "with.&=": true,
             "special-chars": "test-value",
-            "123": "numeric-field"
+            "123": "numeric-field",
+            "escaped": {
+                "field\"name": "quoted-field",
+                "path\\segment": "backslash-field",
+                "field'name": "single-quoted-field"
+            }
         })
         .into();
         let expr = Expr::try_from(rule)?;
@@ -329,5 +507,20 @@ mod test {
         assert!(res.is_err());
         let err = res.unwrap_err();
         println!("{}", err);
+    }
+
+    fn collect_exprs_for_shard(target_shard: usize, count: usize) -> Vec<String> {
+        let mut exprs = Vec::with_capacity(count);
+        let mut i = 0usize;
+
+        while exprs.len() < count {
+            let expr = format!("{i} == {i}");
+            if parse_cache_shard_idx_for_tests(expr.as_str()) == target_shard {
+                exprs.push(expr);
+            }
+            i += 1;
+        }
+
+        exprs
     }
 }

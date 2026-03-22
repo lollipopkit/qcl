@@ -1,0 +1,3 @@
+@req.user.role == "admin" && @record.owner == @req.user.id
+--CTX--
+{"req":{"user":{"role":"admin","id":7}},"record":{"owner":7}}

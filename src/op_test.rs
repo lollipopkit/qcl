@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::{expr::Expr, op::BinOp, val::Val};
+    use std::{collections::HashMap, sync::Arc};
 
     #[cfg(feature = "json")]
     use serde_json::json;
@@ -103,16 +104,31 @@ mod tests {
         let result = BinOp::In.eval(&l, &r, &ctx).unwrap();
         assert_eq!(result, Val::Bool(false));
 
-        // Test 'in' operator with literal map
+        // Map membership is intentionally rejected to avoid ACL-shape confusion.
         let l: Expr = r#""name""#.try_into().unwrap();
         let r: Expr = r#"{"name": "Alice", "age": 25}"#.try_into().unwrap();
-        let result = BinOp::In.eval(&l, &r, &ctx).unwrap();
-        assert_eq!(result, Val::Bool(true));
+        assert!(BinOp::In.eval(&l, &r, &ctx).is_err());
+    }
 
-        let l: Expr = r#""email""#.try_into().unwrap();
-        let r: Expr = r#"{"name": "Alice", "age": 25}"#.try_into().unwrap();
-        let result = BinOp::In.eval(&l, &r, &ctx).unwrap();
-        assert_eq!(result, Val::Bool(false));
+    #[test]
+    #[cfg(feature = "json")]
+    fn missing_and_primitive_in_are_rejected() {
+        let ctx = json!({
+            "lhs": 1,
+            "rhs": 5,
+            "map": {"1": true}
+        })
+        .into();
+
+        let l: Expr = "@lhs".try_into().unwrap();
+        let r: Expr = "@map".try_into().unwrap();
+        assert!(BinOp::In.eval(&l, &r, &ctx).is_err());
+
+        #[cfg(feature = "adv_arith")]
+        {
+            let r: Expr = "@rhs".try_into().unwrap();
+            assert!(BinOp::In.eval(&l, &r, &ctx).is_err());
+        }
     }
 
     #[test]
@@ -191,5 +207,136 @@ mod tests {
         let r: Expr = "@multiplier".try_into().unwrap();
         let result = BinOp::Mul.eval(&l, &r, &ctx).unwrap();
         assert_eq!(result, Val::Int(10));
+    }
+
+    #[test]
+    fn large_single_value_membership_uses_indexed_lookup() {
+        let haystack = Val::List(Arc::new((0..64).map(Val::Int).collect()));
+
+        assert!(BinOp::In.cmp(&Val::Int(42), &haystack).unwrap());
+        assert!(!BinOp::In.cmp(&Val::Int(99), &haystack).unwrap());
+
+        let haystack = Val::List(Arc::new(vec![
+            Val::Bool(false),
+            Val::Str("alpha".into()),
+            Val::Bool(true),
+            Val::Str("needle".into()),
+            Val::Int(1),
+            Val::Int(2),
+            Val::Int(3),
+            Val::Int(4),
+            Val::Int(5),
+            Val::Int(6),
+            Val::Int(7),
+            Val::Int(8),
+            Val::Int(9),
+            Val::Int(10),
+            Val::Int(11),
+            Val::Int(12),
+            Val::Int(13),
+            Val::Int(14),
+            Val::Int(15),
+            Val::Int(16),
+            Val::Int(17),
+            Val::Int(18),
+            Val::Int(19),
+            Val::Int(20),
+            Val::Int(21),
+            Val::Int(22),
+            Val::Int(23),
+            Val::Int(24),
+            Val::Int(25),
+            Val::Int(26),
+            Val::Int(27),
+            Val::Int(28),
+            Val::Int(29),
+            Val::Int(30),
+            Val::Int(31),
+            Val::Int(32),
+            Val::Int(33),
+            Val::Int(34),
+            Val::Int(35),
+            Val::Int(36),
+        ]));
+
+        assert!(BinOp::In.cmp(&Val::Str("needle".into()), &haystack).unwrap());
+        assert!(BinOp::In.cmp(&Val::Bool(true), &haystack).unwrap());
+        assert!(!BinOp::In.cmp(&Val::Str("missing".into()), &haystack).unwrap());
+    }
+
+    #[test]
+    fn large_mixed_type_list_membership_keeps_semantics() {
+        let mut nested_map = HashMap::new();
+        nested_map.insert("k".to_string(), Val::Int(7));
+        let nested_map = Val::Map(Arc::new(nested_map));
+        let nested_list = Val::List(Arc::new(vec![Val::Int(1), Val::Int(2)]));
+
+        let lhs = Val::List(Arc::new(vec![
+            Val::Int(41),
+            Val::Str("needle".into()),
+            Val::Bool(true),
+            nested_list.clone(),
+            nested_map.clone(),
+        ]));
+
+        let rhs = Val::List(Arc::new(vec![
+            Val::Int(0),
+            Val::Int(1),
+            Val::Int(2),
+            Val::Int(3),
+            Val::Int(4),
+            Val::Int(5),
+            Val::Int(6),
+            Val::Int(7),
+            Val::Int(8),
+            Val::Int(9),
+            Val::Int(10),
+            Val::Int(11),
+            Val::Int(12),
+            Val::Int(13),
+            Val::Int(14),
+            Val::Int(15),
+            Val::Int(16),
+            Val::Int(17),
+            Val::Int(18),
+            Val::Int(19),
+            Val::Int(20),
+            Val::Int(21),
+            Val::Int(22),
+            Val::Int(23),
+            Val::Int(24),
+            Val::Int(25),
+            Val::Int(26),
+            Val::Int(27),
+            Val::Int(28),
+            Val::Int(29),
+            Val::Int(30),
+            Val::Int(31),
+            Val::Int(32),
+            Val::Int(33),
+            Val::Int(34),
+            Val::Int(35),
+            Val::Int(36),
+            Val::Int(37),
+            Val::Int(38),
+            Val::Int(39),
+            Val::Int(40),
+            Val::Int(41),
+            Val::Str("needle".into()),
+            Val::Bool(false),
+            Val::Bool(true),
+            nested_list,
+            nested_map,
+        ]));
+
+        assert!(BinOp::In.cmp(&lhs, &rhs).unwrap());
+
+        let lhs_missing = Val::List(Arc::new(vec![
+            Val::Int(41),
+            Val::Str("needle".into()),
+            Val::Bool(true),
+            Val::List(Arc::new(vec![Val::Int(9), Val::Int(9)])),
+        ]));
+        assert!(!BinOp::In.cmp(&lhs_missing, &rhs).unwrap());
     }
 }

@@ -161,7 +161,37 @@ fn bench_at_access(c: &mut Criterion) {
     });
 }
 
-// Benchmark 5: Val cloning and arithmetic operations (large data structures)
+// Benchmark 5: Large map evaluation (runtime construction vs folded constant)
+fn bench_map_construction(c: &mut Criterion) {
+    let pair_count = 1000;
+    let runtime_expr = Expr::Map(
+        (0..pair_count)
+            .map(|i| {
+                (
+                    Box::new(Expr::Val(Val::Str(Arc::from(format!("key{i}").into_boxed_str())))),
+                    Box::new(Expr::Val(Val::Int(i))),
+                )
+            })
+            .collect(),
+    );
+
+    let folded_map: HashMap<String, Val> = (0..pair_count).map(|i| (format!("key{i}"), Val::Int(i))).collect();
+    let folded_expr = Expr::Val(Val::Map(Arc::new(folded_map)));
+
+    c.bench_function("map_eval_runtime_construction_large", |b| {
+        b.iter(|| {
+            black_box(runtime_expr.eval(&Val::Nil).unwrap());
+        })
+    });
+
+    c.bench_function("map_eval_folded_large", |b| {
+        b.iter(|| {
+            black_box(folded_expr.eval(&Val::Nil).unwrap());
+        })
+    });
+}
+
+// Benchmark 6: Val cloning and arithmetic operations (large data structures)
 #[cfg(feature = "adv_arith")]
 fn bench_val_operations(c: &mut Criterion) {
     // Create large Map and List for testing
@@ -235,7 +265,7 @@ fn bench_val_operations(c: &mut Criterion) {
 #[cfg(not(feature = "adv_arith"))]
 fn bench_val_operations(_: &mut Criterion) {}
 
-// Benchmark 6: String concatenation performance
+// Benchmark 7: String concatenation performance
 fn bench_string_operations(c: &mut Criterion) {
     let short_str = Val::Str(Arc::from("short"));
     let long_str = Val::Str(Arc::from("a".repeat(1000).as_str()));
@@ -287,7 +317,7 @@ fn bench_string_operations(c: &mut Criterion) {
     }
 }
 
-// Benchmark 7: Memory allocation patterns (Vec/HashMap with_capacity vs default)
+// Benchmark 8: Memory allocation patterns (Vec/HashMap with_capacity vs default)
 fn bench_memory_allocation(c: &mut Criterion) {
     let size = 1000;
 
@@ -334,7 +364,7 @@ fn bench_memory_allocation(c: &mut Criterion) {
     });
 }
 
-// Benchmark 8: Expression evaluation with complex arithmetic (measures overall cloning impact)
+// Benchmark 9: Expression evaluation with complex arithmetic (measures overall cloning impact)
 #[cfg(feature = "adv_arith")]
 fn bench_complex_arithmetic(c: &mut Criterion) {
     let mut ctx_map = HashMap::new();
@@ -394,6 +424,7 @@ criterion_group!(
     bench_evaluation,
     bench_in_operator,
     bench_at_access,
+    bench_map_construction,
     bench_val_operations,
     bench_string_operations,
     bench_memory_allocation,

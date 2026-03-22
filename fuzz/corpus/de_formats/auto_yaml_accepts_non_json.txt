@@ -1,0 +1,7 @@
+auto
+--DATA--
+req:
+  user:
+    role: admin
+record:
+  granted: 999

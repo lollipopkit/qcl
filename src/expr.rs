@@ -1,6 +1,7 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     fmt::{Debug, Display},
+    hash::{DefaultHasher, Hash, Hasher},
     sync::Arc,
 };
 
@@ -14,6 +15,10 @@ use crate::{
 };
 use once_cell::sync::Lazy;
 use std::sync::RwLock;
+
+const MAX_PARSE_CACHE_ENTRIES: usize = 4096;
+const MAX_CACHED_EXPR_LEN: usize = 4096;
+const PARSE_CACHE_SHARDS: usize = 16;
 
 /// Grammar:
 /// exp     ::= paren
@@ -82,6 +87,71 @@ pub enum Expr {
     Val(Val),
 }
 
+struct ParseCacheShard {
+    state: RwLock<ParseCacheState>,
+}
+
+struct ParseCacheState {
+    entries: HashMap<String, Arc<Expr>>,
+    order: VecDeque<String>,
+}
+
+impl ParseCacheState {
+    fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
+            order: VecDeque::new(),
+        }
+    }
+
+    fn insert(&mut self, expression: String, expr: Arc<Expr>) {
+        if self.entries.contains_key(expression.as_str()) {
+            return;
+        }
+
+        if self.entries.len() >= parse_cache_entries_per_shard() {
+            self.evict_oldest();
+        }
+
+        self.order.push_back(expression.clone());
+        self.entries.insert(expression, expr);
+    }
+
+    fn evict_oldest(&mut self) {
+        while let Some(key) = self.order.pop_front() {
+            if self.entries.remove(&key).is_some() {
+                return;
+            }
+        }
+    }
+}
+
+static PARSE_CACHE: Lazy<Box<[ParseCacheShard]>> = Lazy::new(|| {
+    (0..PARSE_CACHE_SHARDS)
+        .map(|_| ParseCacheShard {
+            state: RwLock::new(ParseCacheState::new()),
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice()
+});
+
+#[inline]
+const fn parse_cache_entries_per_shard() -> usize {
+    MAX_PARSE_CACHE_ENTRIES.div_ceil(PARSE_CACHE_SHARDS)
+}
+
+#[inline]
+fn parse_cache_shard_idx(expression: &str) -> usize {
+    let mut hasher = DefaultHasher::new();
+    expression.hash(&mut hasher);
+    (hasher.finish() as usize) % PARSE_CACHE_SHARDS
+}
+
+#[inline]
+fn parse_cache_shard(expression: &str) -> &'static ParseCacheShard {
+    &PARSE_CACHE[parse_cache_shard_idx(expression)]
+}
+
 impl Expr {
     pub fn eval(&self, ctx: &Val) -> Result<Val> {
         match self {
@@ -131,7 +201,7 @@ impl Expr {
 
                     val = match val.access(key) {
                         Some(v) => v,
-                        None => return Ok(Val::Nil),
+                        None => return Ok(Val::Missing),
                     };
                 }
                 // Return a clone only at the end of evaluation to reduce allocations
@@ -150,7 +220,7 @@ impl Expr {
 
                 match val.access(field_val) {
                     Some(v) => Ok(v.clone()),
-                    None => Ok(Val::Nil),
+                    None => Ok(Val::Missing),
                 }
             }
             Expr::List(exprs) => {
@@ -166,15 +236,8 @@ impl Expr {
                     let key_val = key_expr.eval(ctx)?;
                     let value_val = value_expr.eval(ctx)?;
 
-                    // Convert key to string for map indexing
-                    let key_str = match key_val {
-                        Val::Str(s) => s.as_ref().to_string(),
-                        Val::Int(i) => i.to_string(),
-                        Val::Float(f) => f.to_string(),
-                        Val::Bool(b) => b.to_string(),
-                        _ => {
-                            return Err(anyhow!("Map key must be a primitive type, got: {:?}", key_val));
-                        }
+                    let Some(key_str) = primitive_map_key_to_string(&key_val) else {
+                        return Err(anyhow!("Map key must be a primitive type, got: {:?}", key_val));
                     };
 
                     map.insert(key_str, value_val);
@@ -260,20 +323,27 @@ impl Expr {
 
     /// Cached parsing variant that avoids cloning the parsed AST on cache hits.
     pub fn parse_cached_arc(expression: &str) -> Result<Arc<Expr>> {
-        static PARSE_CACHE: Lazy<RwLock<HashMap<String, Arc<Expr>>>> = Lazy::new(|| RwLock::new(HashMap::new()));
-
-        if let Some(cached) = PARSE_CACHE.read().unwrap().get(expression).cloned() {
-            return Ok(cached);
+        if expression.len() <= MAX_CACHED_EXPR_LEN {
+            let shard = parse_cache_shard(expression);
+            if let Some(cached) = shard.state.read().unwrap().entries.get(expression).cloned() {
+                return Ok(cached);
+            }
         }
 
         let tokens = Tokenizer::new(expression)?;
         let expr = Parser::new(&tokens).parse()?; // Internal constant folding happens in parser
         let expr = Arc::new(expr);
 
-        PARSE_CACHE
-            .write()
-            .unwrap()
-            .insert(expression.to_string(), expr.clone());
+        if expression.len() <= MAX_CACHED_EXPR_LEN {
+            let shard = parse_cache_shard(expression);
+            let mut state = shard.state.write().unwrap();
+
+            if let Some(cached) = state.entries.get(expression).cloned() {
+                return Ok(cached);
+            }
+
+            state.insert(expression.to_string(), expr.clone());
+        }
 
         Ok(expr)
     }
@@ -366,53 +436,63 @@ impl Expr {
                     if let Some(res_val) = base_val.access(field_val) {
                         return Expr::Val(res_val.clone());
                     } else {
-                        return Expr::Val(Val::Nil);
+                        return Expr::Val(Val::Missing);
                     }
                 }
                 Expr::Access(Box::new(base), Box::new(field))
             }
             Expr::List(exprs) => {
-                // List constant folding: if all elements are constants then fold to one Val::List
-                let folded_elems: Vec<Expr> = exprs.into_iter().map(|e| e.fold_constants()).collect();
-                if folded_elems.iter().all(|e| matches!(e, Expr::Val(_))) {
-                    // Extract all constant values as new list elements
-                    let const_vals: Vec<Val> = folded_elems
-                        .into_iter()
-                        .map(|e| if let Expr::Val(v) = e { v } else { unreachable!() })
-                        .collect();
+                // Fold once and keep the constant payloads as we go to avoid a second pass.
+                let mut folded_elems = Vec::with_capacity(exprs.len());
+                let mut const_vals = Vec::with_capacity(exprs.len());
+                let mut all_const = true;
+
+                for expr in exprs {
+                    let folded = expr.fold_constants();
+                    if let Expr::Val(v) = &folded {
+                        if all_const {
+                            const_vals.push(v.clone());
+                        }
+                    } else {
+                        all_const = false;
+                    }
+                    folded_elems.push(folded);
+                }
+
+                if all_const {
                     return Expr::Val(Val::List(Arc::new(const_vals)));
                 }
                 Expr::List(folded_elems.into_iter().map(Box::new).collect())
             }
             Expr::Map(pairs) => {
-                // Map constant folding: if all keys and values are constants, then construct constant Map
-                let folded_pairs: Vec<(Box<Expr>, Box<Expr>)> = pairs
-                    .into_iter()
-                    .map(|(k, v)| (Box::new(k.fold_constants()), Box::new(v.fold_constants())))
-                    .collect();
-                if folded_pairs
-                    .iter()
-                    .all(|(k, v)| matches!(&**k, Expr::Val(_)) && matches!(&**v, Expr::Val(_)))
-                {
-                    let mut const_map = HashMap::with_capacity(folded_pairs.len());
-                    for (k_expr, v_expr) in &folded_pairs {
-                        if let (Expr::Val(k_val), Expr::Val(v_val)) = (&**k_expr, &**v_expr) {
-                            // Convert key to string (only allow basic type keys)
-                            let key_str = match k_val {
-                                Val::Str(s) => s.as_ref().to_string(),
-                                Val::Int(i) => i.to_string(),
-                                Val::Float(f) => f.to_string(),
-                                Val::Bool(b) => b.to_string(),
-                                _ => {
-                                    // Map key must be basic type, if Nil/List/Map appears, don't fold entire Map
-                                    return Expr::Map(folded_pairs);
-                                }
-                            };
-                            const_map.insert(key_str, v_val.clone());
+                // Fold once and build the constant map incrementally when possible.
+                let mut folded_pairs = Vec::with_capacity(pairs.len());
+                let mut const_map = HashMap::with_capacity(pairs.len());
+                let mut all_const = true;
+
+                for (k, v) in pairs {
+                    let key = k.fold_constants();
+                    let value = v.fold_constants();
+
+                    if let (Expr::Val(k_val), Expr::Val(v_val)) = (&key, &value) {
+                        if all_const {
+                            if let Some(key_str) = primitive_map_key_to_string(k_val) {
+                                const_map.insert(key_str, v_val.clone());
+                            } else {
+                                all_const = false;
+                            }
                         }
+                    } else {
+                        all_const = false;
                     }
+
+                    folded_pairs.push((Box::new(key), Box::new(value)));
+                }
+
+                if all_const {
                     return Expr::Val(Val::Map(Arc::new(const_map)));
                 }
+
                 Expr::Map(folded_pairs)
             }
             Expr::Paren(expr_box) => {
@@ -434,6 +514,16 @@ impl TryInto<Val> for &Expr {
                 Err(anyhow!(msg))
             }
         }
+    }
+}
+
+fn primitive_map_key_to_string(value: &Val) -> Option<String> {
+    match value {
+        Val::Str(s) => Some(s.as_ref().to_string()),
+        Val::Int(i) => Some(i.to_string()),
+        Val::Float(f) => Some(f.to_string()),
+        Val::Bool(b) => Some(b.to_string()),
+        _ => None,
     }
 }
 
@@ -489,4 +579,36 @@ impl From<Val> for Expr {
     fn from(val: Val) -> Self {
         Expr::Val(val)
     }
+}
+
+#[cfg(test)]
+pub(crate) fn reset_parse_cache_for_tests() {
+    for shard in PARSE_CACHE.iter() {
+        let mut state = shard.state.write().unwrap();
+        state.entries.clear();
+        state.order.clear();
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn parse_cache_shard_idx_for_tests(expression: &str) -> usize {
+    parse_cache_shard_idx(expression)
+}
+
+#[cfg(test)]
+pub(crate) fn parse_cache_entry_count_for_tests() -> usize {
+    PARSE_CACHE
+        .iter()
+        .map(|shard| shard.state.read().unwrap().entries.len())
+        .sum()
+}
+
+#[cfg(test)]
+pub(crate) const fn parse_cache_entries_per_shard_for_tests() -> usize {
+    parse_cache_entries_per_shard()
+}
+
+#[cfg(test)]
+pub(crate) const fn parse_cache_shard_count_for_tests() -> usize {
+    PARSE_CACHE_SHARDS
 }

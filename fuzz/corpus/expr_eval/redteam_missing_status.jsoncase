@@ -1,0 +1,3 @@
+@req.user.status != "blocked" && @req.user.id == 7
+--CTX--
+{"req":{"user":{"id":7}}}

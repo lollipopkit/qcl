@@ -1,0 +1,5 @@
+TOML
+===DATA===
+[req.user]
+role = "admin"
+id = 1

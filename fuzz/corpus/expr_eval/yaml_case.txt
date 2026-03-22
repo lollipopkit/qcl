@@ -1,0 +1,6 @@
+@user.name == "alice" && @flags.active
+--CTX--
+user:
+  name: alice
+flags:
+  active: true

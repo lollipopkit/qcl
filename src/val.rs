@@ -1,15 +1,18 @@
 use core::ops::{Add, Sub};
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::HashMap,
     fmt::Debug,
     ops::{Div, Mul, Rem},
     sync::Arc,
 };
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use serde::{Serialize, Serializer};
 
 use crate::op::{BinOp, err_op};
+
+#[cfg(feature = "adv_arith")]
+use std::collections::{HashSet, hash_map::Entry};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum Val {
@@ -22,6 +25,9 @@ pub enum Val {
     Map(Arc<HashMap<String, Val>>),
     /// List type, wrapped in Arc<Vec> for efficient cloning
     List(Arc<Vec<Val>>),
+    /// Missing field access is distinct from a real `nil` payload.
+    Missing,
+    /// Nil represents the absence of a value, similar to `null` in JSON or `None` in Rust.
     #[default]
     Nil,
 }
@@ -55,6 +61,69 @@ impl Val {
     }
 }
 
+fn checked_int_value(op: BinOp, a: i64, b: i64, value: Option<i64>) -> Result<Val> {
+    value.map(Val::Int).ok_or_else(|| anyhow!("Invalid op: {a} {op} {b}"))
+}
+
+#[cfg(feature = "adv_arith")]
+fn list_minus_list_indexed(left: &[Val], right: &[Val]) -> Val {
+    if left.is_empty() {
+        return Val::List(Arc::new(Vec::new()));
+    }
+    if right.is_empty() {
+        return Val::List(Arc::new(left.to_vec()));
+    }
+
+    if left.len() <= 32 || right.len() <= 32 {
+        let mut result = Vec::with_capacity(left.len());
+        'outer: for left_val in left.iter() {
+            for right_val in right.iter() {
+                if left_val == right_val {
+                    continue 'outer;
+                }
+            }
+            result.push(left_val.clone());
+        }
+        return Val::List(Arc::new(result));
+    }
+
+    let mut int_set = HashSet::with_capacity(right.len());
+    let mut str_set: HashSet<&str> = HashSet::with_capacity(right.len());
+    let mut bool_set = HashSet::with_capacity(right.len());
+    let mut complex_right = Vec::new();
+
+    for right_val in right {
+        match right_val {
+            Val::Int(i) => {
+                int_set.insert(*i);
+            }
+            Val::Str(s) => {
+                str_set.insert(s.as_ref());
+            }
+            Val::Bool(b) => {
+                bool_set.insert(*b);
+            }
+            _ => complex_right.push(right_val),
+        }
+    }
+
+    let mut result = Vec::with_capacity(left.len());
+    for left_val in left {
+        let keep = match left_val {
+            Val::Int(i) => !int_set.contains(i),
+            Val::Str(s) => !str_set.contains(s.as_ref()),
+            Val::Bool(b) => !bool_set.contains(b),
+            _ => !complex_right.contains(&left_val),
+        };
+
+        if keep {
+            result.push(left_val.clone());
+        }
+    }
+
+    Val::List(Arc::new(result))
+}
+
 impl Add for &Val {
     type Output = Result<Val>;
 
@@ -63,7 +132,10 @@ impl Add for &Val {
     /// - Map can + Map, but Map can't + Val, since the value of the map is not defined.
     fn add(self, other: Self) -> Self::Output {
         match (self, other) {
-            (Val::Int(a), Val::Int(b)) => Ok(Val::Int(a + b)),
+            (Val::Int(a), Val::Int(b)) => a
+                .checked_add(*b)
+                .map(Val::Int)
+                .ok_or_else(|| anyhow!("Integer overflow: {a} + {b}")),
             (Val::Float(a), Val::Float(b)) => Ok(Val::Float(a + b)),
             (Val::Float(a), Val::Int(b)) => Ok(Val::Float(a + *b as f64)),
             (Val::Int(a), Val::Float(b)) => Ok(Val::Float(*a as f64 + b)),
@@ -139,23 +211,15 @@ impl Sub for &Val {
 
     fn sub(self, other: Self) -> Self::Output {
         match (self, other) {
-            (Val::Int(a), Val::Int(b)) => Ok((a - b).into()),
+            (Val::Int(a), Val::Int(b)) => a
+                .checked_sub(*b)
+                .map(Val::Int)
+                .ok_or_else(|| anyhow!("Integer overflow: {a} - {b}")),
             (Val::Float(a), Val::Float(b)) => Ok((a - b).into()),
             (Val::Float(a), Val::Int(b)) => Ok((a - *b as f64).into()),
             (Val::Int(a), Val::Float(b)) => Ok((*a as f64 - b).into()),
             #[cfg(feature = "adv_arith")]
-            (Val::List(l), Val::List(r)) => {
-                let mut result = Vec::with_capacity(l.len());
-                'outer: for left_val in l.iter() {
-                    for right_val in r.iter() {
-                        if left_val == right_val {
-                            continue 'outer; // Skip this element
-                        }
-                    }
-                    result.push(left_val.clone());
-                }
-                Ok(result.into())
-            }
+            (Val::List(l), Val::List(r)) => Ok(list_minus_list_indexed(l, r)),
             #[cfg(feature = "adv_arith")]
             (Val::List(l), r) => {
                 let mut result = Vec::with_capacity(l.len());
@@ -202,7 +266,10 @@ impl Mul for &Val {
 
     fn mul(self, other: Self) -> Self::Output {
         match (self, other) {
-            (Val::Int(a), Val::Int(b)) => Ok((a * b).into()),
+            (Val::Int(a), Val::Int(b)) => a
+                .checked_mul(*b)
+                .map(Val::Int)
+                .ok_or_else(|| anyhow!("Integer overflow: {a} * {b}")),
             (Val::Float(a), Val::Float(b)) => Ok((a * b).into()),
             (Val::Float(a), Val::Int(b)) => Ok((a * *b as f64).into()),
             (Val::Int(a), Val::Float(b)) => Ok((*a as f64 * b).into()),
@@ -216,17 +283,20 @@ impl Div for &Val {
 
     fn div(self, other: Self) -> Self::Output {
         match (self, other) {
+            (_, Val::Int(0)) => Err(anyhow!("Division by zero")),
+            (_, Val::Float(f)) if *f == 0.0 => Err(anyhow!("Division by zero")),
             #[cfg(feature = "sem_arith")]
             (Val::Int(a), Val::Int(b)) => {
-                let res = (*a as f64) / (*b as f64);
-                if res.fract() == 0.0 {
-                    Ok((res as i64).into())
+                let div = checked_int_value(BinOp::Div, *a, *b, a.checked_div(*b))?;
+                let rem = checked_int_value(BinOp::Mod, *a, *b, a.checked_rem(*b))?;
+                if rem == Val::Int(0) {
+                    Ok(div)
                 } else {
-                    Ok(res.into())
+                    Ok((*a as f64 / *b as f64).into())
                 }
             }
             #[cfg(not(feature = "sem_arith"))]
-            (Val::Int(a), Val::Int(b)) => Ok((a / b).into()),
+            (Val::Int(a), Val::Int(b)) => checked_int_value(BinOp::Div, *a, *b, a.checked_div(*b)),
             (Val::Float(a), Val::Float(b)) => Ok((a / b).into()),
             (Val::Float(a), Val::Int(b)) => Ok((a / *b as f64).into()),
             (Val::Int(a), Val::Float(b)) => Ok((*a as f64 / b).into()),
@@ -240,7 +310,9 @@ impl Rem for &Val {
 
     fn rem(self, other: Self) -> Self::Output {
         match (self, other) {
-            (Val::Int(a), Val::Int(b)) => Ok((a % b).into()),
+            (_, Val::Int(0)) => Err(anyhow!("Modulo by zero")),
+            (_, Val::Float(f)) if *f == 0.0 => Err(anyhow!("Modulo by zero")),
+            (Val::Int(a), Val::Int(b)) => checked_int_value(BinOp::Mod, *a, *b, a.checked_rem(*b)),
             (Val::Float(a), Val::Float(b)) => Ok((a % b).into()),
             (Val::Float(a), Val::Int(b)) => Ok((a % *b as f64).into()),
             (Val::Int(a), Val::Float(b)) => Ok((*a as f64 % b).into()),
@@ -433,6 +505,7 @@ impl Serialize for Val {
             Val::Bool(b) => serializer.serialize_bool(*b),
             Val::Map(m) => (**m).serialize(serializer),
             Val::List(l) => (**l).serialize(serializer),
+            Val::Missing => serializer.serialize_unit(),
             Val::Nil => serializer.serialize_unit(),
         }
     }
@@ -447,33 +520,66 @@ impl core::fmt::Display for Val {
             Val::Str(s) => write!(f, "{}", s.as_ref()),
             Val::Map(m) => fmt_map(f, m),
             Val::List(l) => fmt_list(f, l),
+            Val::Missing => write!(f, "missing"),
             Val::Nil => write!(f, "nil"),
         }
     }
 }
 
-#[cfg(feature = "json")]
 fn fmt_map(f: &mut core::fmt::Formatter<'_>, m: &Arc<HashMap<String, Val>>) -> core::fmt::Result {
-    match serde_json::to_string(&**m) {
-        Ok(s) => write!(f, "{s}"),
-        Err(_) => write!(f, "{:?}", m),
+    f.write_str("{")?;
+    let mut first = true;
+    for (key, value) in m.iter() {
+        if !first {
+            f.write_str(",")?;
+        }
+        first = false;
+        fmt_json_str(f, key)?;
+        f.write_str(":")?;
+        fmt_json_value(f, value)?;
+    }
+    f.write_str("}")
+}
+
+fn fmt_list(f: &mut core::fmt::Formatter<'_>, l: &Arc<Vec<Val>>) -> core::fmt::Result {
+    f.write_str("[")?;
+    let mut first = true;
+    for value in l.iter() {
+        if !first {
+            f.write_str(",")?;
+        }
+        first = false;
+        fmt_json_value(f, value)?;
+    }
+    f.write_str("]")
+}
+
+fn fmt_json_value(f: &mut core::fmt::Formatter<'_>, value: &Val) -> core::fmt::Result {
+    match value {
+        Val::Str(s) => fmt_json_str(f, s),
+        Val::Int(i) => write!(f, "{i}"),
+        Val::Float(fl) => write!(f, "{fl}"),
+        Val::Bool(b) => write!(f, "{b}"),
+        Val::Map(m) => fmt_map(f, m),
+        Val::List(l) => fmt_list(f, l),
+        Val::Missing | Val::Nil => f.write_str("null"),
     }
 }
 
-#[cfg(not(feature = "json"))]
-fn fmt_map(f: &mut core::fmt::Formatter<'_>, m: &Arc<HashMap<String, Val>>) -> core::fmt::Result {
-    write!(f, "{:?}", m)
-}
-
-#[cfg(feature = "json")]
-fn fmt_list(f: &mut core::fmt::Formatter<'_>, l: &Arc<Vec<Val>>) -> core::fmt::Result {
-    match serde_json::to_string(&**l) {
-        Ok(s) => write!(f, "{s}"),
-        Err(_) => write!(f, "{:?}", l),
+fn fmt_json_str(f: &mut core::fmt::Formatter<'_>, value: &str) -> core::fmt::Result {
+    f.write_str("\"")?;
+    for ch in value.chars() {
+        match ch {
+            '"' => f.write_str("\\\"")?,
+            '\\' => f.write_str("\\\\")?,
+            '\n' => f.write_str("\\n")?,
+            '\r' => f.write_str("\\r")?,
+            '\t' => f.write_str("\\t")?,
+            '\u{08}' => f.write_str("\\b")?,
+            '\u{0C}' => f.write_str("\\f")?,
+            ch if ch.is_control() => write!(f, "\\u{:04x}", ch as u32)?,
+            ch => write!(f, "{ch}")?,
+        }
     }
-}
-
-#[cfg(not(feature = "json"))]
-fn fmt_list(f: &mut core::fmt::Formatter<'_>, l: &Arc<Vec<Val>>) -> core::fmt::Result {
-    write!(f, "{:?}", l)
+    f.write_str("\"")
 }

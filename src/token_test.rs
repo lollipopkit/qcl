@@ -2,6 +2,14 @@
 mod tests {
     use crate::token::{Token, Tokenizer};
 
+    fn id(value: &str) -> Token {
+        Token::Id(value.into())
+    }
+
+    fn str_token(value: &str) -> Token {
+        Token::Str(value.into())
+    }
+
     #[test]
     fn basic() {
         let t1 = Tokenizer::new(r#"1.3+*/@ %==  "str1" 'str2' true false nil "#);
@@ -13,8 +21,8 @@ mod tests {
             Token::At,
             Token::Mod,
             Token::Eq,
-            Token::Str("str1".to_string()),
-            Token::Str("str2".to_string()),
+            str_token("str1"),
+            str_token("str2"),
             Token::Bool(true),
             Token::Bool(false),
             Token::Nil,
@@ -56,11 +64,7 @@ mod tests {
     #[test]
     fn ids() {
         let t3 = Tokenizer::new("id1 id_2 id-3");
-        let e3 = vec![
-            Token::Id("id1".to_string()),
-            Token::Id("id_2".to_string()),
-            Token::Id("id-3".to_string()),
-        ];
+        let e3 = vec![id("id1"), id("id_2"), id("id-3")];
         assert_eq!(t3.unwrap(), e3);
     }
 
@@ -94,12 +98,12 @@ mod tests {
 
     #[test]
     fn token_eq() {
-        assert_eq!(Token::Str("a".to_string()), Token::Str("a".to_string()));
+        assert_eq!(str_token("a"), str_token("a"));
         assert_eq!(Token::Int(1), Token::Int(1));
         assert_eq!(Token::Float(1.0), Token::Float(1.0));
         assert_eq!(Token::Bool(true), Token::Bool(true));
         assert_eq!(Token::Nil, Token::Nil);
-        assert_ne!(Token::Str("a".to_string()), Token::Str("b".to_string()));
+        assert_ne!(str_token("a"), str_token("b"));
         assert_ne!(Token::Int(1), Token::Int(2));
         assert_ne!(Token::Float(1.0), Token::Float(2.0));
         assert_ne!(Token::Bool(true), Token::Bool(false));
@@ -111,11 +115,11 @@ mod tests {
         let t = Tokenizer::new("@req.user.age >= 18");
         let e = vec![
             Token::At,
-            Token::Id("req".to_string()),
+            id("req"),
             Token::Dot,
-            Token::Id("user".to_string()),
+            id("user"),
             Token::Dot,
-            Token::Id("age".to_string()),
+            id("age"),
             Token::Ge,
             Token::Int(18),
         ];
@@ -135,35 +139,35 @@ mod tests {
         let e = vec![
             Token::LParen,
             Token::At,
-            Token::Id("req".to_string()),
+            id("req"),
             Token::Dot,
-            Token::Id("user".to_string()),
+            id("user"),
             Token::Dot,
-            Token::Id("id".to_string()),
+            id("id"),
             Token::Eq,
             Token::At,
-            Token::Id("record".to_string()),
+            id("record"),
             Token::Dot,
-            Token::Id("user".to_string()),
+            id("user"),
             Token::Dot,
-            Token::Id("id".to_string()),
+            id("id"),
             Token::And,
             Token::At,
-            Token::Id("record".to_string()),
+            id("record"),
             Token::Dot,
-            Token::Id("time".to_string()),
+            id("time"),
             Token::Gt,
             Token::Int(1700000),
             Token::RParen,
             Token::Or,
             Token::At,
-            Token::Id("req".to_string()),
+            id("req"),
             Token::Dot,
-            Token::Id("user".to_string()),
+            id("user"),
             Token::Dot,
-            Token::Id("role".to_string()),
+            id("role"),
             Token::Eq,
-            Token::Str("admin".to_string()),
+            str_token("admin"),
         ];
         assert_eq!(t.unwrap(), e);
     }
@@ -171,13 +175,13 @@ mod tests {
     #[test]
     fn list_access() {
         let t = Tokenizer::new("@list.0");
-        let e = vec![Token::At, Token::Id("list".to_string()), Token::Dot, Token::Int(0)];
+        let e = vec![Token::At, id("list"), Token::Dot, Token::Int(0)];
         assert_eq!(t.unwrap(), e);
 
         let t = Tokenizer::new("@list.1.2");
         let e = vec![
             Token::At,
-            Token::Id("list".to_string()),
+            id("list"),
             Token::Dot,
             Token::Int(1),
             Token::Dot,
@@ -193,9 +197,9 @@ mod tests {
         let e = vec![
             Token::LParen,
             Token::At,
-            Token::Id("settings".to_string()),
+            id("settings"),
             Token::Dot,
-            Token::Id("active".to_string()),
+            id("active"),
             Token::RParen,
         ];
         assert_eq!(t.unwrap(), e);
@@ -231,17 +235,67 @@ mod tests {
     }
 
     #[test]
+    fn invalid_identifier_start_chars() {
+        assert!(Tokenizer::new("^").is_err());
+        assert!(Tokenizer::new("$").is_err());
+        assert!(Tokenizer::new("~").is_err());
+        assert!(Tokenizer::new("@a.^").is_err());
+    }
+
+    #[test]
+    fn keyword_prefixes_are_plain_identifiers() {
+        let t = Tokenizer::new("index truex nilx falsey in1");
+        let e = vec![id("index"), id("truex"), id("nilx"), id("falsey"), id("in1")];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
+    fn keyword_spelling_in_at_paths_stays_identifier() {
+        let t = Tokenizer::new("@true.in.@nil.false");
+        let e = vec![
+            Token::At,
+            id("true"),
+            Token::Dot,
+            id("in"),
+            Token::Dot,
+            Token::At,
+            id("nil"),
+            Token::Dot,
+            id("false"),
+        ];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
+    fn strings_support_escapes() {
+        let t = Tokenizer::new(r#""a\"b" 'c\'d' "e\\f" "line\nbreak""#);
+        let e = vec![
+            str_token("a\"b"),
+            str_token("c'd"),
+            str_token("e\\f"),
+            str_token("line\nbreak"),
+        ];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
+    fn invalid_string_escapes_error() {
+        assert!(Tokenizer::new(r#""\x""#).is_err());
+        assert!(Tokenizer::new("\"dangling\\\\").is_err());
+    }
+
+    #[test]
     fn whitespace_handling() {
         let t = Tokenizer::new("  @req.user  .  id  ==  'test'  ");
         let e = vec![
             Token::At,
-            Token::Id("req".to_string()),
+            id("req"),
             Token::Dot,
-            Token::Id("user".to_string()),
+            id("user"),
             Token::Dot,
-            Token::Id("id".to_string()),
+            id("id"),
             Token::Eq,
-            Token::Str("test".to_string()),
+            str_token("test"),
         ];
         assert_eq!(t.unwrap(), e);
     }
@@ -253,20 +307,20 @@ mod tests {
             Token::LParen,
             Token::LParen,
             Token::At,
-            Token::Id("req".to_string()),
+            id("req"),
             Token::Dot,
-            Token::Id("id".to_string()),
+            id("id"),
             Token::Eq,
             Token::Int(123),
             Token::RParen,
             Token::And,
             Token::LParen,
             Token::At,
-            Token::Id("req".to_string()),
+            id("req"),
             Token::Dot,
-            Token::Id("role".to_string()),
+            id("role"),
             Token::Eq,
-            Token::Str("admin".to_string()),
+            str_token("admin"),
             Token::RParen,
             Token::RParen,
         ];
@@ -295,17 +349,17 @@ mod tests {
         let t = Tokenizer::new("@users.0.name @items.1.tags.2");
         let e = vec![
             Token::At,
-            Token::Id("users".to_string()),
+            id("users"),
             Token::Dot,
             Token::Int(0),
             Token::Dot,
-            Token::Id("name".to_string()),
+            id("name"),
             Token::At,
-            Token::Id("items".to_string()),
+            id("items"),
             Token::Dot,
             Token::Int(1),
             Token::Dot,
-            Token::Id("tags".to_string()),
+            id("tags"),
             Token::Dot,
             Token::Int(2),
         ];
@@ -319,19 +373,19 @@ mod tests {
             Token::Not,
             Token::LParen,
             Token::At,
-            Token::Id("a".to_string()),
+            id("a"),
             Token::In,
             Token::At,
-            Token::Id("b".to_string()),
+            id("b"),
             Token::RParen,
             Token::And,
             Token::LParen,
             Token::At,
-            Token::Id("c".to_string()),
+            id("c"),
             Token::Or,
             Token::Not,
             Token::At,
-            Token::Id("d".to_string()),
+            id("d"),
             Token::RParen,
         ];
         assert_eq!(t.unwrap(), e);
@@ -342,15 +396,15 @@ mod tests {
         let t = Tokenizer::new("@a.(@b.(@c))");
         let e = vec![
             Token::At,
-            Token::Id("a".to_string()),
+            id("a"),
             Token::Dot,
             Token::LParen,
             Token::At,
-            Token::Id("b".to_string()),
+            id("b"),
             Token::Dot,
             Token::LParen,
             Token::At,
-            Token::Id("c".to_string()),
+            id("c"),
             Token::RParen,
             Token::RParen,
         ];
@@ -359,19 +413,19 @@ mod tests {
         let t = Tokenizer::new("@a.(@b.(@c.(@d)))");
         let e = vec![
             Token::At,
-            Token::Id("a".to_string()),
+            id("a"),
             Token::Dot,
             Token::LParen,
             Token::At,
-            Token::Id("b".to_string()),
+            id("b"),
             Token::Dot,
             Token::LParen,
             Token::At,
-            Token::Id("c".to_string()),
+            id("c"),
             Token::Dot,
             Token::LParen,
             Token::At,
-            Token::Id("d".to_string()),
+            id("d"),
             Token::RParen,
             Token::RParen,
             Token::RParen,
@@ -381,11 +435,11 @@ mod tests {
         let t = Tokenizer::new("@a.(@b - 1))");
         let e = vec![
             Token::At,
-            Token::Id("a".to_string()),
+            id("a"),
             Token::Dot,
             Token::LParen,
             Token::At,
-            Token::Id("b".to_string()),
+            id("b"),
             Token::Sub,
             Token::Int(1),
             Token::RParen,
@@ -411,9 +465,9 @@ mod tests {
         let t = Tokenizer::new(r#"["hello", "world"]"#);
         let e = vec![
             Token::LBracket,
-            Token::Str("hello".to_string()),
+            str_token("hello"),
             Token::Comma,
-            Token::Str("world".to_string()),
+            str_token("world"),
             Token::RBracket,
         ];
         assert_eq!(t.unwrap(), e);
@@ -428,9 +482,9 @@ mod tests {
         let t = Tokenizer::new(r#"{"key": "value"}"#);
         let e = vec![
             Token::LBrace,
-            Token::Str("key".to_string()),
+            str_token("key"),
             Token::Colon,
-            Token::Str("value".to_string()),
+            str_token("value"),
             Token::RBrace,
         ];
         assert_eq!(t.unwrap(), e);
@@ -438,11 +492,11 @@ mod tests {
         let t = Tokenizer::new(r#"{"a": 1, "b": 2}"#);
         let e = vec![
             Token::LBrace,
-            Token::Str("a".to_string()),
+            str_token("a"),
             Token::Colon,
             Token::Int(1),
             Token::Comma,
-            Token::Str("b".to_string()),
+            str_token("b"),
             Token::Colon,
             Token::Int(2),
             Token::RBrace,
@@ -460,21 +514,21 @@ mod tests {
         let e = vec![
             Token::LBracket,
             Token::LBrace,
-            Token::Str("name".to_string()),
+            str_token("name"),
             Token::Colon,
-            Token::Str("Alice".to_string()),
+            str_token("Alice"),
             Token::Comma,
-            Token::Str("age".to_string()),
+            str_token("age"),
             Token::Colon,
             Token::Int(30),
             Token::RBrace,
             Token::Comma,
             Token::LBrace,
-            Token::Str("name".to_string()),
+            str_token("name"),
             Token::Colon,
-            Token::Str("Bob".to_string()),
+            str_token("Bob"),
             Token::Comma,
-            Token::Str("age".to_string()),
+            str_token("age"),
             Token::Colon,
             Token::Int(25),
             Token::RBrace,
@@ -485,7 +539,7 @@ mod tests {
         let t = Tokenizer::new(r#"{"users": [1, 2, 3], "active": true}"#);
         let e = vec![
             Token::LBrace,
-            Token::Str("users".to_string()),
+            str_token("users"),
             Token::Colon,
             Token::LBracket,
             Token::Int(1),
@@ -495,7 +549,7 @@ mod tests {
             Token::Int(3),
             Token::RBracket,
             Token::Comma,
-            Token::Str("active".to_string()),
+            str_token("active"),
             Token::Colon,
             Token::Bool(true),
             Token::RBrace,
@@ -521,11 +575,11 @@ mod tests {
         let t = Tokenizer::new(r#"{"a": 1, "b": 2,}"#);
         let e = vec![
             Token::LBrace,
-            Token::Str("a".to_string()),
+            str_token("a"),
             Token::Colon,
             Token::Int(1),
             Token::Comma,
-            Token::Str("b".to_string()),
+            str_token("b"),
             Token::Colon,
             Token::Int(2),
             Token::Comma,

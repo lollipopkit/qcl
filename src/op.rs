@@ -1,10 +1,13 @@
 use core::cmp::Ordering;
 use core::fmt::Debug;
+use std::collections::HashSet;
 use std::fmt::Display;
 
 use anyhow::{Result, anyhow};
 
 use crate::{expr::Expr, val::Val};
+
+const LARGE_LIST_MEMBERSHIP_THRESHOLD: usize = 32;
 
 fn list_contains(list: &[Val], needle: &Val) -> bool {
     match needle {
@@ -15,6 +18,65 @@ fn list_contains(list: &[Val], needle: &Val) -> bool {
         Val::Bool(b) => list.iter().any(|v| matches!(v, Val::Bool(x) if x == b)),
         _ => list.contains(needle),
     }
+}
+
+#[derive(Default)]
+struct MembershipIndex<'a> {
+    ints: HashSet<i64>,
+    strs: HashSet<&'a str>,
+    has_true: bool,
+    has_false: bool,
+    fallback: Vec<&'a Val>,
+}
+
+impl<'a> MembershipIndex<'a> {
+    fn new(list: &'a [Val]) -> Self {
+        let mut index = Self {
+            ints: HashSet::with_capacity(list.len()),
+            strs: HashSet::with_capacity(list.len()),
+            has_true: false,
+            has_false: false,
+            fallback: Vec::new(),
+        };
+
+        for value in list {
+            match value {
+                Val::Int(i) => {
+                    index.ints.insert(*i);
+                }
+                Val::Str(s) => {
+                    index.strs.insert(s.as_ref());
+                }
+                Val::Bool(true) => {
+                    index.has_true = true;
+                }
+                Val::Bool(false) => {
+                    index.has_false = true;
+                }
+                _ => index.fallback.push(value),
+            }
+        }
+
+        index
+    }
+
+    fn contains(&self, needle: &Val) -> bool {
+        match needle {
+            Val::Int(i) => self.ints.contains(i),
+            Val::Str(s) => self.strs.contains(s.as_ref()),
+            Val::Bool(true) => self.has_true,
+            Val::Bool(false) => self.has_false,
+            _ => self.fallback.contains(&needle),
+        }
+    }
+}
+
+fn list_contains_indexed(list: &[Val], needle: &Val) -> bool {
+    if list.len() <= LARGE_LIST_MEMBERSHIP_THRESHOLD {
+        return list_contains(list, needle);
+    }
+
+    MembershipIndex::new(list).contains(needle)
 }
 
 pub(crate) fn err_op<T: Display, R>(l: &Val, op: T, r: &Val) -> Result<R> {
@@ -88,6 +150,13 @@ impl BinOp {
     }
 
     pub(crate) fn cmp(&self, l: &Val, r: &Val) -> Result<bool> {
+        if matches!(l, Val::Missing) || matches!(r, Val::Missing) {
+            return match self {
+                BinOp::Eq | BinOp::Ne => Ok(false),
+                _ => err_op(l, self, r),
+            };
+        }
+
         match self {
             BinOp::Eq => Ok(l == r),
             BinOp::Ne => Ok(l != r),
@@ -104,74 +173,16 @@ impl BinOp {
                         return Ok(false);
                     }
 
-                    if l.len() <= 32 || r.len() <= 32 {
+                    if l.len() <= LARGE_LIST_MEMBERSHIP_THRESHOLD || r.len() <= LARGE_LIST_MEMBERSHIP_THRESHOLD {
                         return Ok((**l).iter().all(|x| list_contains(r, x)));
                     }
 
-                    use std::collections::HashSet;
-
-                    if (**l).iter().all(|v| matches!(v, Val::Int(_))) {
-                        let mut set = HashSet::with_capacity(r.len());
-                        for v in (**r).iter() {
-                            if let Val::Int(x) = v {
-                                set.insert(*x);
-                            }
-                        }
-                        return Ok((**l)
-                            .iter()
-                            .filter_map(|v| if let Val::Int(x) = v { Some(*x) } else { None })
-                            .all(|x| set.contains(&x)));
-                    }
-
-                    if (**l).iter().all(|v| matches!(v, Val::Str(_))) {
-                        let mut set: HashSet<&str> = HashSet::with_capacity(r.len());
-                        for v in (**r).iter() {
-                            if let Val::Str(s) = v {
-                                set.insert(s.as_ref());
-                            }
-                        }
-                        return Ok((**l)
-                            .iter()
-                            .filter_map(|v| if let Val::Str(s) = v { Some(s.as_ref()) } else { None })
-                            .all(|s| set.contains(s)));
-                    }
-
-                    if (**l).iter().all(|v| matches!(v, Val::Bool(_))) {
-                        let mut set: HashSet<bool> = HashSet::with_capacity(r.len());
-                        for v in (**r).iter() {
-                            if let Val::Bool(b) = v {
-                                set.insert(*b);
-                            }
-                        }
-                        return Ok((**l)
-                            .iter()
-                            .filter_map(|v| if let Val::Bool(b) = v { Some(*b) } else { None })
-                            .all(|b| set.contains(&b)));
-                    }
-
-                    Ok((**l).iter().all(|x| list_contains(r, x)))
+                    let index = MembershipIndex::new(r);
+                    Ok((**l).iter().all(|x| index.contains(x)))
                 }
 
                 // Single element membership
-                (_, Val::List(r)) => Ok(list_contains(r, l)),
-
-                // Map key lookup optimization
-                (Val::Str(s), Val::Map(m)) => Ok(m.contains_key(s.as_ref())),
-                // For non-string keys, try converting to string key
-                (Val::Int(i), Val::Map(m)) => Ok(m.contains_key(&i.to_string())),
-                (Val::Float(f), Val::Map(m)) => Ok(m.contains_key(&f.to_string())),
-                (Val::Bool(b), Val::Map(m)) => Ok(m.contains_key(&b.to_string())),
-                // Other types return false (Nil or complex structures can't be keys)
-                (_, Val::Map(_)) => Ok(false),
-
-                #[cfg(feature = "adv_arith")]
-                (Val::Float(l), Val::Float(r)) => Ok(l < r),
-                #[cfg(feature = "adv_arith")]
-                (Val::Int(l), Val::Int(r)) => Ok(l < r),
-                #[cfg(feature = "adv_arith")]
-                (Val::Bool(l), Val::Bool(r)) => Ok(l == r),
-                #[cfg(feature = "adv_arith")]
-                (Val::Nil, Val::Nil) => Ok(true),
+                (_, Val::List(r)) => Ok(list_contains_indexed(r, l)),
 
                 _ => err_op(l, self, r),
             },
@@ -198,14 +209,25 @@ impl BinOp {
         if self.is_cmp() && matches!(self, BinOp::Eq | BinOp::Ne) {
             let l_val = l.eval(ctx)?;
 
+            // Missing-field comparisons are fail-closed.
+            if matches!(l_val, Val::Missing) {
+                return Ok(Val::Bool(false));
+            }
+
             // Short-circuit for nil comparisons
             match (&l_val, self) {
                 (Val::Nil, BinOp::Eq) => {
                     let r_val = r.eval(ctx)?;
+                    if matches!(r_val, Val::Missing) {
+                        return Ok(Val::Bool(false));
+                    }
                     return Ok(Val::Bool(matches!(r_val, Val::Nil)));
                 }
                 (Val::Nil, BinOp::Ne) => {
                     let r_val = r.eval(ctx)?;
+                    if matches!(r_val, Val::Missing) {
+                        return Ok(Val::Bool(false));
+                    }
                     return Ok(Val::Bool(!matches!(r_val, Val::Nil)));
                 }
                 _ => {}

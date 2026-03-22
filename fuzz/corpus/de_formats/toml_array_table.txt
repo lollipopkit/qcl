@@ -1,0 +1,7 @@
+TOML
+===DATA===
+[[users]]
+name = "alice"
+
+[[users]]
+name = "bob"
