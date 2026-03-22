@@ -16,14 +16,10 @@ ARGS ?=
 ARTIFACT_PREFIX ?= $(FUZZ_DIR)/artifacts/$(TARGET)/
 CARGO_FUZZ ?= cargo fuzz
 
-ifeq ($(filter $(TARGET),$(TARGETS)),)
-$(error Unknown TARGET '$(TARGET)'. Choose one of: $(TARGETS))
-endif
-
 DICT_ARG = $(if $(filter $(TARGET),$(DICT_TARGETS)),-dict=$(DICT),)
 FUZZ_ARGS = -artifact_prefix=$(ARTIFACT_PREFIX) -max_total_time=$(MAX_TIME) $(DICT_ARG) $(RUN_ARGS)
 
-.PHONY: help check check-all-features test test-all-features fmt fmt-check clippy bench run fuzz fuzz-all fuzz-quick fuzz-check fuzz-install fuzz-clean fuzz-list fuzz-replay
+.PHONY: help check check-all-features test test-all-features fmt fmt-check clippy bench run fuzz fuzz-all fuzz-quick fuzz-check fuzz-install fuzz-clean fuzz-list fuzz-replay validate-fuzz-target
 
 help:
 	@printf '%s\n' \
@@ -91,7 +87,13 @@ bench:
 run:
 	$(CARGO) run -- $(ARGS)
 
-fuzz:
+validate-fuzz-target:
+	@if [ -z "$(filter $(TARGET),$(TARGETS))" ]; then \
+		printf '%s\n' "Unknown TARGET '$(TARGET)'. Choose one of: $(TARGETS)"; \
+		exit 2; \
+	fi
+
+fuzz: validate-fuzz-target
 	@mkdir -p $(ARTIFACT_PREFIX)
 	$(CARGO_FUZZ) run $(TARGET) $(CORPUS) -- $(FUZZ_ARGS)
 

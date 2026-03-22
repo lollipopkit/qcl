@@ -256,6 +256,22 @@ impl Expr {
         names
     }
 
+    /// Returns true when the expression can be evaluated without consulting `ctx`.
+    pub fn is_ctx_independent(&self) -> bool {
+        match self {
+            Expr::At(_) => false,
+            Expr::Bin(l, _, r) | Expr::And(l, r) | Expr::Or(l, r) | Expr::Access(l, r) => {
+                l.is_ctx_independent() && r.is_ctx_independent()
+            }
+            Expr::Unary(_, expr) | Expr::Paren(expr) => expr.is_ctx_independent(),
+            Expr::List(exprs) => exprs.iter().all(|expr| expr.is_ctx_independent()),
+            Expr::Map(pairs) => pairs
+                .iter()
+                .all(|(key, value)| key.is_ctx_independent() && value.is_ctx_independent()),
+            Expr::Val(_) => true,
+        }
+    }
+
     /// Helper method to collect context names recursively
     ///
     /// eg.: `@user.props.(@req.service).value && @list` => `["user", "req", "list"]`

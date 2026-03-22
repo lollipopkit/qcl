@@ -320,6 +320,22 @@ mod test {
     }
 
     #[test]
+    fn test_is_ctx_independent() {
+        assert!(
+            Expr::try_from(r#"{"a": [1, 2, 3].0, "b": (1 + 2) * 3}"#)
+                .unwrap()
+                .is_ctx_independent()
+        );
+        assert!(!Expr::try_from("@user.name").unwrap().is_ctx_independent());
+        assert!(
+            !Expr::try_from(r#"[@user.name, {"k": 1}]"#)
+                .unwrap()
+                .is_ctx_independent()
+        );
+        assert!(!Expr::try_from(r#"({"k": @user.name})"#).unwrap().is_ctx_independent());
+    }
+
+    #[test]
     fn parse_cache_remains_functional_under_pressure() {
         let _guard = PARSE_CACHE_TEST_LOCK.lock().unwrap();
         reset_parse_cache_for_tests();

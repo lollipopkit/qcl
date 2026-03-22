@@ -76,8 +76,8 @@ fuzz_target!(|data: &[u8]| {
             value
         );
 
-        if !contains_non_finite_float(&value)
-            && !contains_float(&value)
+        if contains_float(&value)
+            && !contains_non_finite_float(&value)
             && let Ok(json) = serde_json::to_string(&value)
         {
             let roundtrip = de::from_json_str(json.as_str())

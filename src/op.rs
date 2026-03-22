@@ -31,9 +31,21 @@ struct MembershipIndex<'a> {
 
 impl<'a> MembershipIndex<'a> {
     fn new(list: &'a [Val]) -> Self {
+        // Count actual Int/Str entries first so each HashSet is preallocated
+        // to the needed size instead of the full list length.
+        let mut count_ints = 0;
+        let mut count_strs = 0;
+        for value in list {
+            match value {
+                Val::Int(_) => count_ints += 1,
+                Val::Str(_) => count_strs += 1,
+                _ => {}
+            }
+        }
+
         let mut index = Self {
-            ints: HashSet::with_capacity(list.len()),
-            strs: HashSet::with_capacity(list.len()),
+            ints: HashSet::with_capacity(count_ints),
+            strs: HashSet::with_capacity(count_strs),
             has_true: false,
             has_false: false,
             fallback: Vec::new(),

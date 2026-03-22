@@ -115,8 +115,12 @@ mod tests {
     fn missing_and_primitive_in_are_rejected() {
         let ctx = json!({
             "lhs": 1,
-            "rhs": 5,
             "map": {"1": true}
+        })
+        .into();
+        let ctx_missing = json!({
+            "lhs": 1,
+            "rhs": 5
         })
         .into();
 
@@ -124,11 +128,11 @@ mod tests {
         let r: Expr = "@map".try_into().unwrap();
         assert!(BinOp::In.eval(&l, &r, &ctx).is_err());
 
-        #[cfg(feature = "adv_arith")]
-        {
-            let r: Expr = "@rhs".try_into().unwrap();
-            assert!(BinOp::In.eval(&l, &r, &ctx).is_err());
-        }
+        let r_missing: Expr = "@missing".try_into().unwrap();
+        assert!(BinOp::In.eval(&l, &r_missing, &ctx_missing).is_err());
+
+        let r: Expr = "@rhs".try_into().unwrap();
+        assert!(BinOp::In.eval(&l, &r, &ctx).is_err());
     }
 
     #[test]

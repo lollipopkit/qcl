@@ -86,7 +86,7 @@ fuzz_target!(|data: &[u8]| {
         let _ = value.to_string();
     }
 
-    if expr.requested_ctx().is_empty() {
+    if expr.is_ctx_independent() {
         let without_ctx = stable_eval(&expr, &Val::Nil);
         assert_eq!(first, without_ctx);
     }
