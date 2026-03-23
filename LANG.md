@@ -164,9 +164,10 @@ Examples:
 
 - Failed access returns `Missing`.
 - `Missing` is distinct from `nil`.
+- Any comparison involving `Missing` evaluates to `false`, including `==` and `!=`.
 - `@nonexistent == nil` is `false`.
 - `@nonexistent != nil` is also `false`.
-- Comparisons involving `Missing` fail except for `==` / `!=`.
+- `@nonexistent != 1` is also `false`.
 
 ## Feature Flags
 
@@ -204,8 +205,8 @@ The CLI reads the context from `stdin` and the expression from argv.
 
 ```bash
 echo '{"req": {"user": {"role": "admin"}}}' | cargo run -- '@req.user.role == "admin"'
-echo 'name: test' | cargo run -- --yaml '@name == "test"'
-echo 'name = "test"' | cargo run -- --toml '@name == "test"'
+echo 'name: test' | cargo run --features yaml -- --yaml '@name == "test"'
+echo 'name = "test"' | cargo run --features toml -- --toml '@name == "test"'
 ```
 
 ## Examples

@@ -188,7 +188,14 @@ impl BinOp {
                 }
 
                 // Single element membership
-                (_, Val::List(r)) => Ok(list_contains(r, l)),
+                (_, Val::List(r)) => {
+                    if r.len() > LARGE_LIST_MEMBERSHIP_THRESHOLD {
+                        let index = MembershipIndex::new(r);
+                        return Ok(index.contains(l));
+                    }
+
+                    Ok(list_contains(r, l))
+                }
 
                 _ => err_op(l, self, r),
             },

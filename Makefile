@@ -16,8 +16,8 @@ ARGS ?=
 ARTIFACT_PREFIX ?= $(FUZZ_DIR)/artifacts/$(TARGET)/
 CARGO_FUZZ ?= cargo fuzz
 
-DICT_ARG = $(if $(filter $(TARGET),$(DICT_TARGETS)),-dict=$(DICT),)
-FUZZ_ARGS = -artifact_prefix=$(ARTIFACT_PREFIX) -max_total_time=$(MAX_TIME) $(DICT_ARG) $(RUN_ARGS)
+DICT_ARG = $(if $(filter $(TARGET),$(DICT_TARGETS)),-dict="$(DICT)",)
+FUZZ_ARGS = -artifact_prefix="$(ARTIFACT_PREFIX)" -max_total_time=$(MAX_TIME) $(DICT_ARG) $(RUN_ARGS)
 
 .PHONY: all clean help check check-all-features test test-all-features fmt fmt-check clippy bench run fuzz fuzz-all fuzz-quick fuzz-check fuzz-install fuzz-clean fuzz-list fuzz-replay validate-fuzz-target
 
@@ -100,8 +100,8 @@ validate-fuzz-target:
 	fi
 
 fuzz: validate-fuzz-target
-	@mkdir -p $(ARTIFACT_PREFIX) $(CORPUS)
-	$(CARGO_FUZZ) run $(TARGET) $(CORPUS) -- $(FUZZ_ARGS)
+	@mkdir -p "$(ARTIFACT_PREFIX)" "$(CORPUS)"
+	$(CARGO_FUZZ) run $(TARGET) "$(CORPUS)" -- $(FUZZ_ARGS)
 
 fuzz-all:
 	@set -e; \
@@ -143,4 +143,4 @@ fuzz-list:
 	@printf '%s\n' $(TARGETS)
 
 fuzz-replay:
-	bash $(FUZZ_DIR)/redteam_replay.sh
+	bash "$(FUZZ_DIR)/redteam_replay.sh"

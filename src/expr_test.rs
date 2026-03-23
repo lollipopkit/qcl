@@ -361,8 +361,9 @@ mod test {
         let protected = Expr::parse_cached_arc(protected_expr).unwrap();
         let protected_shard = parse_cache_shard_idx_for_tests(protected_expr);
         let target_shard = (protected_shard + 1) % parse_cache_shard_count_for_tests();
+        let hot_count = parse_cache_entries_per_shard_for_tests() + 64;
 
-        let hot_exprs = collect_exprs_for_shard(target_shard, 4096 + 64);
+        let hot_exprs = collect_exprs_for_shard(target_shard, hot_count);
         for expr in &hot_exprs {
             let parsed = Expr::parse_cached_arc(expr).unwrap();
             assert_eq!(parsed.eval(&Val::Nil).unwrap(), Val::Bool(true));

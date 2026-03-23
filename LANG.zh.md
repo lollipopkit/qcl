@@ -164,9 +164,10 @@ nil
 
 - 访问失败会返回 `Missing`。
 - `Missing` 与 `nil` 是不同的概念。
+- 只要任一侧是 `Missing`，所有比较操作都会返回 `false`，包括 `==` 和 `!=`。
 - `@nonexistent == nil` 的结果是 `false`。
 - `@nonexistent != nil` 的结果也同样是 `false`。
-- 除了 `==` / `!=` 之外，涉及 `Missing` 的比较都会失败。
+- `@nonexistent != 1` 的结果也同样是 `false`。
 
 ## 特性开关
 
@@ -204,8 +205,8 @@ CLI 会从 `stdin` 读取 context，并从 argv 读取表达式。
 
 ```bash
 echo '{"req": {"user": {"role": "admin"}}}' | cargo run -- '@req.user.role == "admin"'
-echo 'name: test' | cargo run -- --yaml '@name == "test"'
-echo 'name = "test"' | cargo run -- --toml '@name == "test"'
+echo 'name: test' | cargo run --features yaml -- --yaml '@name == "test"'
+echo 'name = "test"' | cargo run --features toml -- --toml '@name == "test"'
 ```
 
 ## 示例
