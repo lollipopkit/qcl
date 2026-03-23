@@ -83,14 +83,6 @@ impl<'a> MembershipIndex<'a> {
     }
 }
 
-fn list_contains_indexed(list: &[Val], needle: &Val) -> bool {
-    if list.len() <= LARGE_LIST_MEMBERSHIP_THRESHOLD {
-        return list_contains(list, needle);
-    }
-
-    MembershipIndex::new(list).contains(needle)
-}
-
 pub(crate) fn err_op<T: Display, R>(l: &Val, op: T, r: &Val) -> Result<R> {
     Err(anyhow!("Invalid op: {l} {op} {r}"))
 }
@@ -194,7 +186,7 @@ impl BinOp {
                 }
 
                 // Single element membership
-                (_, Val::List(r)) => Ok(list_contains_indexed(r, l)),
+                (_, Val::List(r)) => Ok(list_contains(r, l)),
 
                 _ => err_op(l, self, r),
             },

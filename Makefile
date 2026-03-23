@@ -109,7 +109,7 @@ fuzz-all:
 		if [ -n "$(RUN_ARGS)" ]; then \
 			args="$$args $(RUN_ARGS)"; \
 		fi; \
-		mkdir -p "$$artifact"; \
+		mkdir -p "$$corpus" "$$artifact"; \
 		echo "==> $(CARGO_FUZZ) run $$target $$corpus -- $$args"; \
 		$(CARGO_FUZZ) run "$$target" "$$corpus" -- $$args; \
 	done
@@ -118,10 +118,10 @@ fuzz-quick: MAX_TIME = 10
 fuzz-quick: fuzz-all
 
 fuzz-check:
-	cargo check --manifest-path $(FUZZ_DIR)/Cargo.toml --bins
+	$(CARGO) check --manifest-path $(FUZZ_DIR)/Cargo.toml --bins
 
 fuzz-install:
-	cargo install cargo-fuzz
+	$(CARGO) install cargo-fuzz
 
 fuzz-clean:
 	rm -rf $(FUZZ_DIR)/artifacts $(FUZZ_DIR)/coverage $(FUZZ_DIR)/target
