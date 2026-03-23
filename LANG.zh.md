@@ -8,11 +8,12 @@ QCL 是一个小型表达式语言，用于在结构化上下文上执行 ACL �
 
 - 空白字符会被忽略。
 - `//` 表示单行注释的开始。
+- `/* */` 表示块注释（支持嵌套）。
 - 字符串可以使用 `"` 或 `'` 包裹。
-- 支持的转义包括 `\\`, `\"`, `\'`, `\n`, `\r`, `\t`, `\0`。
+- 支持的转义包括 `\\`, `\"`, `\'`, `\n`, `\r`, `\t`, `\0` 和 `\uXXXX`（Unicode 码点）。
 - 数字字面量可以带前导 `+` 或 `-`。
+- 整数字面量支持十进制、十六进制（`0x` / `0X`）和八进制（`0o` / `0O`）。
 - 整数类型为 `i64`；浮点类型为 `f64`。
-- 不存在独立的一元负号运算符。
 - 在 `@` 之外，裸标识符会被当作字符串值，而不是变量。
 - 在 `@` 路径内部，相同的标识符 token 会被当作字段名。
 - 精确关键字为 `true`、`false`、`nil` 和 `in`。
@@ -22,9 +23,13 @@ QCL 是一个小型表达式语言，用于在结构化上下文上执行 ACL �
 ```text
 foo == "foo"
 123
+0xFF
+0o77
 -1
 "hello\nworld"
-// comment
+"\u0041lice"  // "Alice"
+// 单行注释
+/* 块注释 */
 ```
 
 ## 值类型
@@ -106,6 +111,7 @@ nil
 - 另一个 `@` 访问
 
 第一个路径片段用于选择顶层上下文 key。List 索引从 0 开始。
+负数索引从末尾计数：`-1` 表示最后一个元素，`-2` 表示倒数第二个，依此类推。
 越界访问和缺失的 map key 会返回 `nil`。
 
 示例：
@@ -115,6 +121,8 @@ nil
 @data.'special-field'
 @users.(@index)
 @req.user."name"
+@list.-1          // 最后一个元素
+@list.-2          // 倒数第二个
 ```
 
 ### 后缀访问
@@ -132,23 +140,28 @@ nil
 运算符优先级从高到低如下：
 
 1. 后缀访问: `.`
-1. 一元非: `!`
+1. 一元: `! -`
 1. 乘除取模: `* / %`
 1. 加减: `+ -`
 1. 比较: `== != < > <= >= in`
 1. 逻辑与: `&&`
 1. 逻辑或: `||`
+1. 空值合并: `??`
+1. 三元: `? :`
 
 说明：
 
 - 二元运算符都是左结合。
 - `&&` 和 `||` 采用短路求值。
+- `??` 当左操作数不为 `nil` 时返回左操作数，否则返回右操作数。
+- `? :` 要求条件为 `Bool`；格式为 `cond ? true_expr : false_expr`。
 - `!` 只接受 `Bool`。
+- `-`（一元）对 `Int` 和 `Float` 取负。
 - `in` 的含义是：
   - 当两边都是字符串时，表示子串判断
   - 当右侧是 list、左侧是单个值时，表示成员判断
   - 当两边都是 list 时，表示子集判断
-  - 不支持 map 成员判断
+  - 当右侧是 map、左侧是字符串时，表示 key 成员判断
 
 示例：
 
@@ -157,6 +170,10 @@ nil
 @req.user.id in @record.granted
 @user.age > 18 && @user.active
 !@user.disabled
+-@price
+"name" in {"name": "Alice"}
+@nickname ?? "anonymous"
+@active ? "yes" : "no"
 ```
 
 ## 特殊语义
@@ -178,6 +195,12 @@ nil
 - `yaml`
 - `toml`
 - `adv_arith`
+- `std`（默认启用；提供表达式缓存和反序列化支持）
+- `wasm`（通过 `wasm-bindgen` 提供 WebAssembly 绑定）
+- `ffi`（C 兼容的 FFI）
+- `python`（通过 PyO3 提供 Python 绑定）
+
+库支持 `no_std`（需要 `alloc`），在禁用 `std` feature 时可用。
 
 `sem_arith` 会改变整数除法的行为：结果能整除时保持整数，不能整除时返回浮点数。
 
@@ -200,10 +223,20 @@ context 会根据已启用的特性，从 JSON、YAML 或 TOML 中解析。
 
 CLI 会从 `stdin` 读取 context，并从 argv 读取表达式。
 
+CLI 参数：
+
+- `--check` / `-c`：`true` 时退出码为 0，`false` 时退出码为 1
+- `--ast`：打印解析后的 AST 而非求值结果
+- `--version` / `-V`：打印版本
+- `--help` / `-h`：打印用法
+- `--json` / `--yaml` / `--toml`：强制指定输入格式
+
 ```bash
 echo '{"req": {"user": {"role": "admin"}}}' | cargo run -- '@req.user.role == "admin"'
 echo 'name: test' | cargo run --features yaml -- --yaml '@name == "test"'
 echo 'name = "test"' | cargo run --features toml -- --toml '@name == "test"'
+echo '{"x": 1}' | cargo run -- --check '@x == 1' && echo ok
+echo '{"x": 1}' | cargo run -- --ast '@x + 1'
 ```
 
 ## 示例
@@ -219,13 +252,15 @@ echo 'name = "test"' | cargo run --features toml -- --toml '@name == "test"'
 非正式语法如下：
 
 ```ebnf
-exp      ::= or
+exp      ::= ternary
+ternary  ::= coalesce [ "?" ternary ":" ternary ]
+coalesce ::= or { "??" or }
 or       ::= and { "||" and }
 and      ::= cmp { "&&" cmp }
 cmp      ::= add { ("==" | "!=" | "<" | ">" | "<=" | ">=" | "in") add }
 add      ::= mul { ("+" | "-") mul }
 mul      ::= unary { ("*" | "/" | "%") unary }
-unary    ::= "!" unary | postfix
+unary    ::= "!" unary | "-" unary | postfix
 postfix  ::= primary { "." segment }
 primary  ::= nil | bool | number | string | id | list | map | at | "(" exp ")"
 list     ::= "[" [ exp { "," exp } [ "," ] ] "]"
@@ -233,6 +268,7 @@ map      ::= "{" [ pair { "," pair } [ "," ] ] "}"
 pair     ::= exp ":" exp
 at       ::= "@" segment { "." segment }
 segment  ::= id | string | int | "(" exp ")" | at
+number   ::= [ "+" | "-" ] ( digit+ [ "." digit+ ] | "0x" hex+ | "0o" oct+ )
 ```
 
 说明：
@@ -240,3 +276,4 @@ segment  ::= id | string | int | "(" exp ")" | at
 - 在 `@` 之外，裸 `id` token 会按字符串求值。
 - `string` 表示带引号的字符串 token。
 - `Map` key 最终必须解析为原始值（primitive value）。
+- 三元运算符是右结合；空值合并（`??`）是左结合。

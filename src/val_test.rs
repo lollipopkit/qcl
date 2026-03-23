@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::val::Val;
-    use std::collections::HashMap;
+    use hashbrown::HashMap;
 
     macro_rules! test_op {
         ($name:ident, $op:tt, $l:expr, $r:expr, $res:expr) => {
@@ -210,9 +210,15 @@ mod tests {
     fn test_access_negative_index() {
         let list = vec![10, 20, 30];
         let val: Val = list.into();
-        let index = Val::Int(-1);
 
-        assert_eq!(val.access(&index), None);
+        // -1 returns last element
+        assert_eq!(val.access(&Val::Int(-1)), Some(&Val::Int(30)));
+        // -2 returns second-to-last
+        assert_eq!(val.access(&Val::Int(-2)), Some(&Val::Int(20)));
+        // -3 returns first
+        assert_eq!(val.access(&Val::Int(-3)), Some(&Val::Int(10)));
+        // -4 is out of bounds
+        assert_eq!(val.access(&Val::Int(-4)), None);
     }
 
     // Literal creation tests

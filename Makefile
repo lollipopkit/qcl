@@ -19,7 +19,7 @@ CARGO_FUZZ ?= cargo fuzz
 DICT_ARG = $(if $(filter $(TARGET),$(DICT_TARGETS)),-dict="$(DICT)",)
 FUZZ_ARGS = -artifact_prefix="$(ARTIFACT_PREFIX)" -max_total_time=$(MAX_TIME) $(DICT_ARG) $(RUN_ARGS)
 
-.PHONY: all clean help check check-all-features test test-all-features fmt fmt-check clippy bench run fuzz fuzz-all fuzz-quick fuzz-check fuzz-install fuzz-clean fuzz-list fuzz-replay validate-fuzz-target
+.PHONY: all clean help check check-all-features test test-all-features fmt fmt-check clippy bench run fuzz fuzz-all fuzz-quick fuzz-check fuzz-install fuzz-clean fuzz-list fuzz-replay validate-fuzz-target wasm ffi python
 
 help:
 	@printf '%s\n' \
@@ -55,6 +55,11 @@ help:
 		'  fuzz-clean   Remove fuzz build output, artifacts, and coverage' \
 		'  fuzz-list    Print supported fuzz targets' \
 		'  fuzz-replay  Replay saved red-team commands' \
+		'' \
+		'Bindings:' \
+		'  wasm         Build WASM package (requires wasm-pack)' \
+		'  ffi          Build C shared library (libqcl.so / libqcl.dylib)' \
+		'  python       Build Python wheel and install into active venv (requires maturin)' \
 		'' \
 		'Variables:' \
 		'  TARGET       One of: $(TARGETS)' \
@@ -92,6 +97,19 @@ bench:
 
 run:
 	$(CARGO) run -- $(ARGS)
+
+# --- Binding targets ---
+
+wasm:
+	wasm-pack build --target web --release -- --features wasm
+
+ffi:
+	$(CARGO) build --lib --features ffi --release
+
+python:
+	maturin develop --features python --release
+
+# --- Fuzz targets ---
 
 validate-fuzz-target:
 	@if [ -z "$(filter $(TARGET),$(TARGETS))" ]; then \

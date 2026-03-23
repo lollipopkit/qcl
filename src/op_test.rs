@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
     use crate::{expr::Expr, op::BinOp, val::Val};
-    use std::{collections::HashMap, sync::Arc};
+    use hashbrown::HashMap;
+    use std::sync::Arc;
 
     #[cfg(feature = "json")]
     use serde_json::json;
@@ -104,15 +105,22 @@ mod tests {
         let result = BinOp::In.eval(&l, &r, &ctx).unwrap();
         assert_eq!(result, Val::Bool(false));
 
-        // Map membership is intentionally rejected to avoid ACL-shape confusion.
+        // Map membership: check if key exists in map
         let l: Expr = r#""name""#.try_into().unwrap();
         let r: Expr = r#"{"name": "Alice", "age": 25}"#.try_into().unwrap();
-        assert!(BinOp::In.eval(&l, &r, &ctx).is_err());
+        let result = BinOp::In.eval(&l, &r, &ctx).unwrap();
+        assert_eq!(result, Val::Bool(true));
+
+        // Key not in map
+        let l: Expr = r#""address""#.try_into().unwrap();
+        let r: Expr = r#"{"name": "Alice", "age": 25}"#.try_into().unwrap();
+        let result = BinOp::In.eval(&l, &r, &ctx).unwrap();
+        assert_eq!(result, Val::Bool(false));
     }
 
     #[test]
     #[cfg(feature = "json")]
-    fn missing_membership_is_fail_closed_but_primitive_in_is_rejected() {
+    fn map_membership_checks_key_existence() {
         let ctx = json!({
             "lhs": 1,
             "map": {"1": true}
@@ -124,6 +132,7 @@ mod tests {
         })
         .into();
 
+        // Non-string left operand against map still errors
         let l: Expr = "@lhs".try_into().unwrap();
         let r: Expr = "@map".try_into().unwrap();
         assert!(BinOp::In.eval(&l, &r, &ctx).is_err());
@@ -140,6 +149,14 @@ mod tests {
 
         let r: Expr = "@rhs".try_into().unwrap();
         assert!(BinOp::In.eval(&l, &r, &ctx_missing).is_err());
+
+        // String left operand against map checks key existence
+        let l_str: Expr = r#""1""#.try_into().unwrap();
+        let r_map: Expr = "@map".try_into().unwrap();
+        assert_eq!(BinOp::In.eval(&l_str, &r_map, &ctx).unwrap(), Val::Bool(true));
+
+        let l_str: Expr = r#""missing""#.try_into().unwrap();
+        assert_eq!(BinOp::In.eval(&l_str, &r_map, &ctx).unwrap(), Val::Bool(false));
     }
 
     #[test]

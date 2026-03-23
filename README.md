@@ -30,11 +30,22 @@ More language details can be found in [LANG.md](LANG.md).
 
 ## Features
 
-- `json` (enabled by default)
-- `yaml`
-- `toml`
+Default:
+- `json` — JSON input format
+- `sem_arith` — semantic integer division (`3 / 2 = 1.5`)
+- `std` — expression cache and deserialization
 
-At least one input format feature must be enabled. The default configuration enables `json`.
+Optional:
+- `yaml` — YAML input format
+- `toml` — TOML input format
+- `adv_arith` — advanced arithmetic (`List + List`, `Map + Map`, etc.)
+
+Bindings:
+- `wasm` — WebAssembly via wasm-bindgen ([docs](docs/wasm.md))
+- `ffi` — C shared library ([docs](docs/ffi.md))
+- `python` — Python module via PyO3 ([docs](docs/python.md))
+
+The library also supports `no_std` (with `alloc`) when `std` is disabled.
 
 ### Usage
 
@@ -80,7 +91,23 @@ match result {
 
 ```bash
 echo '{"req": {"user": {"role": "admin"}}}' | cargo run -- '@req.user.role == "admin"'
+
+# Check mode (exit code 0/1)
+echo '{"x": 1}' | cargo run -- --check '@x == 1' && echo ok
+
+# Dump AST
+echo '{}' | cargo run -- --ast '1 + 2'
 ```
+
+#### Build Bindings
+
+```bash
+make wasm    # WASM package  → pkg/
+make ffi     # C shared lib  → target/release/libqcl.so
+make python  # Python module → installed into active venv
+```
+
+See [docs/](docs/) for detailed binding documentation.
 
 ## Ports
 

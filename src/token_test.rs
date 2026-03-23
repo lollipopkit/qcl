@@ -594,4 +594,108 @@ mod tests {
         let e = vec![Token::Int(123), Token::Int(456)];
         assert_eq!(t.unwrap(), e);
     }
+
+    #[test]
+    fn test_block_comment() {
+        let t = Tokenizer::new("1 /* comment */ + 2");
+        let e = vec![Token::Int(1), Token::Add, Token::Int(2)];
+        assert_eq!(t.unwrap(), e);
+
+        // Nested block comments
+        let t = Tokenizer::new("1 /* outer /* inner */ still comment */ + 2");
+        let e = vec![Token::Int(1), Token::Add, Token::Int(2)];
+        assert_eq!(t.unwrap(), e);
+
+        // Unterminated
+        assert!(Tokenizer::new("1 /* oops").is_err());
+
+        // Empty block comment
+        let t = Tokenizer::new("1 /**/ + 2");
+        let e = vec![Token::Int(1), Token::Add, Token::Int(2)];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
+    fn test_question_tokens() {
+        let t = Tokenizer::new("1 ? 2 : 3");
+        let e = vec![
+            Token::Int(1),
+            Token::Question,
+            Token::Int(2),
+            Token::Colon,
+            Token::Int(3),
+        ];
+        assert_eq!(t.unwrap(), e);
+
+        let t = Tokenizer::new("@x ?? 0");
+        let e = vec![Token::At, id("x"), Token::QuestionQuestion, Token::Int(0)];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
+    fn test_hex_literals() {
+        let t = Tokenizer::new("0xFF");
+        assert_eq!(t.unwrap(), vec![Token::Int(255)]);
+
+        let t = Tokenizer::new("0x0");
+        assert_eq!(t.unwrap(), vec![Token::Int(0)]);
+
+        let t = Tokenizer::new("0xDEAD");
+        assert_eq!(t.unwrap(), vec![Token::Int(0xDEAD)]);
+
+        // Case insensitive prefix
+        let t = Tokenizer::new("0XAB");
+        assert_eq!(t.unwrap(), vec![Token::Int(0xAB)]);
+
+        // Invalid: no digits after 0x
+        assert!(Tokenizer::new("0x").is_err());
+    }
+
+    #[test]
+    fn test_octal_literals() {
+        let t = Tokenizer::new("0o77");
+        assert_eq!(t.unwrap(), vec![Token::Int(63)]);
+
+        let t = Tokenizer::new("0o0");
+        assert_eq!(t.unwrap(), vec![Token::Int(0)]);
+
+        let t = Tokenizer::new("0O10");
+        assert_eq!(t.unwrap(), vec![Token::Int(8)]);
+
+        // Invalid: no digits after 0o
+        assert!(Tokenizer::new("0o").is_err());
+    }
+
+    #[test]
+    fn test_unicode_escape() {
+        // Basic ASCII
+        let t = Tokenizer::new(r#""\u0041""#);
+        assert_eq!(t.unwrap(), vec![str_token("A")]);
+
+        // Chinese character
+        let t = Tokenizer::new(r#""\u4F60""#);
+        assert_eq!(t.unwrap(), vec![str_token("你")]);
+
+        // Emoji-range (BMP)
+        let t = Tokenizer::new(r#""\u2764""#);
+        assert_eq!(t.unwrap(), vec![str_token("❤")]);
+
+        // Mixed with regular chars
+        let t = Tokenizer::new(r#""hello\u0020world""#);
+        assert_eq!(t.unwrap(), vec![str_token("hello world")]);
+
+        // Invalid hex digits
+        assert!(Tokenizer::new(r#""\uGGGG""#).is_err());
+
+        // Too few digits (at end of string)
+        assert!(Tokenizer::new(r#""\u00""#).is_err());
+    }
+
+    #[test]
+    fn test_error_location() {
+        let err = Tokenizer::new("1 + ^").unwrap_err();
+        let msg = err.to_string();
+        // Should contain line:col position info
+        assert!(msg.contains("1:"), "error should contain line info: {msg}");
+    }
 }

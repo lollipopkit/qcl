@@ -30,11 +30,22 @@ QCL 主要面向 ACL (Access Control List) 场景，用来判断某个用户是�
 
 ## 特性
 
-- `json`（默认启用）
-- `yaml`
-- `toml`
+默认启用：
+- `json` — JSON 输入格式
+- `sem_arith` — 语义整数除法（`3 / 2 = 1.5`）
+- `std` — 表达式缓存和反序列化
 
-至少需要启用一种输入格式 feature。默认配置启用 `json`。
+可选：
+- `yaml` — YAML 输入格式
+- `toml` — TOML 输入格式
+- `adv_arith` — 高级算术（`List + List`、`Map + Map` 等）
+
+绑定：
+- `wasm` — 通过 wasm-bindgen 的 WebAssembly 绑定（[文档](docs/wasm.md)）
+- `ffi` — C 共享库（[文档](docs/ffi.md)）
+- `python` — 通过 PyO3 的 Python 模块（[文档](docs/python.md)）
+
+库还支持 `no_std`（需要 `alloc`），在禁用 `std` 时可用。
 
 ### 用法
 
@@ -80,7 +91,23 @@ match result {
 
 ```bash
 echo '{"req": {"user": {"role": "admin"}}}' | cargo run -- '@req.user.role == "admin"'
+
+# 检查模式（退出码 0/1）
+echo '{"x": 1}' | cargo run -- --check '@x == 1' && echo ok
+
+# 打印 AST
+echo '{}' | cargo run -- --ast '1 + 2'
 ```
+
+#### 构建绑定
+
+```bash
+make wasm    # WASM 包      → pkg/
+make ffi     # C 共享库      → target/release/libqcl.so
+make python  # Python 模块   → 安装到当前 venv
+```
+
+详细的绑定文档见 [docs/](docs/)。
 
 ## 相关项目
 

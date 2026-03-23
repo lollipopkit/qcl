@@ -187,3 +187,57 @@ fn test_cli_usage_message() {
     #[cfg(feature = "toml")]
     assert!(stderr.contains("toml"));
 }
+
+#[test]
+#[cfg(feature = "json")]
+fn test_cli_ternary_operator() {
+    let output = run_cli(&["@role == 'admin' ? 'allowed' : 'denied'"], b"{\"role\": \"admin\"}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    assert!(stdout.contains("allowed"));
+}
+
+#[test]
+#[cfg(feature = "json")]
+fn test_cli_nullish_coalesce() {
+    let output = run_cli(&["@missing ?? 'fallback'"], b"{\"present\": 1}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    assert!(stdout.contains("fallback"));
+}
+
+#[test]
+#[cfg(feature = "json")]
+fn test_cli_negative_indexing() {
+    let output = run_cli(&["@items.-1 == 'c'"], b"{\"items\": [\"a\", \"b\", \"c\"]}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    assert!(stdout.contains("true"));
+}
+
+#[test]
+#[cfg(feature = "json")]
+fn test_cli_hex_octal_literals() {
+    let output = run_cli(&["@val == 0xFF"], b"{\"val\": 255}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    assert!(stdout.contains("true"));
+}
+
+#[test]
+#[cfg(feature = "json")]
+fn test_cli_block_comment() {
+    let output = run_cli(&["@val /* check value */ == 1"], b"{\"val\": 1}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    assert!(stdout.contains("true"));
+}
+
+#[test]
+#[cfg(feature = "json")]
+fn test_cli_unicode_escape() {
+    let output = run_cli(&[r#"@name == "\u0041lice""#], b"{\"name\": \"Alice\"}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    assert!(stdout.contains("true"));
+}

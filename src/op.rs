@@ -1,13 +1,15 @@
+use alloc::{format, vec::Vec};
 use core::cmp::Ordering;
-use core::fmt::Debug;
-use std::collections::HashSet;
-use std::fmt::Display;
+use core::fmt::{Debug, Display};
+use hashbrown::HashSet;
 
-use anyhow::{Result, anyhow};
+use crate::{
+    error::{Error, Result},
+    expr::Expr,
+    val::Val,
+};
 
-use crate::{expr::Expr, val::Val};
-
-const LARGE_LIST_MEMBERSHIP_THRESHOLD: usize = 32;
+const LARGE_LIST_MEMBERSHIP_THRESHOLD: usize = 16;
 
 fn list_contains(list: &[Val], needle: &Val) -> bool {
     match needle {
@@ -84,12 +86,13 @@ impl<'a> MembershipIndex<'a> {
 }
 
 pub(crate) fn err_op<T: Display, R>(l: &Val, op: T, r: &Val) -> Result<R> {
-    Err(anyhow!("Invalid op: {l} {op} {r}"))
+    Err(Error::Eval(format!("Invalid op: {l} {op} {r}")))
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum UnaryOp {
     Not,
+    Neg,
 }
 
 impl UnaryOp {
@@ -99,7 +102,18 @@ impl UnaryOp {
                 let res = expr.eval(ctx)?;
                 match res {
                     Val::Bool(b) => Ok(Val::Bool(!b)),
-                    _ => Err(anyhow!("Invalid operand: !{res}")),
+                    _ => Err(Error::Eval(format!("Invalid operand: !{res}"))),
+                }
+            }
+            UnaryOp::Neg => {
+                let res = expr.eval(ctx)?;
+                match res {
+                    Val::Int(i) => i
+                        .checked_neg()
+                        .map(Val::Int)
+                        .ok_or_else(|| Error::Eval(format!("Integer overflow: -{i}"))),
+                    Val::Float(f) => Ok(Val::Float(-f)),
+                    _ => Err(Error::Eval(format!("Invalid operand: -{res}"))),
                 }
             }
         }
@@ -107,9 +121,10 @@ impl UnaryOp {
 }
 
 impl Display for UnaryOp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             UnaryOp::Not => write!(f, "!"),
+            UnaryOp::Neg => write!(f, "-"),
         }
     }
 }
@@ -188,6 +203,9 @@ impl BinOp {
                     Ok(list_contains(r, l))
                 }
 
+                // Map key membership: "key" in {"key": value}
+                (Val::Str(s), Val::Map(m)) => Ok(m.contains_key(s.as_ref())),
+
                 _ => err_op(l, self, r),
             },
             _ => {
@@ -224,13 +242,13 @@ impl BinOp {
         } else if self.is_cmp() {
             Ok(Val::Bool(self.cmp(&l_val, &r_val)?))
         } else {
-            Err(anyhow!("Invalid eval: {l_val} {self:?} {r_val}"))
+            Err(Error::Eval(format!("Invalid eval: {l_val} {self:?} {r_val}")))
         }
     }
 }
 
 impl Display for BinOp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             BinOp::Add => write!(f, "+"),
             BinOp::Div => write!(f, "/"),

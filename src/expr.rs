@@ -1,40 +1,55 @@
-use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    fmt::{Debug, Display},
-    hash::{DefaultHasher, Hash, Hasher},
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
     sync::Arc,
+    vec::Vec,
 };
+use core::fmt::{Debug, Display};
 
-use anyhow::{Result, anyhow};
+#[cfg(feature = "std")]
+use std::{
+    hash::{DefaultHasher, Hash, Hasher},
+    sync::{
+        RwLock,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 
 use crate::{
     ast::Parser,
+    error::{Error, Result},
     op::{BinOp, UnaryOp, err_op},
     token::Tokenizer,
     val::Val,
 };
+use hashbrown::{HashMap, HashSet};
+#[cfg(feature = "std")]
 use once_cell::sync::Lazy;
-use std::sync::RwLock;
 
+#[cfg(feature = "std")]
 const MAX_PARSE_CACHE_ENTRIES: usize = 4096;
+#[cfg(feature = "std")]
 const MAX_CACHED_EXPR_LEN: usize = 4096;
+#[cfg(feature = "std")]
 const PARSE_CACHE_SHARDS: usize = 16;
 
 /// Grammar:
-/// exp     ::= paren
-/// paren   ::= {'('} or {')'}
-/// or      ::= and {'||' and}
-/// and     ::= cmp {'&&' cmp}
-/// cmp     ::= addsub {('<' | '>' | '<=' | '>=' | '!=' | '==') addsub}
-/// addsub  ::= muldiv {('+' | '-') muldiv}
-/// muldiv  ::= unary {('*' | '/' | '%') unary}
-/// unary   ::= {'!'} postfix
-/// postfix ::= primary {'.' field}
-/// primary ::= nil | false | true | int | float | string | at | list | map
-/// at      ::= '@' field {'.' field}
-/// field   ::= id | int
-/// list    ::= '[' [expr {',' expr}] ']'
-/// map     ::= '{' [expr ':' expr {',' expr ':' expr}] '}'
+/// exp      ::= ternary
+/// ternary  ::= coalesce {'?' expr ':' expr}
+/// coalesce ::= or {'??' or}
+/// or       ::= and {'||' and}
+/// and      ::= cmp {'&&' cmp}
+/// cmp      ::= addsub {('<' | '>' | '<=' | '>=' | '!=' | '==') addsub}
+/// addsub   ::= muldiv {('+' | '-') muldiv}
+/// muldiv   ::= unary {('*' | '/' | '%') unary}
+/// unary    ::= {'!' | '-'} postfix
+/// postfix  ::= primary {'.' field}
+/// primary  ::= nil | false | true | int | float | string | at | list | map
+/// at       ::= '@' field {'.' field}
+/// field    ::= id | int
+/// list     ::= '[' [expr {',' expr}] ']'
+/// map      ::= '{' [expr ':' expr {',' expr ':' expr}] '}'
 ///
 ///
 /// Details:
@@ -73,6 +88,10 @@ pub enum Expr {
     And(Box<Expr>, Box<Expr>),
     /// expr || expr
     Or(Box<Expr>, Box<Expr>),
+    /// expr ?? expr (returns left if non-nil, else right)
+    Coalesce(Box<Expr>, Box<Expr>),
+    /// expr ? expr : expr (ternary conditional)
+    Ternary(Box<Expr>, Box<Expr>, Box<Expr>),
     /// @field.field...
     /// field can be string or int
     At(Vec<Box<Expr>>),
@@ -87,21 +106,31 @@ pub enum Expr {
     Val(Val),
 }
 
+#[cfg(feature = "std")]
 struct ParseCacheShard {
     state: RwLock<ParseCacheState>,
 }
 
+#[cfg(feature = "std")]
 struct ParseCacheState {
-    entries: HashMap<String, Arc<Expr>>,
-    order: VecDeque<String>,
+    entries: HashMap<String, (Arc<Expr>, u64)>,
 }
 
+#[cfg(feature = "std")]
+static CACHE_CLOCK: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(feature = "std")]
 impl ParseCacheState {
     fn new() -> Self {
         Self {
             entries: HashMap::new(),
-            order: VecDeque::new(),
         }
+    }
+
+    fn get(&mut self, expression: &str) -> Option<Arc<Expr>> {
+        let entry = self.entries.get_mut(expression)?;
+        entry.1 = CACHE_CLOCK.fetch_add(1, Ordering::Relaxed);
+        Some(entry.0.clone())
     }
 
     fn insert(&mut self, expression: String, expr: Arc<Expr>) {
@@ -113,19 +142,23 @@ impl ParseCacheState {
             self.evict_oldest();
         }
 
-        self.order.push_back(expression.clone());
-        self.entries.insert(expression, expr);
+        let ts = CACHE_CLOCK.fetch_add(1, Ordering::Relaxed);
+        self.entries.insert(expression, (expr, ts));
     }
 
     fn evict_oldest(&mut self) {
-        while let Some(key) = self.order.pop_front() {
-            if self.entries.remove(&key).is_some() {
-                return;
-            }
+        if let Some(oldest_key) = self
+            .entries
+            .iter()
+            .min_by_key(|(_, (_, ts))| *ts)
+            .map(|(k, _)| k.clone())
+        {
+            self.entries.remove(&oldest_key);
         }
     }
 }
 
+#[cfg(feature = "std")]
 static PARSE_CACHE: Lazy<Box<[ParseCacheShard]>> = Lazy::new(|| {
     (0..PARSE_CACHE_SHARDS)
         .map(|_| ParseCacheShard {
@@ -135,11 +168,13 @@ static PARSE_CACHE: Lazy<Box<[ParseCacheShard]>> = Lazy::new(|| {
         .into_boxed_slice()
 });
 
+#[cfg(feature = "std")]
 #[inline]
 const fn parse_cache_entries_per_shard() -> usize {
     MAX_PARSE_CACHE_ENTRIES.div_ceil(PARSE_CACHE_SHARDS)
 }
 
+#[cfg(feature = "std")]
 #[inline]
 fn parse_cache_shard_idx(expression: &str) -> usize {
     let mut hasher = DefaultHasher::new();
@@ -147,6 +182,7 @@ fn parse_cache_shard_idx(expression: &str) -> usize {
     (hasher.finish() as usize) % PARSE_CACHE_SHARDS
 }
 
+#[cfg(feature = "std")]
 #[inline]
 fn parse_cache_shard(expression: &str) -> &'static ParseCacheShard {
     &PARSE_CACHE[parse_cache_shard_idx(expression)]
@@ -181,6 +217,18 @@ impl Expr {
                     (Val::Bool(_), Val::Bool(true)) => Ok(Val::Bool(true)),
                     (Val::Bool(_), Val::Bool(_)) => Ok(Val::Bool(false)),
                     _ => err_op(&l, "||", &r),
+                }
+            }
+            Expr::Coalesce(l, r) => {
+                let left = l.eval(ctx)?;
+                if left == Val::Nil { r.eval(ctx) } else { Ok(left) }
+            }
+            Expr::Ternary(cond, t, f) => {
+                let cond_val = cond.eval(ctx)?;
+                match cond_val {
+                    Val::Bool(true) => t.eval(ctx),
+                    Val::Bool(false) => f.eval(ctx),
+                    _ => Err(Error::Eval(format!("Ternary condition must be bool, got: {cond_val}"))),
                 }
             }
             Expr::At(paths) => {
@@ -231,13 +279,16 @@ impl Expr {
                 Ok(Val::List(Arc::new(values)))
             }
             Expr::Map(pairs) => {
-                let mut map = std::collections::HashMap::with_capacity(pairs.len());
+                let mut map = hashbrown::HashMap::with_capacity(pairs.len());
                 for (key_expr, value_expr) in pairs {
                     let key_val = key_expr.eval(ctx)?;
                     let value_val = value_expr.eval(ctx)?;
 
                     let Some(key_str) = primitive_map_key_to_string(&key_val) else {
-                        return Err(anyhow!("Map key must be a primitive type, got: {:?}", key_val));
+                        return Err(Error::Eval(format!(
+                            "Map key must be a primitive type, got: {:?}",
+                            key_val
+                        )));
                     };
 
                     map.insert(key_str, value_val);
@@ -260,10 +311,11 @@ impl Expr {
     pub fn is_ctx_independent(&self) -> bool {
         match self {
             Expr::At(_) => false,
-            Expr::Bin(l, _, r) | Expr::And(l, r) | Expr::Or(l, r) | Expr::Access(l, r) => {
+            Expr::Bin(l, _, r) | Expr::And(l, r) | Expr::Or(l, r) | Expr::Access(l, r) | Expr::Coalesce(l, r) => {
                 l.is_ctx_independent() && r.is_ctx_independent()
             }
             Expr::Unary(_, expr) | Expr::Paren(expr) => expr.is_ctx_independent(),
+            Expr::Ternary(cond, t, f) => cond.is_ctx_independent() && t.is_ctx_independent() && f.is_ctx_independent(),
             Expr::List(exprs) => exprs.iter().all(|expr| expr.is_ctx_independent()),
             Expr::Map(pairs) => pairs
                 .iter()
@@ -309,9 +361,14 @@ impl Expr {
             Expr::Unary(_, expr) => {
                 expr.collect_ctx_names(names);
             }
-            Expr::And(l, r) | Expr::Or(l, r) => {
+            Expr::And(l, r) | Expr::Or(l, r) | Expr::Coalesce(l, r) => {
                 l.collect_ctx_names(names);
                 r.collect_ctx_names(names);
+            }
+            Expr::Ternary(cond, t, f) => {
+                cond.collect_ctx_names(names);
+                t.collect_ctx_names(names);
+                f.collect_ctx_names(names);
             }
             Expr::List(exprs) => {
                 for expr in exprs {
@@ -333,15 +390,17 @@ impl Expr {
     }
 
     /// Cached parsing: parse expression string to Expr with caching to avoid repeated parsing overhead
+    #[cfg(feature = "std")]
     pub fn parse_cached(expression: &str) -> Result<Expr> {
         Ok((*Self::parse_cached_arc(expression)?).clone())
     }
 
     /// Cached parsing variant that avoids cloning the parsed AST on cache hits.
+    #[cfg(feature = "std")]
     pub fn parse_cached_arc(expression: &str) -> Result<Arc<Expr>> {
         if expression.len() <= MAX_CACHED_EXPR_LEN {
             let shard = parse_cache_shard(expression);
-            if let Some(cached) = shard.state.read().unwrap().entries.get(expression).cloned() {
+            if let Some(cached) = shard.state.write().unwrap().get(expression) {
                 return Ok(cached);
             }
         }
@@ -354,7 +413,7 @@ impl Expr {
             let shard = parse_cache_shard(expression);
             let mut state = shard.state.write().unwrap();
 
-            if let Some(cached) = state.entries.get(expression).cloned() {
+            if let Some(cached) = state.get(expression) {
                 return Ok(cached);
             }
 
@@ -400,9 +459,19 @@ impl Expr {
             }
             Expr::Unary(op, expr_box) => {
                 let inner = (*expr_box).fold_constants();
-                // Constant folding: !expr, if expr is boolean constant then calculate result
-                if let Expr::Val(Val::Bool(b)) = &inner {
-                    return Expr::Val(Val::Bool(!*b));
+                match (&op, &inner) {
+                    (UnaryOp::Not, Expr::Val(Val::Bool(b))) => {
+                        return Expr::Val(Val::Bool(!*b));
+                    }
+                    (UnaryOp::Neg, Expr::Val(Val::Int(i))) => {
+                        if let Some(neg) = i.checked_neg() {
+                            return Expr::Val(Val::Int(neg));
+                        }
+                    }
+                    (UnaryOp::Neg, Expr::Val(Val::Float(f))) => {
+                        return Expr::Val(Val::Float(-*f));
+                    }
+                    _ => {}
                 }
                 Expr::Unary(op, Box::new(inner))
             }
@@ -515,19 +584,40 @@ impl Expr {
                 // Keep parentheses structure, but fold internal expression
                 Expr::Paren(Box::new((*expr_box).fold_constants()))
             }
+            Expr::Coalesce(l_box, r_box) => {
+                let left = (*l_box).fold_constants();
+                match &left {
+                    Expr::Val(Val::Nil) => return (*r_box).fold_constants(),
+                    Expr::Val(_) => return left,
+                    _ => {}
+                }
+                let right = (*r_box).fold_constants();
+                Expr::Coalesce(Box::new(left), Box::new(right))
+            }
+            Expr::Ternary(cond_box, t_box, f_box) => {
+                let cond = (*cond_box).fold_constants();
+                match &cond {
+                    Expr::Val(Val::Bool(true)) => return (*t_box).fold_constants(),
+                    Expr::Val(Val::Bool(false)) => return (*f_box).fold_constants(),
+                    _ => {}
+                }
+                let t = (*t_box).fold_constants();
+                let f = (*f_box).fold_constants();
+                Expr::Ternary(Box::new(cond), Box::new(t), Box::new(f))
+            }
         }
     }
 }
 
 impl TryInto<Val> for &Expr {
-    type Error = anyhow::Error;
+    type Error = crate::error::Error;
 
     fn try_into(self) -> Result<Val> {
         match self {
             Expr::Val(val) => Ok(val.clone()), // Clone necessary as eval returns owned Val
             _ => {
                 let msg = format!("Can't convert Expr::{:?} to Val", self);
-                Err(anyhow!(msg))
+                Err(crate::error::Error::Eval(msg))
             }
         }
     }
@@ -550,28 +640,30 @@ fn into_expr<S: AsRef<str>>(s: S) -> Result<Expr> {
 }
 
 impl TryFrom<&str> for Expr {
-    type Error = anyhow::Error;
+    type Error = crate::error::Error;
 
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
+    fn try_from(value: &str) -> core::result::Result<Self, Self::Error> {
         into_expr(value)
     }
 }
 
 impl TryFrom<String> for Expr {
-    type Error = anyhow::Error;
+    type Error = crate::error::Error;
 
-    fn try_from(value: String) -> Result<Self, Self::Error> {
+    fn try_from(value: String) -> core::result::Result<Self, Self::Error> {
         into_expr(value)
     }
 }
 
 impl Display for Expr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Expr::Bin(left, op, right) => write!(f, "{left} {op:?} {right}"),
             Expr::Unary(op, expr) => write!(f, "{op:?}{expr}"),
             Expr::And(left, right) => write!(f, "{left} && {right}"),
             Expr::Or(left, right) => write!(f, "{left} || {right}"),
+            Expr::Coalesce(left, right) => write!(f, "{left} ?? {right}"),
+            Expr::Ternary(cond, t, fa) => write!(f, "{cond} ? {t} : {fa}"),
             Expr::At(paths) => {
                 let paths: Vec<String> = paths.iter().map(|p| p.to_string()).collect();
                 write!(f, "@{}", paths.join("."))
@@ -602,7 +694,6 @@ pub(crate) fn reset_parse_cache_for_tests() {
     for shard in PARSE_CACHE.iter() {
         let mut state = shard.state.write().unwrap();
         state.entries.clear();
-        state.order.clear();
     }
 }
 

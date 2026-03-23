@@ -1,18 +1,24 @@
-use core::ops::{Add, Sub};
-use std::{
-    collections::HashMap,
-    fmt::Debug,
-    ops::{Div, Mul, Rem},
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
     sync::Arc,
+    vec::Vec,
 };
+use core::{
+    fmt::Debug,
+    ops::{Add, Div, Mul, Rem, Sub},
+};
+use hashbrown::HashMap;
 
-use anyhow::{Result, anyhow};
+use crate::{
+    error::{Error, Result},
+    op::{BinOp, err_op},
+};
 use serde::{Serialize, Serializer};
 
-use crate::op::{BinOp, err_op};
-
 #[cfg(feature = "adv_arith")]
-use std::collections::{HashSet, hash_map::Entry};
+use hashbrown::{HashSet, hash_map::Entry};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum Val {
@@ -35,10 +41,16 @@ impl Val {
         match (self, field) {
             (Val::Map(m), Val::Str(s)) => m.get(s.as_ref()),
             (Val::List(l), Val::Int(i)) => {
-                if *i < 0 {
-                    return None;
-                }
-                l.get(*i as usize)
+                let idx = if *i < 0 {
+                    let adjusted = l.len() as i64 + *i;
+                    if adjusted < 0 {
+                        return None;
+                    }
+                    adjusted as usize
+                } else {
+                    *i as usize
+                };
+                l.get(idx)
             }
             _ => None,
         }
@@ -60,7 +72,9 @@ impl Val {
 }
 
 fn checked_int_value(op: BinOp, a: i64, b: i64, value: Option<i64>) -> Result<Val> {
-    value.map(Val::Int).ok_or_else(|| anyhow!("Invalid op: {a} {op} {b}"))
+    value
+        .map(Val::Int)
+        .ok_or_else(|| Error::Eval(format!("Invalid op: {a} {op} {b}")))
 }
 
 #[cfg(feature = "adv_arith")]
@@ -133,7 +147,7 @@ impl Add for &Val {
             (Val::Int(a), Val::Int(b)) => a
                 .checked_add(*b)
                 .map(Val::Int)
-                .ok_or_else(|| anyhow!("Integer overflow: {a} + {b}")),
+                .ok_or_else(|| Error::Eval(format!("Integer overflow: {a} + {b}"))),
             (Val::Float(a), Val::Float(b)) => Ok(Val::Float(a + b)),
             (Val::Float(a), Val::Int(b)) => Ok(Val::Float(a + *b as f64)),
             (Val::Int(a), Val::Float(b)) => Ok(Val::Float(*a as f64 + b)),
@@ -212,7 +226,7 @@ impl Sub for &Val {
             (Val::Int(a), Val::Int(b)) => a
                 .checked_sub(*b)
                 .map(Val::Int)
-                .ok_or_else(|| anyhow!("Integer overflow: {a} - {b}")),
+                .ok_or_else(|| Error::Eval(format!("Integer overflow: {a} - {b}"))),
             (Val::Float(a), Val::Float(b)) => Ok((a - b).into()),
             (Val::Float(a), Val::Int(b)) => Ok((a - *b as f64).into()),
             (Val::Int(a), Val::Float(b)) => Ok((*a as f64 - b).into()),
@@ -267,7 +281,7 @@ impl Mul for &Val {
             (Val::Int(a), Val::Int(b)) => a
                 .checked_mul(*b)
                 .map(Val::Int)
-                .ok_or_else(|| anyhow!("Integer overflow: {a} * {b}")),
+                .ok_or_else(|| Error::Eval(format!("Integer overflow: {a} * {b}"))),
             (Val::Float(a), Val::Float(b)) => Ok((a * b).into()),
             (Val::Float(a), Val::Int(b)) => Ok((a * *b as f64).into()),
             (Val::Int(a), Val::Float(b)) => Ok((*a as f64 * b).into()),
@@ -281,8 +295,8 @@ impl Div for &Val {
 
     fn div(self, other: Self) -> Self::Output {
         match (self, other) {
-            (_, Val::Int(0)) => Err(anyhow!("Division by zero")),
-            (_, Val::Float(f)) if *f == 0.0 => Err(anyhow!("Division by zero")),
+            (_, Val::Int(0)) => Err(Error::Eval("Division by zero".to_string())),
+            (_, Val::Float(f)) if *f == 0.0 => Err(Error::Eval("Division by zero".to_string())),
             #[cfg(feature = "sem_arith")]
             (Val::Int(a), Val::Int(b)) => {
                 let div = checked_int_value(BinOp::Div, *a, *b, a.checked_div(*b))?;
@@ -308,8 +322,8 @@ impl Rem for &Val {
 
     fn rem(self, other: Self) -> Self::Output {
         match (self, other) {
-            (_, Val::Int(0)) => Err(anyhow!("Modulo by zero")),
-            (_, Val::Float(f)) if *f == 0.0 => Err(anyhow!("Modulo by zero")),
+            (_, Val::Int(0)) => Err(Error::Eval("Modulo by zero".to_string())),
+            (_, Val::Float(f)) if *f == 0.0 => Err(Error::Eval("Modulo by zero".to_string())),
             (Val::Int(a), Val::Int(b)) => checked_int_value(BinOp::Mod, *a, *b, a.checked_rem(*b)),
             (Val::Float(a), Val::Float(b)) => Ok((a % b).into()),
             (Val::Float(a), Val::Int(b)) => Ok((a % *b as f64).into()),
@@ -474,12 +488,14 @@ impl Val {
     where
         T: serde::Serialize,
     {
-        Ok(serde_json::to_value(val)?.into())
+        Ok(serde_json::to_value(val)
+            .map_err(|e| Error::Eval(e.to_string()))?
+            .into())
     }
 }
 
 impl PartialOrd for Val {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         match (self, other) {
             (Val::Int(a), Val::Int(b)) => a.partial_cmp(b),
             (Val::Float(a), Val::Float(b)) => a.partial_cmp(b),
@@ -492,7 +508,7 @@ impl PartialOrd for Val {
 }
 
 impl Serialize for Val {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> core::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
     {

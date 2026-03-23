@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod test {
-    use anyhow::Result;
+    use crate::error::Result;
+    use hashbrown::HashSet;
     #[cfg(feature = "json")]
     use serde_json::json;
-    use std::collections::HashSet;
     use std::sync::Mutex;
 
     use crate::{
@@ -97,6 +97,40 @@ mod test {
 
         // NOT with expressions
         expect("!(@user.age > 20)", true);
+
+        // Unary minus on integers
+        expect("-1", -1);
+        expect("-@user.age", -18);
+        expect("-(1 + 2)", -3);
+
+        // Unary minus on floats
+        expect("-1.5", -1.5);
+
+        // Double negation with minus
+        expect("--1", 1);
+        expect("-(-1)", 1);
+
+        // Unary minus in expressions
+        expect("-1 + 2", 1);
+        expect("1 + -2", -1);
+        expect("-@list.0 + @list.2", 2);
+
+        // Unary minus with multiplication
+        expect("-2 * 3", -6);
+        expect("2 * -3", -6);
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn map_membership() {
+        // String key in map
+        expect("'name' in @user", true);
+        expect("'age' in @user", true);
+        expect("'nonexistent' in @user", false);
+
+        // Map membership with literal maps
+        expect(r#""key" in {"key": 1, "other": 2}"#, true);
+        expect(r#""missing" in {"key": 1}"#, false);
     }
 
     #[test]
@@ -145,7 +179,7 @@ mod test {
     #[test]
     #[cfg(feature = "json")]
     fn map_literals() {
-        use std::collections::HashMap;
+        use hashbrown::HashMap;
 
         // Empty map
         expect("{}", HashMap::<String, Val>::new());
@@ -179,7 +213,7 @@ mod test {
     #[test]
     #[cfg(feature = "json")]
     fn map_literal_key_stringification_constant_and_runtime() {
-        use std::collections::HashMap;
+        use hashbrown::HashMap;
 
         let mut folded_expected = HashMap::new();
         folded_expected.insert("folded".to_string(), Val::Str("string".into()));
@@ -222,7 +256,7 @@ mod test {
         let expected_map = Val::Map(
             (0..128)
                 .map(|i| (i.to_string(), Val::Int(i)))
-                .collect::<std::collections::HashMap<_, _>>()
+                .collect::<hashbrown::HashMap<_, _>>()
                 .into(),
         );
         assert_eq!(parsed_map, Expr::Val(expected_map));
@@ -231,7 +265,7 @@ mod test {
     #[test]
     #[cfg(feature = "json")]
     fn nested_structures() {
-        use std::collections::HashMap;
+        use hashbrown::HashMap;
 
         // List of maps
         let mut map1 = HashMap::new();
@@ -280,7 +314,7 @@ mod test {
         expect("[1, 2, 3,]", vec![1, 2, 3]);
 
         // Map with trailing comma
-        use std::collections::HashMap;
+        use hashbrown::HashMap;
         let mut expected = HashMap::new();
         expected.insert("a".to_string(), Val::Int(1));
         expected.insert("b".to_string(), Val::Int(2));
@@ -400,6 +434,40 @@ mod test {
     }
 
     #[test]
+    fn parse_cache_lru_promotes_accessed_entries() {
+        let _guard = PARSE_CACHE_TEST_LOCK.lock().unwrap();
+        reset_parse_cache_for_tests();
+
+        let target_shard = 0usize;
+        let per_shard = parse_cache_entries_per_shard_for_tests();
+        // Need: per_shard entries to fill + 1 extra to trigger eviction
+        let exprs = collect_exprs_for_shard(target_shard, per_shard + 1);
+
+        // Fill shard to capacity
+        for expr in &exprs[..per_shard] {
+            Expr::parse_cached_arc(expr).unwrap();
+        }
+        let first = Expr::parse_cached_arc(exprs[0].as_str()).unwrap();
+
+        // Touch the first entry (LRU promotes it to most-recent)
+        let first_touched = Expr::parse_cached_arc(exprs[0].as_str()).unwrap();
+        assert!(std::sync::Arc::ptr_eq(&first, &first_touched));
+
+        // Insert one more — should evict exprs[1] (the actual LRU), NOT exprs[0]
+        Expr::parse_cached_arc(exprs[per_shard].as_str()).unwrap();
+
+        // exprs[0] should still be cached (was touched/promoted)
+        let first_after = Expr::parse_cached_arc(exprs[0].as_str()).unwrap();
+        assert!(std::sync::Arc::ptr_eq(&first, &first_after));
+
+        // exprs[1] should have been evicted (it was the least recently used)
+        let second_before = Expr::parse_cached_arc(exprs[1].as_str()).unwrap();
+        // Re-parsed, so it's a new Arc — can't ptr_eq with anything cached before
+        // Just verify it still works
+        assert_eq!(second_before.eval(&Val::Nil).unwrap(), Val::Bool(true));
+    }
+
+    #[test]
     #[cfg(feature = "json")]
     fn test_nil_handling() {
         expect("@nonexistent", None::<Val>);
@@ -486,6 +554,156 @@ mod test {
         expect(r#"@escaped."field\"name""#, "quoted-field");
         expect(r#"@escaped."path\\segment""#, "backslash-field");
         expect(r#"@escaped.'field\'name'"#, "single-quoted-field");
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn ternary_operator() {
+        // Basic ternary
+        expect("true ? 1 : 2", 1);
+        expect("false ? 1 : 2", 2);
+
+        // Ternary with context
+        expect("@pub ? 'yes' : 'no'", "yes");
+        expect("@user.age >= 18 ? 'adult' : 'child'", "adult");
+
+        // Nested ternary (right-associative)
+        expect("true ? false ? 1 : 2 : 3", 2);
+        expect("false ? 1 : true ? 2 : 3", 2);
+
+        // Ternary with different value types
+        expect("true ? 'hello' : 42", "hello");
+        expect("false ? 'hello' : 42", 42);
+
+        // Non-bool condition errors
+        panic("1 ? 2 : 3");
+        panic("'str' ? 2 : 3");
+        panic("nil ? 2 : 3");
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn coalesce_operator() {
+        // Basic coalesce - non-nil passes through
+        expect("1 ?? 2", 1);
+        expect("'hello' ?? 'world'", "hello");
+        expect("true ?? false", true);
+
+        // Nil falls through to right
+        expect("nil ?? 42", 42);
+        expect("nil ?? 'fallback'", "fallback");
+
+        // With context - existing field doesn't coalesce
+        expect("@user.name ?? 'anonymous'", "lk");
+
+        // With context - missing field coalesces
+        expect("@nonexistent ?? 'default'", "default");
+
+        // Chained coalesce
+        expect("nil ?? nil ?? 42", 42);
+        expect("nil ?? 1 ?? 2", 1);
+
+        // Existing null value coalesces
+        expect("@existing_null ?? 'fallback'", "fallback");
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn negative_indexing() {
+        // -1 = last element
+        expect("@list.-1", 3);
+        // -2 = second to last
+        expect("@list.-2", 2);
+        // -3 = first element
+        expect("@list.-3", 1);
+
+        // Negative index on literal list
+        expect("[10, 20, 30].-1", 30);
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn hex_octal_in_expressions() {
+        expect("0xFF == 255", true);
+        expect("0o77 == 63", true);
+        expect("0xFF + 1", 256);
+        expect("0o10 * 2", 16);
+    }
+
+    #[test]
+    fn unicode_escape_in_expressions() {
+        let expr = Expr::try_from(r#""\u0041" == "A""#).unwrap();
+        let val = expr.eval(&Val::Nil).unwrap();
+        assert_eq!(val, Val::Bool(true));
+    }
+
+    #[test]
+    fn block_comments_in_expressions() {
+        let expr = Expr::try_from("1 /* add one */ + 2").unwrap();
+        let val = expr.eval(&Val::Nil).unwrap();
+        assert_eq!(val, Val::Int(3));
+    }
+
+    #[test]
+    fn ternary_constant_folding() {
+        // true ? X : Y folds to X
+        let expr = Expr::try_from("true ? 42 : 0").unwrap();
+        assert_eq!(expr, Expr::Val(Val::Int(42)));
+
+        // false ? X : Y folds to Y
+        let expr = Expr::try_from("false ? 42 : 0").unwrap();
+        assert_eq!(expr, Expr::Val(Val::Int(0)));
+    }
+
+    #[test]
+    fn coalesce_constant_folding() {
+        // nil ?? X folds to X
+        let expr = Expr::try_from("nil ?? 42").unwrap();
+        assert_eq!(expr, Expr::Val(Val::Int(42)));
+
+        // non-nil ?? X folds to the non-nil value
+        let expr = Expr::try_from("1 ?? 42").unwrap();
+        assert_eq!(expr, Expr::Val(Val::Int(1)));
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn ternary_coalesce_combined() {
+        // Coalesce feeds into ternary
+        expect("(@nonexistent ?? true) ? 'yes' : 'no'", "yes");
+
+        // Ternary inside coalesce
+        expect("nil ?? (true ? 42 : 0)", 42);
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn requested_ctx_with_new_exprs() {
+        let expr = Expr::try_from("@a ?? @b").unwrap();
+        let names = expr.requested_ctx();
+        assert!(names.contains("a"));
+        assert!(names.contains("b"));
+
+        let expr = Expr::try_from("@a ? @b : @c").unwrap();
+        let names = expr.requested_ctx();
+        assert!(names.contains("a"));
+        assert!(names.contains("b"));
+        assert!(names.contains("c"));
+    }
+
+    #[test]
+    fn is_ctx_independent_new_exprs() {
+        let expr = Expr::try_from("true ? 1 : 2").unwrap();
+        assert!(expr.is_ctx_independent());
+
+        let expr = Expr::try_from("nil ?? 42").unwrap();
+        assert!(expr.is_ctx_independent());
+
+        let expr = Expr::try_from("@a ?? 42").unwrap();
+        assert!(!expr.is_ctx_independent());
+
+        let expr = Expr::try_from("@a ? 1 : 2").unwrap();
+        assert!(!expr.is_ctx_independent());
     }
 
     #[cfg(feature = "json")]
