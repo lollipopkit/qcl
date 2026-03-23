@@ -85,7 +85,7 @@ mod tests {
         assert!(t.is_ok());
 
         let t = Tokenizer::new("-1.0 +1.2");
-        let e = vec![Token::Float(-1.0), Token::Float(1.2)];
+        let e = vec![Token::Float(-1.0), Token::Add, Token::Float(1.2)];
         assert_eq!(t.unwrap(), e);
     }
 
@@ -216,8 +216,11 @@ mod tests {
         let t = Tokenizer::new("-123 +456 -1.23 +4.56");
         let e = vec![
             Token::Int(-123),
+            Token::Add,
             Token::Int(456),
-            Token::Float(-1.23),
+            Token::Sub,
+            Token::Float(1.23),
+            Token::Add,
             Token::Float(4.56),
         ];
         assert_eq!(t.unwrap(), e);
@@ -697,5 +700,52 @@ mod tests {
         let msg = err.to_string();
         // Should contain line:col position info
         assert!(msg.contains("1:"), "error should contain line info: {msg}");
+    }
+
+    #[test]
+    fn sign_after_value_is_operator() {
+        // "1-2" should tokenize as [Int(1), Sub, Int(2)], not [Int(1), Int(-2)]
+        let t = Tokenizer::new("1-2").unwrap();
+        assert_eq!(t, vec![Token::Int(1), Token::Sub, Token::Int(2)]);
+
+        // "1+2" should tokenize as [Int(1), Add, Int(2)]
+        let t = Tokenizer::new("1+2").unwrap();
+        assert_eq!(t, vec![Token::Int(1), Token::Add, Token::Int(2)]);
+
+        // After identifier
+        let t = Tokenizer::new("@x+1").unwrap();
+        assert_eq!(
+            t,
+            vec![Token::At, id("x"), Token::Add, Token::Int(1)]
+        );
+
+        // After closing paren
+        let t = Tokenizer::new("(1)-2").unwrap();
+        assert_eq!(
+            t,
+            vec![Token::LParen, Token::Int(1), Token::RParen, Token::Sub, Token::Int(2)]
+        );
+    }
+
+    #[test]
+    fn sign_at_expr_start_is_prefix() {
+        // At input start, sign is part of number
+        let t = Tokenizer::new("-3").unwrap();
+        assert_eq!(t, vec![Token::Int(-3)]);
+
+        // After operator, sign is part of number
+        let t = Tokenizer::new("1 + -3").unwrap();
+        assert_eq!(t, vec![Token::Int(1), Token::Add, Token::Int(-3)]);
+
+        // After open paren
+        let t = Tokenizer::new("(-3)").unwrap();
+        assert_eq!(t, vec![Token::LParen, Token::Int(-3), Token::RParen]);
+
+        // After comma
+        let t = Tokenizer::new("[-1, +2]").unwrap();
+        assert_eq!(
+            t,
+            vec![Token::LBracket, Token::Int(-1), Token::Comma, Token::Int(2), Token::RBracket]
+        );
     }
 }

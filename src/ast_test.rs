@@ -442,6 +442,22 @@ mod test {
     }
 
     #[test]
+    fn deeply_nested_ternary_is_rejected() {
+        // Build: true ? true : true ? true : ... (chain of 300 ternaries)
+        let mut expr = "true".to_string();
+        for _ in 0..300 {
+            expr = format!("true ? true : {expr}");
+        }
+        let result = Expr::try_from(expr.as_str());
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("nesting is too deep"),
+            "expected nesting error, got: {err_msg}"
+        );
+    }
+
+    #[test]
     fn quoted_field_access_simple() {
         // Basic quoted field access
         let r = r#"@"with.&=""#;

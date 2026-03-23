@@ -10,7 +10,7 @@ pub fn eval_json(expression: &str, json_ctx: &str) -> Result<String, JsError> {
     let ctx: Val = de::from_json_str(json_ctx).map_err(|e| JsError::new(&e.to_string()))?;
     let expr = Expr::parse_cached(expression).map_err(|e| JsError::new(&e.to_string()))?;
     let result = expr.eval(&ctx).map_err(|e| JsError::new(&e.to_string()))?;
-    Ok(result.to_string())
+    serde_json::to_string(&result).map_err(|e| JsError::new(&e.to_string()))
 }
 
 /// Evaluate a QCL expression against a JS object context (via serde).

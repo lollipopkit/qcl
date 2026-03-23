@@ -48,16 +48,17 @@ fn main() -> error::Result<()> {
         std::process::exit(1);
     }
 
-    let mut raw = String::new();
-    std::io::stdin().read_to_string(&mut raw)?;
-
-    let ctx: Val = de::parse_with_format(&raw, format_override)?;
     let expr = Expr::parse_cached_arc(&expr_str)?;
 
     if show_ast {
         println!("{:?}", *expr);
         return Ok(());
     }
+
+    let mut raw = String::new();
+    std::io::stdin().read_to_string(&mut raw)?;
+
+    let ctx: Val = de::parse_with_format(&raw, format_override)?;
 
     let res = expr.eval(&ctx)?;
 

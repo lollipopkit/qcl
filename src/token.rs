@@ -178,6 +178,27 @@ impl Tokenizer {
         Err(Error::Tokenize(self.err("String not closed")))
     }
 
+    /// Check whether a sign (+/-) should be treated as the start of a numeric literal
+    /// rather than a binary operator. A sign is a prefix when there is no preceding
+    /// value-producing token.
+    fn sign_starts_number(&self) -> bool {
+        match self.tokens.last() {
+            None => true, // beginning of input
+            Some(tok) => !matches!(
+                tok,
+                Token::Int(_)
+                    | Token::Float(_)
+                    | Token::Str(_)
+                    | Token::Bool(_)
+                    | Token::Nil
+                    | Token::Id(_)
+                    | Token::RParen
+                    | Token::RBracket
+                    | Token::RBrace
+            ),
+        }
+    }
+
     /// eg.:
     /// - @a -> [At, Id("a")]
     /// - @a.b -> [At, Id("a"), Dot, Id("b")]
@@ -445,7 +466,7 @@ impl Tokenizer {
                 }
             }
             '+' => {
-                if self.peek(1).is_some_and(|next| next.is_ascii_digit()) {
+                if self.sign_starts_number() && self.peek(1).is_some_and(|next| next.is_ascii_digit()) {
                     return self.parse_num();
                 }
                 self.idx += 1;
@@ -453,7 +474,7 @@ impl Tokenizer {
                 Ok(())
             }
             '-' => {
-                if self.peek(1).is_some_and(|next| next.is_ascii_digit()) {
+                if self.sign_starts_number() && self.peek(1).is_some_and(|next| next.is_ascii_digit()) {
                     return self.parse_num();
                 }
                 self.idx += 1;

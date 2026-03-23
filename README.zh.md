@@ -1,13 +1,27 @@
+[English](README.md) | 中文
+
 <div align="center">
     <h2>QCL</h2>
-    <h5>一种用于检查 query 求值结果的简洁语言。</h5>
+    <h5>一种用于检查 query 求值结果的语言。</h5>
 </div>
-
-中文版。英文版见 [README.md](README.md)。
 
 ## 简介
 
 QCL 主要面向 ACL (Access Control List) 场景，用来判断某个用户是否有权访问某个资源。
+
+## 表达式语言
+
+- 字面量：string、int、float、bool、nil、list、map
+- 支持嵌套 list/map，以及尾随逗号
+- 支持注释：`//` 和可嵌套的 `/* ... */`
+- 支持 `@path` 上下文访问，包含带引号的字段名、整数下标、负数下标、计算得到的路径段，以及嵌套 `@` 访问
+- 任意主表达式都可以继续做后缀访问：`.field` / `.index`
+- 支持运算符：`!`、一元 `-`、`+ - * / %`、`== != < > <= >=`、`in`、`&&`、`||`、`??`、`?:`
+- `in` 支持字符串子串、list 成员/子集匹配、map 键查找
+- 访问缺失时返回 `nil`
+- `@` 外的裸标识符按字符串值处理，`@` 内则按字段名处理
+- 默认算术在能精确表示时保留整数除法，不能精确表示时提升为浮点数
+- 可选的高级算术扩展支持字符串、list 和 map 的 `+` / `-`
 
 ### 示例
 
@@ -28,24 +42,35 @@ QCL 主要面向 ACL (Access Control List) 场景，用来判断某个用户是�
 
 更完整的语言说明见 [LANG.zh.md](LANG.zh.md)。
 
-## 特性
+## 能力
 
-默认启用：
-- `json` — JSON 输入格式
-- `sem_arith` — 语义整数除法（`3 / 2 = 1.5`）
-- `std` — 表达式缓存和反序列化
+### 输入格式
 
-可选：
-- `yaml` — YAML 输入格式
-- `toml` — TOML 输入格式
-- `adv_arith` — 高级算术（`List + List`、`Map + Map` 等）
+- 默认构建支持 JSON 输入
+- YAML 和 TOML 作为可选输入后端提供
+- 当对应后端已编译进来时，可通过 `--json`、`--yaml`、`--toml` 强制选择解析格式
 
-绑定：
-- `wasm` — 通过 wasm-bindgen 的 WebAssembly 绑定（[文档](docs/wasm.md)）
-- `ffi` — C 共享库（[文档](docs/ffi.md)）
-- `python` — 通过 PyO3 的 Python 模块（[文档](docs/python.md)）
+### CLI
 
-库还支持 `no_std`（需要 `alloc`），在禁用 `std` 时可用。
+- 从 `stdin` 读取上下文，从 argv 读取表达式
+- `--check` / `-c` 在结果为真时退出码为 `0`，为假时退出码为 `1`
+- `--ast` 直接输出解析后的 AST
+- `--version` / `-V` 输出版本号
+- `--help` / `-h` 输出帮助信息
+
+### Rust API
+
+- 使用 `Expr::try_from` 或缓存版 `Expr::parse_cached_arc` 解析表达式
+- 使用 `Expr::eval` 求值
+- 使用 `requested_ctx` 获取表达式依赖的上下文名
+- 使用 `is_ctx_independent` 判断表达式是否不依赖上下文
+
+### 绑定
+
+- 通过 `wasm-bindgen` 提供 WASM 绑定（[文档](docs/wasm.md)）
+- 提供 C 共享库（[文档](docs/ffi.md)）
+- 通过 PyO3 提供 Python 模块（[文档](docs/python.md)）
+- 在禁用 `std` 时，库仍可在 `no_std` + `alloc` 下使用
 
 ### 用法
 

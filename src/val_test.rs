@@ -605,4 +605,15 @@ mod tests {
         let result = parse_with_format(json_as_yaml, Some(Format::Yaml)).unwrap();
         assert_eq!(result.access(&Val::Str("name".into())), Some(&Val::Str("Dave".into())));
     }
+
+    #[test]
+    fn test_access_large_index_returns_none() {
+        let list = Val::List(std::sync::Arc::new(vec![Val::Int(1), Val::Int(2)]));
+        // i64::MAX should not panic or truncate, just return None
+        assert_eq!(list.access(&Val::Int(i64::MAX)), None);
+        // A value larger than u32::MAX on 32-bit targets
+        assert_eq!(list.access(&Val::Int(u32::MAX as i64 + 1)), None);
+        // Very negative value
+        assert_eq!(list.access(&Val::Int(i64::MIN)), None);
+    }
 }

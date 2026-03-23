@@ -46,9 +46,9 @@ impl Val {
                     if adjusted < 0 {
                         return None;
                     }
-                    adjusted as usize
+                    usize::try_from(adjusted).ok()?
                 } else {
-                    *i as usize
+                    usize::try_from(*i).ok()?
                 };
                 l.get(idx)
             }

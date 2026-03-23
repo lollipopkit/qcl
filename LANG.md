@@ -189,13 +189,13 @@ Default features:
 
 - `json`
 - `sem_arith`
+- `std` (provides expression cache and deserialization)
 
 Optional features:
 
 - `yaml`
 - `toml`
 - `adv_arith`
-- `std` (enabled by default; provides expression cache and deserialization)
 - `wasm` (WebAssembly bindings via `wasm-bindgen`)
 - `ffi` (C-compatible FFI)
 - `python` (Python bindings via PyO3)
@@ -268,7 +268,7 @@ map      ::= "{" [ pair { "," pair } [ "," ] ] "}"
 pair     ::= exp ":" exp
 at       ::= "@" segment { "." segment }
 segment  ::= id | string | int | "(" exp ")" | at
-number   ::= [ "+" | "-" ] ( digit+ [ "." digit+ ] | "0x" hex+ | "0o" oct+ )
+number   ::= [ "+" | "-" ] ( digit+ [ "." digit+ ] | ("0x" | "0X") hex+ | ("0o" | "0O") oct+ )
 ```
 
 Notes:

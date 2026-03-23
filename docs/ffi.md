@@ -70,8 +70,12 @@ int main(void) {
         qcl_free(result);
     } else {
         char* err = qcl_last_error();
-        fprintf(stderr, "error: %s\n", err);
-        qcl_free(err);
+        if (err) {
+            fprintf(stderr, "error: %s\n", err);
+            qcl_free(err);
+        } else {
+            fprintf(stderr, "error: unknown error\n");
+        }
     }
 
     // Check

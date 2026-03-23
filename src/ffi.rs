@@ -18,6 +18,12 @@ use crate::{ast::Parser, token::Tokenizer, val::Val};
 #[cfg(feature = "json")]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn qcl_eval_json(expression: *const c_char, json_ctx: *const c_char) -> *mut c_char {
+    if expression.is_null() {
+        return set_err("null expression pointer".to_string());
+    }
+    if json_ctx.is_null() {
+        return set_err("null json_ctx pointer".to_string());
+    }
     let expr_str = match unsafe { CStr::from_ptr(expression) }.to_str() {
         Ok(s) => s,
         Err(e) => return set_err(format!("invalid expression UTF-8: {e}")),
@@ -90,6 +96,14 @@ pub unsafe extern "C" fn qcl_free(ptr: *mut c_char) {
 #[cfg(feature = "json")]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn qcl_check_json(expression: *const c_char, json_ctx: *const c_char) -> c_int {
+    if expression.is_null() {
+        set_err("null expression pointer".to_string());
+        return -1;
+    }
+    if json_ctx.is_null() {
+        set_err("null json_ctx pointer".to_string());
+        return -1;
+    }
     let expr_str = match unsafe { CStr::from_ptr(expression) }.to_str() {
         Ok(s) => s,
         Err(e) => {
@@ -152,6 +166,9 @@ fn set_err(msg: alloc::string::String) -> *mut c_char {
 fn to_c_string(s: alloc::string::String) -> *mut c_char {
     match CString::new(s) {
         Ok(cs) => cs.into_raw(),
-        Err(_) => core::ptr::null_mut(),
+        Err(e) => {
+            LAST_ERROR.with(|cell| cell.set(Some(format!("CString::new failed: {e}"))));
+            core::ptr::null_mut()
+        }
     }
 }

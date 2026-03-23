@@ -170,9 +170,13 @@ impl<'a> Parser<'a> {
         let expr = self.parse_coalesce()?;
         if !self.eof() && self.tokens[self.pos] == Token::Question {
             self.pos += 1;
+            self.enter_nested("Expression nesting is too deep")?;
             let true_expr = self.parse_ternary()?;
+            self.leave_nested();
             self.expect_punctuation(Token::Colon, ":")?;
+            self.enter_nested("Expression nesting is too deep")?;
             let false_expr = self.parse_ternary()?;
+            self.leave_nested();
             Ok(Expr::Ternary(Box::new(expr), Box::new(true_expr), Box::new(false_expr)))
         } else {
             Ok(expr)

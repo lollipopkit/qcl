@@ -23,7 +23,8 @@ use crate::{
     token::Tokenizer,
     val::Val,
 };
-use hashbrown::{HashMap, HashSet};
+use hashbrown::HashMap;
+use hashbrown::HashSet as HbHashSet;
 #[cfg(feature = "std")]
 use once_cell::sync::Lazy;
 
@@ -301,10 +302,10 @@ impl Expr {
     }
 
     /// Get the requested context names from the expression.
-    pub fn requested_ctx(&self) -> HashSet<String> {
-        let mut names = HashSet::new();
+    pub fn requested_ctx(&self) -> alloc::collections::BTreeSet<String> {
+        let mut names = HbHashSet::new();
         self.collect_ctx_names(&mut names);
-        names
+        names.into_iter().collect()
     }
 
     /// Returns true when the expression can be evaluated without consulting `ctx`.
@@ -327,7 +328,7 @@ impl Expr {
     /// Helper method to collect context names recursively
     ///
     /// eg.: `@user.props.(@req.service).value && @list` => `["user", "req", "list"]`
-    fn collect_ctx_names(&self, names: &mut HashSet<String>) {
+    fn collect_ctx_names(&self, names: &mut HbHashSet<String>) {
         match self {
             Expr::At(paths) => {
                 if !paths.is_empty() {

@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod test {
     use crate::error::Result;
-    use hashbrown::HashSet;
     #[cfg(feature = "json")]
     use serde_json::json;
+    use std::collections::BTreeSet;
     use std::sync::Mutex;
 
     use crate::{
@@ -334,7 +334,7 @@ mod test {
         let expr = Expr::try_from("@user.props.(@req.service) && @list.0 || @pub").unwrap();
         let names = expr.requested_ctx();
 
-        let mut expected = HashSet::new();
+        let mut expected = BTreeSet::new();
         expected.insert("user".to_string());
         expected.insert("req".to_string());
         expected.insert("list".to_string());
@@ -346,7 +346,7 @@ mod test {
         let expr = Expr::try_from(r#"[@user.name, @list.0] == {"name": @user.name, "first": @list.0}"#).unwrap();
         let names = expr.requested_ctx();
 
-        let mut expected = HashSet::new();
+        let mut expected = BTreeSet::new();
         expected.insert("user".to_string());
         expected.insert("list".to_string());
 

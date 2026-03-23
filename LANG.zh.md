@@ -189,13 +189,13 @@ nil
 
 - `json`
 - `sem_arith`
+- `std`（提供表达式缓存和反序列化支持）
 
 可选的 feature：
 
 - `yaml`
 - `toml`
 - `adv_arith`
-- `std`（默认启用；提供表达式缓存和反序列化支持）
 - `wasm`（通过 `wasm-bindgen` 提供 WebAssembly 绑定）
 - `ffi`（C 兼容的 FFI）
 - `python`（通过 PyO3 提供 Python 绑定）
@@ -268,7 +268,7 @@ map      ::= "{" [ pair { "," pair } [ "," ] ] "}"
 pair     ::= exp ":" exp
 at       ::= "@" segment { "." segment }
 segment  ::= id | string | int | "(" exp ")" | at
-number   ::= [ "+" | "-" ] ( digit+ [ "." digit+ ] | "0x" hex+ | "0o" oct+ )
+number   ::= [ "+" | "-" ] ( digit+ [ "." digit+ ] | ("0x" | "0X") hex+ | ("0o" | "0O") oct+ )
 ```
 
 说明：

@@ -30,21 +30,21 @@ pyo3 = { version = "0.24", optional = true, features = ["extension-module"] }
 [features]
 default = ["std", "sem_arith", "json"]
 # Enable std (required for parse cache and format parsers)
-std = ["once_cell", "serde/std"]
+std = ["dep:once_cell", "serde/std"]
 # Semantic arith: 3 / 2 = 1.5, not 1
 sem_arith = []
 # Advanced arithmetic support: Map + Map, List + Val etc.
 adv_arith = []
 # Input format features
-json = ["std", "serde_json"]
-yaml = ["std", "serde_yaml"]
+json = ["std", "dep:serde_json"]
+yaml = ["std", "dep:serde_yaml"]
 toml = ["std", "dep:toml"]
 # WASM bindings via wasm-bindgen
-wasm = ["wasm-bindgen", "serde-wasm-bindgen", "std", "json"]
+wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "std", "json"]
 # C FFI
 ffi = ["std", "json"]
 # Python bindings via PyO3
-python = ["pyo3", "std", "json"]
+python = ["dep:pyo3", "std", "json"]
 all = ["std", "sem_arith", "adv_arith", "json", "yaml", "toml"]
 
 [[bin]]
