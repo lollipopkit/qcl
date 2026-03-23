@@ -136,6 +136,14 @@ mod tests {
     }
 
     #[test]
+    fn missing_comparisons_remain_fail_closed() {
+        assert!(!BinOp::Eq.cmp(&Val::Missing, &Val::Int(1)).unwrap());
+        assert!(!BinOp::Ne.cmp(&Val::Missing, &Val::Int(1)).unwrap());
+        assert!(!BinOp::Eq.cmp(&Val::Int(1), &Val::Missing).unwrap());
+        assert!(!BinOp::Ne.cmp(&Val::Int(1), &Val::Missing).unwrap());
+    }
+
+    #[test]
     #[cfg(feature = "json")]
     fn nested_literal_comparisons() {
         let ctx: Val = json!({}).into();

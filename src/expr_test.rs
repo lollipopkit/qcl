@@ -404,6 +404,8 @@ mod test {
         expect("@nonexistent", Val::Missing);
         expect("@existing_null == nil", true);
         expect("@nonexistent == nil", false);
+        expect("@nonexistent != nil", false);
+        expect("@nonexistent != 1", false);
         expect("@nonexistent.field == nil", false);
         expect("nil", None::<Val>);
     }
@@ -418,6 +420,9 @@ mod test {
         .into();
 
         let expr = Expr::try_from("@req.user.id == @record.owner.id").unwrap();
+        assert_eq!(expr.eval(&ctx).unwrap(), Val::Bool(false));
+
+        let expr = Expr::try_from(r#"@req.user.status != "blocked""#).unwrap();
         assert_eq!(expr.eval(&ctx).unwrap(), Val::Bool(false));
 
         let expr = Expr::try_from(r#"@req.user.status != "blocked" && @req.user.id == 7"#).unwrap();

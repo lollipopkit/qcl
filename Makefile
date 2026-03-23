@@ -19,12 +19,14 @@ CARGO_FUZZ ?= cargo fuzz
 DICT_ARG = $(if $(filter $(TARGET),$(DICT_TARGETS)),-dict=$(DICT),)
 FUZZ_ARGS = -artifact_prefix=$(ARTIFACT_PREFIX) -max_total_time=$(MAX_TIME) $(DICT_ARG) $(RUN_ARGS)
 
-.PHONY: help check check-all-features test test-all-features fmt fmt-check clippy bench run fuzz fuzz-all fuzz-quick fuzz-check fuzz-install fuzz-clean fuzz-list fuzz-replay validate-fuzz-target
+.PHONY: all clean help check check-all-features test test-all-features fmt fmt-check clippy bench run fuzz fuzz-all fuzz-quick fuzz-check fuzz-install fuzz-clean fuzz-list fuzz-replay validate-fuzz-target
 
 help:
 	@printf '%s\n' \
 		'Usage:' \
+		'  make all' \
 		'  make check' \
+		'  make clean' \
 		'  make test' \
 		'  make fmt' \
 		'  make clippy' \
@@ -33,9 +35,11 @@ help:
 		'  make fuzz-all MAX_TIME=60' \
 		'' \
 		'Targets:' \
+		'  all          Compatibility entry point for cargo check' \
 		'  help         Show this message' \
 		'  check        cargo check' \
 		'  check-all-features cargo check --features all' \
+		'  clean        cargo clean plus fuzz outputs' \
 		'  test         cargo test -- --nocapture' \
 		'  test-all-features cargo test --features all -- --nocapture' \
 		'  fmt          cargo fmt' \
@@ -59,6 +63,8 @@ help:
 		'  RUN_ARGS     Extra libFuzzer args, e.g. "-runs=1000 -seed=1"' \
 		'  ARGS         Extra args passed to cargo run after --' \
 		'  ARTIFACT_PREFIX Defaults to fuzz/artifacts/$(TARGET)/'
+
+all: check
 
 check:
 	$(CARGO) check
@@ -103,8 +109,8 @@ fuzz-all:
 		corpus="$(FUZZ_DIR)/corpus/$$target"; \
 		artifact="$(FUZZ_DIR)/artifacts/$$target/"; \
 		args="-artifact_prefix=$$artifact -max_total_time=$(MAX_TIME)"; \
-		case "$$target" in \
-			expr_parse|expr_eval|de_formats|in_operator) args="$$args -dict=$(DICT)" ;; \
+		case " $(DICT_TARGETS) " in \
+			*" $$target "*) args="$$args -dict=$(DICT)" ;; \
 		esac; \
 		if [ -n "$(RUN_ARGS)" ]; then \
 			args="$$args $(RUN_ARGS)"; \
@@ -123,8 +129,15 @@ fuzz-check:
 fuzz-install:
 	$(CARGO) install cargo-fuzz
 
+clean: fuzz-clean
+	$(CARGO) clean
+
 fuzz-clean:
-	rm -rf $(FUZZ_DIR)/artifacts $(FUZZ_DIR)/coverage $(FUZZ_DIR)/target
+	@if [ -z "$(FUZZ_DIR)" ] || [ "$(FUZZ_DIR)" = "/" ]; then \
+		printf '%s\n' "Refusing fuzz-clean: FUZZ_DIR must be non-empty and not '/' before removing $(FUZZ_DIR)/artifacts $(FUZZ_DIR)/coverage $(FUZZ_DIR)/target"; \
+		exit 2; \
+	fi
+	rm -rf -- "$(FUZZ_DIR)/artifacts" "$(FUZZ_DIR)/coverage" "$(FUZZ_DIR)/target"
 
 fuzz-list:
 	@printf '%s\n' $(TARGETS)

@@ -155,6 +155,8 @@ impl BinOp {
 
     pub(crate) fn cmp(&self, l: &Val, r: &Val) -> Result<bool> {
         if matches!(l, Val::Missing) || matches!(r, Val::Missing) {
+            // Missing field access stays fail-closed for ACL-style expressions, so
+            // both `==` and `!=` remain false when either side is Missing.
             return match self {
                 BinOp::Eq | BinOp::Ne => Ok(false),
                 _ => err_op(l, self, r),

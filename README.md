@@ -1,7 +1,9 @@
 <div align="center">
     <h2>QCL</h2>
-    <h5>a simple language that allows you to check the eval result of a query. </h5>
+    <h5>a simple language that allows you to check the eval result of a query.</h5>
 </div>
+
+English version. Chinese version: [README.zh.md](README.zh.md).
 
 ## Intro
 
@@ -75,6 +77,10 @@ match result {
 <div height="100px" align="center">
     <img src="https://cdn.lpkt.cn/img/capture/qcl.png" alt="QCL" />
 </div>
+
+```bash
+echo '{"req": {"user": {"role": "admin"}}}' | cargo run -- '@req.user.role == "admin"'
+```
 
 ## Ports
 
