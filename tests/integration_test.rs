@@ -217,6 +217,14 @@ fn test_cli_negative_indexing() {
 
 #[test]
 #[cfg(feature = "json")]
+fn test_cli_check_non_boolean_exit_code() {
+    let output = run_cli(&["--check", "@name"], b"{\"name\": \"test\"}");
+
+    assert_eq!(output.status.code(), Some(2));
+}
+
+#[test]
+#[cfg(feature = "json")]
 fn test_cli_hex_octal_literals() {
     let output = run_cli(&["@val == 0xFF"], b"{\"val\": 255}");
     let stdout = String::from_utf8_lossy(&output.stdout);

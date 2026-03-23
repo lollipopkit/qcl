@@ -66,7 +66,7 @@ fn main() -> error::Result<()> {
         let code = match &res {
             Val::Bool(true) => 0,
             Val::Bool(false) | Val::Nil => 1,
-            _ => 0,
+            _ => 2,
         };
         std::process::exit(code);
     }
@@ -95,7 +95,7 @@ fn print_usage(bin: &str) {
         "  {flag_str}    Select input format (default: {:?})",
         de::default_format()
     );
-    eprintln!("  --check, -c           Exit 0 if truthy, 1 if falsy");
+    eprintln!("  --check, -c           Exit 0 for true, 1 for false/nil, 2 for other values");
     eprintln!("  --ast                 Print the parsed AST instead of evaluating");
     eprintln!("  --version, -V         Print version");
     eprintln!("  --help, -h            Print this help");

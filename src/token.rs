@@ -245,7 +245,7 @@ impl Tokenizer {
             let val = i64::from_str_radix(&digits, radix).map_err(|_| {
                 Error::Tokenize(self.err(format!("Invalid int: 0{}{}", if is_hex { "x" } else { "o" }, digits)))
             })?;
-            let val = if start_idx < digits_start.saturating_sub(2) && self.chars[start_idx] == '-' {
+            let val = if start_idx < self.chars.len() && self.chars[start_idx] == '-' {
                 val.checked_neg()
                     .ok_or_else(|| Error::Tokenize(self.err("Integer overflow")))?
             } else {

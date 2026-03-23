@@ -76,7 +76,7 @@ fn val_to_py(py: Python<'_>, val: &Val) -> PyResult<PyObject> {
 fn eval(py: Python<'_>, expression: &str, context: &Bound<'_, PyAny>) -> PyResult<PyObject> {
     let ctx = py_to_val(context)?;
     let expr = Expr::parse_cached_arc(expression).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    let result = expr.eval(&ctx).map_err(|e| PyValueError::new_err(e.to_string()))?;;
+    let result = expr.eval(&ctx).map_err(|e| PyValueError::new_err(e.to_string()))?;
     val_to_py(py, &result)
 }
 
@@ -92,7 +92,7 @@ fn eval(py: Python<'_>, expression: &str, context: &Bound<'_, PyAny>) -> PyResul
 fn eval_json(py: Python<'_>, expression: &str, json_ctx: &str) -> PyResult<PyObject> {
     let ctx: Val = de::from_json_str(json_ctx).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let expr = Expr::parse_cached_arc(expression).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    let result = expr.eval(&ctx).map_err(|e| PyValueError::new_err(e.to_string()))?;;
+    let result = expr.eval(&ctx).map_err(|e| PyValueError::new_err(e.to_string()))?;
     val_to_py(py, &result)
 }
 

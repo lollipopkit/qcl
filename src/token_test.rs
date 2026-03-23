@@ -670,6 +670,15 @@ mod tests {
     }
 
     #[test]
+    fn test_signed_hex_and_octal_literals() {
+        let t = Tokenizer::new("-0x10");
+        assert_eq!(t.unwrap(), vec![Token::Int(-16)]);
+
+        let t = Tokenizer::new("-0o10");
+        assert_eq!(t.unwrap(), vec![Token::Int(-8)]);
+    }
+
+    #[test]
     fn test_unicode_escape() {
         // Basic ASCII
         let t = Tokenizer::new(r#""\u0041""#);
