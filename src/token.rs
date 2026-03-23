@@ -220,39 +220,8 @@ impl Tokenizer {
                 || self.chars[self.idx + 1] == 'o'
                 || self.chars[self.idx + 1] == 'O')
         {
-            let is_hex = self.chars[self.idx + 1] == 'x' || self.chars[self.idx + 1] == 'X';
-            let radix = if is_hex { 16 } else { 8 };
-            self.idx += 2; // skip '0x' or '0o'
-            let digits_start = self.idx;
-            while !self.eof() {
-                let c = self.chars[self.idx];
-                let valid = if is_hex {
-                    c.is_ascii_hexdigit()
-                } else {
-                    matches!(c, '0'..='7')
-                };
-                if valid {
-                    self.idx += 1;
-                } else {
-                    break;
-                }
-            }
-            if self.idx == digits_start {
-                let label = if is_hex { "hex" } else { "octal" };
-                return Err(Error::Tokenize(self.err(format!("Invalid {label} literal, no digits"))));
-            }
-            let digits: String = self.chars[digits_start..self.idx].iter().collect();
-            let val = i64::from_str_radix(&digits, radix).map_err(|_| {
-                Error::Tokenize(self.err(format!("Invalid int: 0{}{}", if is_hex { "x" } else { "o" }, digits)))
-            })?;
-            let val = if start_idx < self.chars.len() && self.chars[start_idx] == '-' {
-                val.checked_neg()
-                    .ok_or_else(|| Error::Tokenize(self.err("Integer overflow")))?
-            } else {
-                val
-            };
-            self.tokens.push(Token::Int(val));
-            return Ok(());
+            self.idx = start_idx;
+            return self.parse_int();
         }
 
         // Reset idx to after sign (or start) for normal decimal parsing
@@ -359,6 +328,12 @@ impl Tokenizer {
                 self.parse_int()?;
                 continue;
             }
+            if matches!(c, '+' | '-') && self.tokens.last().is_some_and(|tok| tok == &Token::Dot) {
+                if self.peek(1).is_some_and(|next| next.is_ascii_digit()) {
+                    self.parse_int()?;
+                    continue;
+                }
+            }
 
             if c == '.' {
                 self.idx += 1;
@@ -372,6 +347,54 @@ impl Tokenizer {
 
     fn parse_int(&mut self) -> Result<()> {
         let start_idx = self.idx;
+
+        if !self.eof() && (self.chars[self.idx] == '-' || self.chars[self.idx] == '+') {
+            self.idx += 1;
+        }
+
+        if !self.eof()
+            && self.chars[self.idx] == '0'
+            && self.idx + 1 < self.len
+            && (self.chars[self.idx + 1] == 'x'
+                || self.chars[self.idx + 1] == 'X'
+                || self.chars[self.idx + 1] == 'o'
+                || self.chars[self.idx + 1] == 'O')
+        {
+            let is_hex = self.chars[self.idx + 1] == 'x' || self.chars[self.idx + 1] == 'X';
+            let radix = if is_hex { 16 } else { 8 };
+            self.idx += 2; // skip '0x' or '0o'
+            let digits_start = self.idx;
+            while !self.eof() {
+                let c = self.chars[self.idx];
+                let valid = if is_hex {
+                    c.is_ascii_hexdigit()
+                } else {
+                    matches!(c, '0'..='7')
+                };
+                if valid {
+                    self.idx += 1;
+                } else {
+                    break;
+                }
+            }
+            if self.idx == digits_start {
+                let label = if is_hex { "hex" } else { "octal" };
+                return Err(Error::Tokenize(self.err(format!("Invalid {label} literal, no digits"))));
+            }
+            let digits: String = self.chars[digits_start..self.idx].iter().collect();
+            let val = i64::from_str_radix(&digits, radix).map_err(|_| {
+                Error::Tokenize(self.err(format!("Invalid int: 0{}{}", if is_hex { "x" } else { "o" }, digits)))
+            })?;
+            let val = if start_idx < self.chars.len() && self.chars[start_idx] == '-' {
+                val.checked_neg()
+                    .ok_or_else(|| Error::Tokenize(self.err("Integer overflow")))?
+            } else {
+                val
+            };
+            self.tokens.push(Token::Int(val));
+            return Ok(());
+        }
+
         while !self.eof() {
             let c = self.chars[self.idx];
             if c.is_ascii_digit() {
@@ -441,8 +464,7 @@ impl Tokenizer {
             '.' => {
                 self.idx += 1;
                 self.tokens.push(Token::Dot);
-                if self.peek(0).is_some_and(|next| next.is_ascii_digit()) {
-                    // To avoid confusion with Dot in float, only parse int here.
+                if self.starts_int_literal() {
                     return self.parse_int();
                 }
                 Ok(())
@@ -638,5 +660,22 @@ impl Tokenizer {
                 | '<'
                 | '?'
         )
+    }
+
+    fn starts_int_literal(&self) -> bool {
+        if self.eof() {
+            return false;
+        }
+
+        let c = self.chars[self.idx];
+        if c.is_ascii_digit() {
+            return true;
+        }
+
+        if matches!(c, '+' | '-') {
+            return self.peek(1).is_some_and(|next| next.is_ascii_digit());
+        }
+
+        false
     }
 }

@@ -370,6 +370,21 @@ mod tests {
     }
 
     #[test]
+    fn hex_and_octal_path_segments() {
+        let t = Tokenizer::new("@items.0x1");
+        let e = vec![Token::At, id("items"), Token::Dot, Token::Int(1)];
+        assert_eq!(t.unwrap(), e);
+
+        let t = Tokenizer::new("@items.0o1");
+        let e = vec![Token::At, id("items"), Token::Dot, Token::Int(1)];
+        assert_eq!(t.unwrap(), e);
+
+        let t = Tokenizer::new("@items.-0x1");
+        let e = vec![Token::At, id("items"), Token::Dot, Token::Int(-1)];
+        assert_eq!(t.unwrap(), e);
+    }
+
+    #[test]
     fn logic_operations() {
         let t = Tokenizer::new("!(@a in @b) && (@c || !@d)");
         let e = vec![

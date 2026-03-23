@@ -66,18 +66,10 @@ help:
 		'  ARGS         Extra args passed to cargo run after --' \
 		'  ARTIFACT_PREFIX Defaults to fuzz/artifacts/$(TARGET)/'
 
-all: check
-
 check:
 	$(CARGO) check --features all
 
-check-all-features:
-	$(CARGO) check --features all
-
 test:
-	$(CARGO) test --features all -- --nocapture
-
-test-all-features:
 	$(CARGO) test --features all -- --nocapture
 
 fmt:
