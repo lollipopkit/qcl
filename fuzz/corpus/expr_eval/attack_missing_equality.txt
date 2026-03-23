@@ -1,0 +1,3 @@
+@req.user.id == @record.owner.id
+--CTX--
+{"req":{"user":{}},"record":{}}

@@ -113,115 +113,82 @@ pub enum Format {
     Toml,
 }
 
-/// Automatically detect format based on content
-pub fn detect_format(input: &str) -> Format {
+pub const fn default_format() -> Format {
+    #[cfg(feature = "json")]
+    {
+        Format::Json
+    }
+    #[cfg(all(feature = "yaml", not(feature = "json")))]
+    {
+        Format::Yaml
+    }
+    #[cfg(all(feature = "toml", not(feature = "json"), not(feature = "yaml")))]
+    {
+        Format::Toml
+    }
+}
+
+fn detect_format_confident(input: &str) -> Option<Format> {
     let trimmed = input.trim();
 
     // Empty input defaults to first available format
     if trimmed.is_empty() {
-        #[cfg(feature = "json")]
-        return Format::Json;
-        #[cfg(all(feature = "yaml", not(feature = "json")))]
-        return Format::Yaml;
-        #[cfg(all(feature = "toml", not(feature = "json"), not(feature = "yaml")))]
-        return Format::Toml;
+        return Some(default_format());
     }
 
     // Check for obvious JSON markers
     #[cfg(feature = "json")]
     if (trimmed.starts_with('{') && trimmed.ends_with('}')) || (trimmed.starts_with('[') && trimmed.ends_with(']')) {
-        return Format::Json;
+        return Some(Format::Json);
     }
 
     // Check for obvious YAML markers
     #[cfg(feature = "yaml")]
-    if trimmed.contains("---") ||  // YAML document separator
-       trimmed.contains("...") ||  // YAML document end
-       has_yaml_indicators(trimmed)
-    {
-        return Format::Yaml;
+    if has_yaml_document_markers(trimmed) || has_yaml_indicators(trimmed) {
+        return Some(Format::Yaml);
     }
 
     // Check for obvious TOML markers
     #[cfg(feature = "toml")]
     if has_toml_indicators(trimmed) {
-        return Format::Toml;
+        return Some(Format::Toml);
     }
 
-    // Try parsing as JSON first (faster and more common)
+    // JSON scalars such as `null`, `true`, `42`, and quoted strings do not have structural markers.
+    // Keep this path cheap so large plain-text inputs do not pay for a full JSON parse.
     #[cfg(feature = "json")]
-    if serde_json::from_str::<serde_json::Value>(input).is_ok() {
-        return Format::Json;
+    if looks_like_json_scalar(trimmed) {
+        return Some(Format::Json);
     }
 
-    // Try parsing as YAML
-    #[cfg(feature = "yaml")]
-    if serde_yaml::from_str::<serde_yaml::Value>(input).is_ok() {
-        return Format::Yaml;
-    }
+    None
+}
 
-    // Try parsing as TOML
-    #[cfg(feature = "toml")]
-    if toml::from_str::<toml::Value>(input).is_ok() {
-        return Format::Toml;
-    }
-
-    // Default to first available format if all fail
-    #[cfg(feature = "json")]
-    return Format::Json;
-    #[cfg(all(feature = "yaml", not(feature = "json")))]
-    return Format::Yaml;
-    #[cfg(all(feature = "toml", not(feature = "json"), not(feature = "yaml")))]
-    return Format::Toml;
+/// Automatically detect format based on content
+pub fn detect_format(input: &str) -> Format {
+    detect_format_confident(input).unwrap_or_else(default_format)
 }
 
 /// Parse input by trying supported formats, returning the detected format and parsed value.
 pub fn parse_auto(input: &str) -> anyhow::Result<(Format, Val)> {
-    let trimmed = input.trim();
+    let format = detect_format_confident(input).ok_or_else(|| {
+        anyhow::anyhow!("Auto-detect requires explicit format selection or recognizable JSON/YAML/TOML markers")
+    })?;
+    let value = match format {
+        #[cfg(feature = "json")]
+        Format::Json => from_json_str(input),
+        #[cfg(feature = "yaml")]
+        Format::Yaml => from_yaml_str(input),
+        #[cfg(feature = "toml")]
+        Format::Toml => from_toml_str(input),
+    }?;
+    Ok((format, value))
+}
 
-    #[cfg(feature = "json")]
-    let looks_like_json =
-        (trimmed.starts_with('{') && trimmed.ends_with('}')) || (trimmed.starts_with('[') && trimmed.ends_with(']'));
-
-    #[cfg(feature = "yaml")]
-    let looks_like_yaml = trimmed.contains("---") || trimmed.contains("...") || has_yaml_indicators(trimmed);
-
-    #[cfg(feature = "toml")]
-    let looks_like_toml = has_toml_indicators(trimmed);
-
-    // Heuristic-first attempts
-    #[cfg(feature = "json")]
-    if looks_like_json && let Ok(val) = from_json_str(input) {
-        return Ok((Format::Json, val));
-    }
-
-    #[cfg(feature = "yaml")]
-    if looks_like_yaml && let Ok(val) = from_yaml_str(input) {
-        return Ok((Format::Yaml, val));
-    }
-
-    #[cfg(feature = "toml")]
-    if looks_like_toml && let Ok(val) = from_toml_str(input) {
-        return Ok((Format::Toml, val));
-    }
-
-    // Fallback attempts in preferred order
-    #[cfg(feature = "json")]
-    if let Ok(val) = from_json_str(input) {
-        return Ok((Format::Json, val));
-    }
-    #[cfg(feature = "yaml")]
-    if let Ok(val) = from_yaml_str(input) {
-        return Ok((Format::Yaml, val));
-    }
-    #[cfg(feature = "toml")]
-    if let Ok(val) = from_toml_str(input) {
-        return Ok((Format::Toml, val));
-    }
-
-    Err(anyhow::anyhow!(
-        "Unable to parse input as any supported format (enable at least one of: json/yaml/toml)"
-    ))
+/// Check for YAML document marker lines like `---` and `...`
+#[cfg(feature = "yaml")]
+fn has_yaml_document_markers(input: &str) -> bool {
+    input.lines().any(|line| matches!(line.trim(), "---" | "..."))
 }
 
 /// Check for YAML-specific indicators
@@ -238,8 +205,12 @@ pub fn has_yaml_indicators(input: &str) -> bool {
             // Check if it's a YAML-style key: value (not JSON "key": value)
             if let Some(colon_pos) = trimmed.find(':') {
                 let key_part = &trimmed[..colon_pos];
+                let value_part = &trimmed[colon_pos + 1..];
                 // YAML keys often don't have quotes and can contain spaces/special chars
-                if !key_part.starts_with('"') && !key_part.starts_with('\'') {
+                if !key_part.starts_with('"')
+                    && !key_part.starts_with('\'')
+                    && (value_part.is_empty() || value_part.starts_with(' ') || value_part.starts_with('\t'))
+                {
                     return true;
                 }
             }
@@ -305,6 +276,67 @@ pub fn has_toml_indicators(input: &str) -> bool {
     false
 }
 
+#[cfg(feature = "json")]
+fn looks_like_json_scalar(input: &str) -> bool {
+    matches!(input, "null" | "true" | "false")
+        || (input.starts_with('"') && input.ends_with('"'))
+        || looks_like_json_number(input)
+}
+
+#[cfg(feature = "json")]
+fn looks_like_json_number(input: &str) -> bool {
+    let bytes = input.as_bytes();
+    if bytes.is_empty() {
+        return false;
+    }
+
+    let mut i = 0usize;
+    if bytes[i] == b'-' {
+        i += 1;
+        if i == bytes.len() {
+            return false;
+        }
+    }
+
+    match bytes[i] {
+        b'0' => {
+            i += 1;
+        }
+        b'1'..=b'9' => {
+            i += 1;
+            while i < bytes.len() && bytes[i].is_ascii_digit() {
+                i += 1;
+            }
+        }
+        _ => return false,
+    }
+
+    if i < bytes.len() && bytes[i] == b'.' {
+        i += 1;
+        if i == bytes.len() || !bytes[i].is_ascii_digit() {
+            return false;
+        }
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            i += 1;
+        }
+    }
+
+    if i < bytes.len() && matches!(bytes[i], b'e' | b'E') {
+        i += 1;
+        if i < bytes.len() && matches!(bytes[i], b'+' | b'-') {
+            i += 1;
+        }
+        if i == bytes.len() || !bytes[i].is_ascii_digit() {
+            return false;
+        }
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            i += 1;
+        }
+    }
+
+    i == bytes.len()
+}
+
 /// Parse input using automatic format detection or specified format
 pub fn parse_with_format(input: &str, format_override: Option<Format>) -> anyhow::Result<Val> {
     if let Some(format) = format_override {
@@ -318,5 +350,16 @@ pub fn parse_with_format(input: &str, format_override: Option<Format>) -> anyhow
         };
     }
 
-    Ok(parse_auto(input)?.1)
+    #[cfg(feature = "json")]
+    {
+        from_json_str(input)
+    }
+    #[cfg(all(feature = "yaml", not(feature = "json")))]
+    {
+        from_yaml_str(input)
+    }
+    #[cfg(all(feature = "toml", not(feature = "json"), not(feature = "yaml")))]
+    {
+        from_toml_str(input)
+    }
 }

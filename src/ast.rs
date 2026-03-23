@@ -7,13 +7,141 @@ use crate::{
 use anyhow::{Result, anyhow};
 use std::sync::Arc;
 
+const MAX_PARSE_DEPTH: usize = 256;
+const MAX_BINARY_CHAIN_LEN: usize = 256;
+const MAX_AT_PATH_SEGMENTS: usize = 256;
+static NIL_TOKEN: Token = Token::Nil;
+
 pub struct Parser<'a> {
     tokens: &'a [Token],
     pos: usize,
     len: usize,
+    depth: usize,
 }
 
 impl<'a> Parser<'a> {
+    fn shared_str_expr(value: &Arc<str>) -> Expr {
+        Expr::Val(Val::Str(Arc::clone(value)))
+    }
+
+    fn current_token_or_nil(&self) -> &Token {
+        self.tokens.get(self.pos).unwrap_or(&NIL_TOKEN)
+    }
+
+    fn consume_if(&mut self, token: &Token) -> bool {
+        if self.tokens.get(self.pos) == Some(token) {
+            self.pos += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn ensure_not_eof(&self, msg: &str) -> Result<()> {
+        if self.eof() {
+            return Err(anyhow!(self.err(msg)));
+        }
+        Ok(())
+    }
+
+    fn expect_punctuation(&mut self, token: Token, symbol: &str) -> Result<()> {
+        if self.consume_if(&token) {
+            return Ok(());
+        }
+
+        let msg = format!("Expecting '{symbol}', found {:?}", self.current_token_or_nil());
+        Err(anyhow!(self.err(&msg)))
+    }
+
+    fn expect_expr_start(&self, msg: &str) -> Result<()> {
+        if self.is_valid_expr_start() {
+            return Ok(());
+        }
+
+        let msg = format!("{msg}: {:?}", self.current_token_or_nil());
+        Err(anyhow!(self.err(&msg)))
+    }
+
+    fn finish_parenthesized_expr(&mut self) -> Result<Expr> {
+        let expr = self.parse_expr()?;
+        self.expect_punctuation(Token::RParen, ")")?;
+        Ok(expr)
+    }
+
+    fn expect_at_path_start(&self) -> Result<()> {
+        match self.current_token_or_nil() {
+            Token::Id(_) | Token::LParen | Token::Str(_) => Ok(()),
+            other => {
+                let msg = format!("Expecting field name, found {:?}", other);
+                Err(anyhow!(self.err(&msg)))
+            }
+        }
+    }
+
+    fn invalid_list_separator_message(&self) -> String {
+        format!(
+            "Invalid separator in list: {:?}. Use ',' to separate elements",
+            self.current_token_or_nil()
+        )
+    }
+
+    fn parse_comma_separated<T, F>(
+        &mut self,
+        closing: Token,
+        closing_label: &str,
+        first_item_msg: &str,
+        after_comma_msg: &str,
+        invalid_separator_msg: Option<fn(&Self) -> String>,
+        mut parse_item: F,
+    ) -> Result<Vec<T>>
+    where
+        F: FnMut(&mut Self) -> Result<T>,
+    {
+        let mut items = Vec::new();
+        if self.consume_if(&closing) {
+            return Ok(items);
+        }
+
+        self.expect_expr_start(first_item_msg)?;
+
+        loop {
+            items.push(parse_item(self)?);
+
+            if self.consume_if(&closing) {
+                return Ok(items);
+            }
+
+            if self.eof() {
+                let msg = format!("Expecting '{closing_label}', found {:?}", self.current_token_or_nil());
+                return Err(anyhow!(self.err(&msg)));
+            }
+
+            if self.consume_if(&Token::Comma) {
+                if self.consume_if(&closing) {
+                    return Ok(items);
+                }
+                self.expect_expr_start(after_comma_msg)?;
+                continue;
+            }
+
+            let msg = invalid_separator_msg.map(|build| build(self)).unwrap_or_else(|| {
+                format!(
+                    "Expecting ',' or '{closing_label}', found {:?}",
+                    self.current_token_or_nil()
+                )
+            });
+            return Err(anyhow!(self.err(&msg)));
+        }
+    }
+
+    fn parse_map_pair(&mut self) -> Result<(Box<Expr>, Box<Expr>)> {
+        let key = Box::new(self.parse_expr()?);
+        self.expect_punctuation(Token::Colon, ":")?;
+        self.expect_expr_start("Invalid map value after ':'")?;
+        let value = Box::new(self.parse_expr()?);
+        Ok((key, value))
+    }
+
     pub fn parse(&mut self) -> Result<Expr> {
         if self.eof() {
             return Ok(Expr::Val(Val::Nil));
@@ -30,15 +158,23 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr(&mut self) -> Result<Expr> {
-        self.parse_or()
+        self.enter_nested("Expression nesting is too deep")?;
+        let result = self.parse_or();
+        self.leave_nested();
+        result
     }
 
     /// - `expr || expr`
     fn parse_or(&mut self) -> Result<Expr> {
         let mut expr = self.parse_and()?;
+        let mut chain_len = 0usize;
         while !self.eof() {
             match self.tokens[self.pos] {
                 Token::Or => {
+                    chain_len += 1;
+                    if chain_len > MAX_BINARY_CHAIN_LEN {
+                        return Err(anyhow!(self.err("Logical OR chain is too long")));
+                    }
                     self.pos += 1;
                     let right = self.parse_and()?;
                     expr = Expr::Or(Box::new(expr), Box::new(right));
@@ -52,9 +188,14 @@ impl<'a> Parser<'a> {
     /// `expr && expr`
     fn parse_and(&mut self) -> Result<Expr> {
         let mut expr = self.parse_cmp()?;
+        let mut chain_len = 0usize;
         while !self.eof() {
             match self.tokens[self.pos] {
                 Token::And => {
+                    chain_len += 1;
+                    if chain_len > MAX_BINARY_CHAIN_LEN {
+                        return Err(anyhow!(self.err("Logical AND chain is too long")));
+                    }
                     self.pos += 1;
                     let right = self.parse_cmp()?;
                     expr = Expr::And(Box::new(expr), Box::new(right));
@@ -70,6 +211,7 @@ impl<'a> Parser<'a> {
     ///   ...
     fn parse_cmp(&mut self) -> Result<Expr> {
         let mut expr = self.parse_add_sub()?;
+        let mut chain_len = 0usize;
         while !self.eof() {
             let op = match self.tokens[self.pos] {
                 Token::Eq => BinOp::Eq,
@@ -81,6 +223,10 @@ impl<'a> Parser<'a> {
                 Token::In => BinOp::In,
                 _ => break,
             };
+            chain_len += 1;
+            if chain_len > MAX_BINARY_CHAIN_LEN {
+                return Err(anyhow!(self.err("Comparison chain is too long")));
+            }
             self.pos += 1;
             let right = self.parse_add_sub()?;
             expr = Expr::Bin(Box::new(expr), op, Box::new(right));
@@ -92,12 +238,17 @@ impl<'a> Parser<'a> {
     /// - `expr - expr`
     fn parse_add_sub(&mut self) -> Result<Expr> {
         let mut expr = self.parse_mul_div()?;
+        let mut chain_len = 0usize;
         while !self.eof() {
             let op = match self.tokens[self.pos] {
                 Token::Add => BinOp::Add,
                 Token::Sub => BinOp::Sub,
                 _ => break,
             };
+            chain_len += 1;
+            if chain_len > MAX_BINARY_CHAIN_LEN {
+                return Err(anyhow!(self.err("Add/sub chain is too long")));
+            }
             self.pos += 1;
             let right = self.parse_mul_div()?;
             expr = Expr::Bin(Box::new(expr), op, Box::new(right));
@@ -109,6 +260,7 @@ impl<'a> Parser<'a> {
     /// - `expr / expr`
     fn parse_mul_div(&mut self) -> Result<Expr> {
         let mut expr = self.parse_unary()?;
+        let mut chain_len = 0usize;
         while !self.eof() {
             let op = match self.tokens[self.pos] {
                 Token::Mul => BinOp::Mul,
@@ -116,6 +268,10 @@ impl<'a> Parser<'a> {
                 Token::Mod => BinOp::Mod,
                 _ => break,
             };
+            chain_len += 1;
+            if chain_len > MAX_BINARY_CHAIN_LEN {
+                return Err(anyhow!(self.err("Mul/div chain is too long")));
+            }
             self.pos += 1;
             let right = self.parse_unary()?;
             expr = Expr::Bin(Box::new(expr), op, Box::new(right));
@@ -126,11 +282,17 @@ impl<'a> Parser<'a> {
     /// - `!expr`
     /// - `expr`
     fn parse_unary(&mut self) -> Result<Expr> {
-        let token = &self.tokens[self.pos];
-        match token {
+        if self.eof() {
+            return Err(anyhow!(self.err("Unexpected end of expression")));
+        }
+
+        match &self.tokens[self.pos] {
             Token::Not => {
+                self.enter_nested("Unary nesting is too deep")?;
                 self.pos += 1;
-                let expr = self.parse_unary()?; // 修复：应该解析 unary 而不是 expr
+                let expr = self.parse_unary();
+                self.leave_nested();
+                let expr = expr?;
                 Ok(Expr::Unary(UnaryOp::Not, Box::new(expr)))
             }
             _ => self.parse_postfix(),
@@ -146,10 +308,7 @@ impl<'a> Parser<'a> {
         // 处理点访问
         while !self.eof() && self.tokens[self.pos] == Token::Dot {
             self.pos += 1;
-
-            if self.eof() {
-                return Err(anyhow!(self.err("Expecting field after '.'")));
-            }
+            self.ensure_not_eof("Expecting field after '.'")?;
 
             let field = self.parse_field_accessor()?;
 
@@ -176,6 +335,10 @@ impl<'a> Parser<'a> {
     /// - `[...]`
     /// - `{...}`
     fn parse_primary(&mut self) -> Result<Expr> {
+        if self.eof() {
+            return Err(anyhow!(self.err("Unexpected end of expression")));
+        }
+
         let token = &self.tokens[self.pos];
         let expr = match token {
             Token::Nil => {
@@ -196,7 +359,7 @@ impl<'a> Parser<'a> {
             }
             Token::Str(s) => {
                 self.pos += 1;
-                Expr::Val(Val::Str(Arc::from(s.as_str())))
+                Self::shared_str_expr(s)
             }
             Token::At => self.parse_at()?,
             Token::LBracket => self.parse_list()?,
@@ -209,27 +372,13 @@ impl<'a> Parser<'a> {
     /// - `(expr)`
     /// - `expr`
     fn parse_paren(&mut self) -> Result<Expr> {
-        if self.tokens[self.pos] == Token::LParen {
-            self.pos += 1;
-            let expr = self.parse_expr()?;
-            if self.eof() || self.tokens[self.pos] != Token::RParen {
-                let msg = format!(
-                    "Expecting ')', found {:?}",
-                    if self.eof() {
-                        &Token::Nil
-                    } else {
-                        &self.tokens[self.pos]
-                    }
-                );
-                return Err(anyhow!(self.err(&msg)));
-            }
-            self.pos += 1;
-            Ok(Expr::Paren(Box::new(expr)))
+        if self.consume_if(&Token::LParen) {
+            Ok(Expr::Paren(Box::new(self.finish_parenthesized_expr()?)))
         } else {
             // This is where the recursion issue was - we need a terminal case
             match &self.tokens[self.pos] {
                 Token::Id(id) => {
-                    let expr = Expr::Val(Val::Str(Arc::from(id.as_str())));
+                    let expr = Self::shared_str_expr(id);
                     self.pos += 1;
                     Ok(expr)
                 }
@@ -243,225 +392,44 @@ impl<'a> Parser<'a> {
 
     /// Parse list literal: `[expr, expr, ...]`
     fn parse_list(&mut self) -> Result<Expr> {
-        if self.tokens[self.pos] != Token::LBracket {
-            let msg = format!("Expecting '[', found {:?}", self.tokens[self.pos]);
-            return Err(anyhow!(self.err(&msg)));
-        }
-        self.pos += 1;
-
-        let mut elements = Vec::new();
-
-        // Handle empty list
-        if !self.eof() && self.tokens[self.pos] == Token::RBracket {
-            self.pos += 1;
-            return Ok(Expr::List(elements));
-        }
-
-        // Parse first element
-        if !self.eof() {
-            if !self.is_valid_expr_start() {
-                let msg = format!("Invalid list element start: {:?}", self.tokens[self.pos]);
-                return Err(anyhow!(self.err(&msg)));
-            }
-
-            elements.push(Box::new(self.parse_expr()?));
-
-            // Parse remaining elements
-            while !self.eof() {
-                match self.tokens[self.pos] {
-                    Token::Comma => {
-                        self.pos += 1;
-                        // Handle trailing comma
-                        if !self.eof() && self.tokens[self.pos] == Token::RBracket {
-                            break;
-                        }
-
-                        if self.eof() || !self.is_valid_expr_start() {
-                            let msg = format!(
-                                "Invalid list element after comma: {:?}",
-                                if self.eof() {
-                                    &Token::Nil
-                                } else {
-                                    &self.tokens[self.pos]
-                                }
-                            );
-                            return Err(anyhow!(self.err(&msg)));
-                        }
-
-                        elements.push(Box::new(self.parse_expr()?));
-                    }
-                    Token::RBracket => break,
-                    _ => {
-                        let msg = if self.is_invalid_separator() {
-                            format!(
-                                "Invalid separator in list: {:?}. Use ',' to separate elements",
-                                self.tokens[self.pos]
-                            )
-                        } else {
-                            format!("Expecting ',' or ']', found {:?}", self.tokens[self.pos])
-                        };
-                        return Err(anyhow!(self.err(&msg)));
-                    }
-                }
-            }
-        }
-
-        if self.eof() || self.tokens[self.pos] != Token::RBracket {
-            let msg = format!(
-                "Expecting ']', found {:?}",
-                if self.eof() {
-                    &Token::Nil
-                } else {
-                    &self.tokens[self.pos]
-                }
-            );
-            return Err(anyhow!(self.err(&msg)));
-        }
-        self.pos += 1;
-
+        self.expect_punctuation(Token::LBracket, "[")?;
+        let elements = self.parse_comma_separated(
+            Token::RBracket,
+            "]",
+            "Invalid list element start",
+            "Invalid list element after comma",
+            Some(Self::invalid_list_separator_message),
+            |parser| parser.parse_expr().map(Box::new),
+        )?;
         Ok(Expr::List(elements))
     }
 
     /// Parse map literal: `{key: value, key: value, ...}`
     fn parse_map(&mut self) -> Result<Expr> {
-        if self.tokens[self.pos] != Token::LBrace {
-            let msg = format!("Expecting '{{', found {:?}", self.tokens[self.pos]);
-            return Err(anyhow!(self.err(&msg)));
-        }
-        self.pos += 1;
-
-        let mut pairs = Vec::new();
-
-        // Handle empty map
-        if !self.eof() && self.tokens[self.pos] == Token::RBrace {
-            self.pos += 1;
-            return Ok(Expr::Map(pairs));
-        }
-
-        // Parse first key-value pair
-        if !self.eof() {
-            if !self.is_valid_expr_start() {
-                let msg = format!("Invalid map key start: {:?}", self.tokens[self.pos]);
-                return Err(anyhow!(self.err(&msg)));
-            }
-
-            let key = Box::new(self.parse_expr()?);
-
-            if self.eof() || self.tokens[self.pos] != Token::Colon {
-                let msg = format!(
-                    "Expecting ':', found {:?}",
-                    if self.eof() {
-                        &Token::Nil
-                    } else {
-                        &self.tokens[self.pos]
-                    }
-                );
-                return Err(anyhow!(self.err(&msg)));
-            }
-            self.pos += 1;
-
-            if self.eof() || !self.is_valid_expr_start() {
-                let msg = format!(
-                    "Invalid map value after ':', {:?}",
-                    if self.eof() {
-                        &Token::Nil
-                    } else {
-                        &self.tokens[self.pos]
-                    }
-                );
-                return Err(anyhow!(self.err(&msg)));
-            }
-
-            let value = Box::new(self.parse_expr()?);
-            pairs.push((key, value));
-
-            // Parse remaining pairs
-            while !self.eof() {
-                match self.tokens[self.pos] {
-                    Token::Comma => {
-                        self.pos += 1;
-                        // Handle trailing comma
-                        if !self.eof() && self.tokens[self.pos] == Token::RBrace {
-                            break;
-                        }
-
-                        if self.eof() || !self.is_valid_expr_start() {
-                            let msg = format!(
-                                "Invalid map key after comma: {:?}",
-                                if self.eof() {
-                                    &Token::Nil
-                                } else {
-                                    &self.tokens[self.pos]
-                                }
-                            );
-                            return Err(anyhow!(self.err(&msg)));
-                        }
-
-                        let key = Box::new(self.parse_expr()?);
-
-                        if self.eof() || self.tokens[self.pos] != Token::Colon {
-                            let msg = format!(
-                                "Expecting ':', found {:?}",
-                                if self.eof() {
-                                    &Token::Nil
-                                } else {
-                                    &self.tokens[self.pos]
-                                }
-                            );
-                            return Err(anyhow!(self.err(&msg)));
-                        }
-                        self.pos += 1;
-
-                        if self.eof() || !self.is_valid_expr_start() {
-                            let msg = format!(
-                                "Invalid map value after ':', {:?}",
-                                if self.eof() {
-                                    &Token::Nil
-                                } else {
-                                    &self.tokens[self.pos]
-                                }
-                            );
-                            return Err(anyhow!(self.err(&msg)));
-                        }
-
-                        let value = Box::new(self.parse_expr()?);
-                        pairs.push((key, value));
-                    }
-                    Token::RBrace => break,
-                    _ => {
-                        let msg = format!("Expecting ',' or '}}', found {:?}", self.tokens[self.pos]);
-                        return Err(anyhow!(self.err(&msg)));
-                    }
-                }
-            }
-        }
-
-        if self.eof() || self.tokens[self.pos] != Token::RBrace {
-            let msg = format!(
-                "Expecting '}}', found {:?}",
-                if self.eof() {
-                    &Token::Nil
-                } else {
-                    &self.tokens[self.pos]
-                }
-            );
-            return Err(anyhow!(self.err(&msg)));
-        }
-        self.pos += 1;
-
+        self.expect_punctuation(Token::LBrace, "{")?;
+        let pairs = self.parse_comma_separated(
+            Token::RBrace,
+            "}",
+            "Invalid map key start",
+            "Invalid map key after comma",
+            None,
+            Self::parse_map_pair,
+        )?;
         Ok(Expr::Map(pairs))
     }
 
     /// Parse a field accessor in an @ expression
     fn parse_field_accessor(&mut self) -> Result<Expr> {
+        self.ensure_not_eof("Unexpected end of expression")?;
+
         match &self.tokens[self.pos] {
             Token::Id(id) => {
-                let expr = Expr::Val(Val::Str(Arc::from(id.as_str())));
+                let expr = Self::shared_str_expr(id);
                 self.pos += 1;
                 Ok(expr)
             }
             Token::Str(s) => {
-                let expr = Expr::Val(Val::Str(Arc::from(s.as_str())));
+                let expr = Self::shared_str_expr(s);
                 self.pos += 1;
                 Ok(expr)
             }
@@ -472,20 +440,7 @@ impl<'a> Parser<'a> {
             }
             Token::LParen => {
                 self.pos += 1;
-                let expr = self.parse_expr()?;
-                if self.eof() || self.tokens[self.pos] != Token::RParen {
-                    let msg = format!(
-                        "Expecting ')', found {:?}",
-                        if self.eof() {
-                            &Token::Nil
-                        } else {
-                            &self.tokens[self.pos]
-                        }
-                    );
-                    return Err(anyhow!(self.err(&msg)));
-                }
-                self.pos += 1;
-                Ok(expr)
+                self.finish_parenthesized_expr()
             }
             Token::At => self.parse_at(),
             _ => {
@@ -500,41 +455,39 @@ impl<'a> Parser<'a> {
     /// - `@user.subscribers.(@record.sender).name`
     /// - `@(1 + "1")`
     fn parse_at(&mut self) -> Result<Expr> {
-        if self.tokens[self.pos] != Token::At {
-            let msg = format!("Expecting @, found {:?}", self.tokens[self.pos]);
-            return Err(anyhow!(self.err(&msg)));
-        }
-        self.pos += 1;
+        self.enter_nested("Context access nesting is too deep")?;
 
-        if self.eof() {
-            return Err(anyhow!(self.err("Expecting field after '@'")));
-        }
+        let result = (|| {
+            self.expect_punctuation(Token::At, "@")?;
+            self.ensure_not_eof("Expecting field after '@'")?;
 
-        // Pre-allocate a reasonable size for the paths vector
-        let mut paths = Vec::with_capacity(4);
+            // Pre-allocate a reasonable size for the paths vector
+            let mut paths = Vec::with_capacity(4);
 
-        while !self.eof() {
-            // Check the first path must be Str
-            if paths.is_empty() {
-                let first = &self.tokens[self.pos];
-                match first {
-                    Token::Id(_) | Token::LParen | Token::Str(_) => {}
-                    _ => {
-                        let msg = format!("Expecting field name, found {:?}", first);
-                        return Err(anyhow!(self.err(&msg)));
-                    }
+            while !self.eof() {
+                // Check the first path must be Str
+                if paths.is_empty() {
+                    self.expect_at_path_start()?;
                 }
+
+                if paths.len() >= MAX_AT_PATH_SEGMENTS {
+                    return Err(anyhow!(self.err("Context access path is too deep")));
+                }
+
+                paths.push(Box::new(self.parse_field_accessor()?));
+
+                if self.eof() || self.tokens[self.pos] != Token::Dot {
+                    break;
+                }
+                self.pos += 1;
+                self.ensure_not_eof("Expecting field after '.'")?;
             }
 
-            paths.push(Box::new(self.parse_field_accessor()?));
+            Ok(Expr::At(paths))
+        })();
 
-            if self.eof() || self.tokens[self.pos] != Token::Dot {
-                break;
-            }
-            self.pos += 1;
-        }
-
-        Ok(Expr::At(paths))
+        self.leave_nested();
+        result
     }
 
     /// Check if the current token can start a valid expression
@@ -558,21 +511,17 @@ impl<'a> Parser<'a> {
                 | Token::Not
         )
     }
-
-    /// Check if the current token is an invalid separator
-    fn is_invalid_separator(&self) -> bool {
-        if self.eof() {
-            return false;
-        }
-
-        matches!(self.tokens[self.pos], Token::Semicolon)
-    }
 }
 
 impl<'a> Parser<'a> {
     pub fn new(tokens: &'a [Token]) -> Self {
         let len = tokens.len();
-        Self { tokens, pos: 0, len }
+        Self {
+            tokens,
+            pos: 0,
+            len,
+            depth: 0,
+        }
     }
 
     fn eof(&self) -> bool {
@@ -596,5 +545,17 @@ impl<'a> Parser<'a> {
             format!("at end, near '{:?}'", chars)
         };
         format!("Syntax error: {} ({})", msg, ctx)
+    }
+
+    fn enter_nested(&mut self, msg: &str) -> Result<()> {
+        if self.depth >= MAX_PARSE_DEPTH {
+            return Err(anyhow!(self.err(msg)));
+        }
+        self.depth += 1;
+        Ok(())
+    }
+
+    fn leave_nested(&mut self) {
+        self.depth = self.depth.saturating_sub(1);
     }
 }

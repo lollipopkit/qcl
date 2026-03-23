@@ -9,15 +9,19 @@ mod test {
     };
     use std::sync::Arc;
 
+    fn id(value: &str) -> Token {
+        Token::Id(value.into())
+    }
+
     #[test]
     fn basic() {
         let tokens = vec![
             Token::At,
-            Token::Id("req".to_string()),
+            id("req"),
             Token::Dot,
-            Token::Id("user".to_string()),
+            id("user"),
             Token::Dot,
-            Token::Id("age".to_string()),
+            id("age"),
             Token::Gt,
             Token::Int(18),
         ];
@@ -32,6 +36,50 @@ mod test {
         );
         let parsed = Parser::new(&tokens).parse().unwrap();
         assert_eq!(parsed, expr);
+    }
+
+    #[test]
+    fn parser_reuses_token_string_allocations() {
+        let tokens = Tokenizer::new(r#"@req.user == "admin""#).unwrap();
+
+        let req_token = match &tokens[1] {
+            Token::Id(value) => Arc::clone(value),
+            other => panic!("unexpected token: {other:?}"),
+        };
+        let user_token = match &tokens[3] {
+            Token::Id(value) => Arc::clone(value),
+            other => panic!("unexpected token: {other:?}"),
+        };
+        let admin_token = match &tokens[5] {
+            Token::Str(value) => Arc::clone(value),
+            other => panic!("unexpected token: {other:?}"),
+        };
+
+        let parsed = Parser::new(&tokens).parse().unwrap();
+
+        let Expr::Bin(left, BinOp::Eq, right) = parsed else {
+            panic!("unexpected expr shape");
+        };
+
+        let Expr::At(paths) = *left else {
+            panic!("unexpected left expr");
+        };
+        assert_eq!(paths.len(), 2);
+
+        match &*paths[0] {
+            Expr::Val(Val::Str(value)) => assert!(Arc::ptr_eq(value, &req_token)),
+            other => panic!("unexpected req path: {other:?}"),
+        }
+
+        match &*paths[1] {
+            Expr::Val(Val::Str(value)) => assert!(Arc::ptr_eq(value, &user_token)),
+            other => panic!("unexpected user path: {other:?}"),
+        }
+
+        match *right {
+            Expr::Val(Val::Str(value)) => assert!(Arc::ptr_eq(&value, &admin_token)),
+            other => panic!("unexpected right expr: {other:?}"),
+        }
     }
 
     #[test]
@@ -317,6 +365,13 @@ mod test {
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse();
         assert!(parsed.is_err());
+
+        // Missing element after comma
+        let r = "[1,]";
+        let ts = Tokenizer::new(r).unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
+        let expected = Expr::Val(Val::List(Arc::new(vec![Val::Int(1)])));
+        assert_eq!(parsed, expected);
     }
 
     #[test]
@@ -338,6 +393,52 @@ mod test {
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse();
         assert!(parsed.is_err());
+
+        // Missing key after comma
+        let r = r#"{"key": 1, }"#;
+        let ts = Tokenizer::new(r).unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
+        let mut expected_map = std::collections::HashMap::new();
+        expected_map.insert("key".to_string(), Val::Int(1));
+        let expected = Expr::Val(Val::Map(Arc::new(expected_map)));
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn dangling_operators_return_errors() {
+        assert!(Expr::try_from("!").is_err());
+        assert!(Expr::try_from("1 +").is_err());
+        assert!(Expr::try_from("@a.").is_err());
+    }
+
+    #[test]
+    fn deeply_nested_parentheses_are_rejected() {
+        let mut expr = String::new();
+        for _ in 0..300 {
+            expr.push('(');
+        }
+        expr.push_str("true");
+        for _ in 0..300 {
+            expr.push(')');
+        }
+
+        assert!(Expr::try_from(expr.as_str()).is_err());
+    }
+
+    #[test]
+    fn deeply_nested_dynamic_access_is_rejected() {
+        let mut expr = "@a".to_string();
+        for _ in 0..300 {
+            expr = format!("@a.({expr})");
+        }
+
+        assert!(Expr::try_from(expr.as_str()).is_err());
+    }
+
+    #[test]
+    fn overly_long_context_access_path_is_rejected() {
+        let expr = format!("@a.{}", vec!["a"; 300].join("."));
+        assert!(Expr::try_from(expr.as_str()).is_err());
     }
 
     #[test]
@@ -451,6 +552,30 @@ mod test {
     }
 
     #[test]
+    fn quoted_field_with_escaped_double_quote() {
+        let r = r#"@data."field\"name""#;
+        let ts = Tokenizer::new(r).unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
+        let expected = Expr::At(vec![
+            Box::new(Expr::Val("data".into())),
+            Box::new(Expr::Val("field\"name".into())),
+        ]);
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn quoted_field_with_escaped_backslash() {
+        let r = r#"@data."path\\segment""#;
+        let ts = Tokenizer::new(r).unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
+        let expected = Expr::At(vec![
+            Box::new(Expr::Val("data".into())),
+            Box::new(Expr::Val("path\\segment".into())),
+        ]);
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
     fn single_quoted_field_access() {
         // Using single quotes instead of double quotes
         let r = r#"@data.'special-field'"#;
@@ -459,6 +584,18 @@ mod test {
         let expected = Expr::At(vec![
             Box::new(Expr::Val("data".into())),
             Box::new(Expr::Val("special-field".into())),
+        ]);
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn single_quoted_field_with_escape() {
+        let r = r#"@data.'field\'name'"#;
+        let ts = Tokenizer::new(r).unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
+        let expected = Expr::At(vec![
+            Box::new(Expr::Val("data".into())),
+            Box::new(Expr::Val("field'name".into())),
         ]);
         assert_eq!(parsed, expected);
     }

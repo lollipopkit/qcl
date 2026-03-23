@@ -1,41 +1,41 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, sync::Arc};
 
 use anyhow::{Result, anyhow};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
-    LParen,      // (
-    RParen,      // )
-    LBrace,      // {
-    RBrace,      // }
-    LBracket,    // [
-    RBracket,    // ]
-    Dot,         // .
-    Colon,       // :
-    Comma,       // ,
-    Semicolon,   // ;
-    Nil,         // nil
-    Eq,          // ==
-    Ne,          // !=
-    Gt,          // >
-    Lt,          // <
-    Ge,          // >=
-    Le,          // <=
-    In,          // in
-    And,         // &&
-    Or,          // ||
-    Not,         // !
-    Add,         // +
-    Sub,         // -
-    Mul,         // *
-    Div,         // /
-    Mod,         // %
-    At,          // @
-    Str(String), // "abc"
-    Int(i64),    // 1
-    Float(f64),  // 1.1
-    Bool(bool),  // true, false
-    Id(String),  // identifier
+    LParen,        // (
+    RParen,        // )
+    LBrace,        // {
+    RBrace,        // }
+    LBracket,      // [
+    RBracket,      // ]
+    Dot,           // .
+    Colon,         // :
+    Comma,         // ,
+    Semicolon,     // ;
+    Nil,           // nil
+    Eq,            // ==
+    Ne,            // !=
+    Gt,            // >
+    Lt,            // <
+    Ge,            // >=
+    Le,            // <=
+    In,            // in
+    And,           // &&
+    Or,            // ||
+    Not,           // !
+    Add,           // +
+    Sub,           // -
+    Mul,           // *
+    Div,           // /
+    Mod,           // %
+    At,            // @
+    Str(Arc<str>), // "abc"
+    Int(i64),      // 1
+    Float(f64),    // 1.1
+    Bool(bool),    // true, false
+    Id(Arc<str>),  // identifier
 }
 
 /// [chars] and [idx] can be used for syntax error reporting.
@@ -65,20 +65,8 @@ impl Tokenizer {
         self.idx >= self.len
     }
 
-    fn expect(&mut self, s: &str) -> bool {
-        let mut idx = 0;
-        for c in s.chars() {
-            let self_idx = self.idx + idx;
-            if self_idx >= self.len {
-                return false;
-            }
-            if self.chars[self_idx] != c {
-                return false;
-            }
-            idx += 1;
-        }
-        self.idx += idx;
-        true
+    fn peek(&self, offset: usize) -> Option<char> {
+        self.chars.get(self.idx + offset).copied()
     }
 
     fn err<T: AsRef<str>>(&self, msg: T) -> String {
@@ -107,33 +95,56 @@ impl Tokenizer {
         }
     }
 
+    fn is_id_start(c: char) -> bool {
+        c.is_alphabetic() || c == '_'
+    }
+
+    fn is_id_continue(c: char) -> bool {
+        c.is_alphanumeric() || c == '_' || c == '-'
+    }
+
     fn parse_str(&mut self) -> Result<()> {
         let mut s = String::new();
         let quote = self.chars[self.idx];
         self.idx += 1;
 
-        // Find the end quote position first to optimize allocation
-        let mut end_idx = self.idx;
-        let mut found = false;
+        while !self.eof() {
+            let c = self.chars[self.idx];
+            match c {
+                '\\' => {
+                    self.idx += 1;
+                    if self.eof() {
+                        return Err(anyhow!(self.err("Invalid escape sequence")));
+                    }
 
-        while end_idx < self.len {
-            if self.chars[end_idx] == quote {
-                found = true;
-                break;
+                    let escaped = match self.chars[self.idx] {
+                        '\\' => '\\',
+                        '"' => '"',
+                        '\'' => '\'',
+                        'n' => '\n',
+                        'r' => '\r',
+                        't' => '\t',
+                        '0' => '\0',
+                        other => {
+                            return Err(anyhow!(self.err(format!("Unsupported escape sequence: \\{other}"))));
+                        }
+                    };
+                    s.push(escaped);
+                    self.idx += 1;
+                }
+                c if c == quote => {
+                    self.idx += 1;
+                    self.tokens.push(Token::Str(Arc::<str>::from(s)));
+                    return Ok(());
+                }
+                _ => {
+                    s.push(c);
+                    self.idx += 1;
+                }
             }
-            end_idx += 1;
         }
 
-        if !found {
-            return Err(anyhow!(self.err("String not closed")));
-        }
-
-        // Now extract the string content all at once
-        s.extend(self.chars[self.idx..end_idx].iter());
-        self.idx = end_idx + 1; // Skip past the closing quote
-
-        self.tokens.push(Token::Str(s));
-        Ok(())
+        Err(anyhow!(self.err("String not closed")))
     }
 
     /// eg.:
@@ -182,60 +193,71 @@ impl Tokenizer {
     }
 
     fn parse_id(&mut self) -> Result<()> {
-        let start_idx = self.idx;
-        while !self.eof() {
-            let c = self.chars[self.idx];
-            if !(c.is_alphanumeric() || c == '_' || c == '-') {
-                break;
-            }
-            self.idx += 1;
+        if self.eof() || !Self::is_id_start(self.chars[self.idx]) {
+            return Err(anyhow!(self.err("Invalid identifier start")));
         }
-        let id: String = self.chars[start_idx..self.idx].iter().collect();
-        self.tokens.push(Token::Id(id));
+
+        let start_idx = self.idx;
+        self.idx = self.scan_id_end(start_idx);
+        self.push_id_token(start_idx, self.idx);
         Ok(())
     }
 
-    fn parse_keywords(&mut self) -> Result<()> {
-        if self.expect("true") {
-            self.tokens.push(Token::Bool(true));
-            Ok(())
-        } else if self.expect("false") {
-            self.tokens.push(Token::Bool(false));
-            Ok(())
-        } else if self.expect("nil") {
-            self.tokens.push(Token::Nil);
-            Ok(())
-        } else if self.expect("in") {
-            self.tokens.push(Token::In);
-            Ok(())
-        } else {
-            self.parse_id()
+    fn scan_id_end(&self, start_idx: usize) -> usize {
+        let mut end = start_idx + 1;
+        while end < self.len && Self::is_id_continue(self.chars[end]) {
+            end += 1;
         }
+        end
+    }
+
+    fn push_id_token(&mut self, start_idx: usize, end_idx: usize) {
+        let id: String = self.chars[start_idx..end_idx].iter().collect();
+        self.tokens.push(Token::Id(Arc::<str>::from(id)));
+    }
+
+    fn parse_ident_or_keyword(&mut self) -> Result<()> {
+        if self.eof() || !Self::is_id_start(self.chars[self.idx]) {
+            return Err(anyhow!(self.err("Invalid identifier start")));
+        }
+
+        let start_idx = self.idx;
+        let end_idx = self.scan_id_end(start_idx);
+        self.idx = end_idx;
+
+        let token = match &self.chars[start_idx..end_idx] {
+            ['t', 'r', 'u', 'e'] => Token::Bool(true),
+            ['f', 'a', 'l', 's', 'e'] => Token::Bool(false),
+            ['n', 'i', 'l'] => Token::Nil,
+            ['i', 'n'] => Token::In,
+            _ => {
+                self.push_id_token(start_idx, end_idx);
+                return Ok(());
+            }
+        };
+        self.tokens.push(token);
+        Ok(())
     }
 
     /// - `@a.(@b - 1)` -> [At, Id("a"), Dot, LParen, At, Id("b"), Sub, Int(1), RParen]
     /// - `@a` -> [At, Id("a")]
     fn parse_at_list(&mut self) -> Result<()> {
-        if self.expect("@") {
-            self.tokens.push(Token::At);
-        } else {
-            return Err(anyhow!(self.err("Expect '@'")));
-        }
+        self.idx += 1;
+        self.tokens.push(Token::At);
 
         while !self.eof() {
             let c = self.chars[self.idx];
-            let is_field = c.is_alphanumeric() || c == '_' || c == '-';
-            let is_num = c.is_ascii_digit();
-            if is_field && !is_num {
+            if Self::is_id_start(c) {
                 self.parse_id()?;
                 continue;
             }
-            if is_num {
+            if c.is_ascii_digit() {
                 self.parse_int()?;
                 continue;
             }
 
-            if self.expect(".") {
+            if c == '.' {
+                self.idx += 1;
                 self.tokens.push(Token::Dot);
                 continue;
             }
@@ -313,20 +335,17 @@ impl Tokenizer {
                 Ok(())
             }
             '.' => {
-                if let Some(&c) = self.chars.get(self.idx + 1)
-                    && c.is_ascii_digit()
-                {
-                    self.idx += 1;
-                    self.tokens.push(Token::Dot);
-                    // To avoid confusion with Dot in float, only parse int here
-                    return self.parse_int();
-                }
                 self.idx += 1;
                 self.tokens.push(Token::Dot);
+                if self.peek(0).is_some_and(|next| next.is_ascii_digit()) {
+                    // To avoid confusion with Dot in float, only parse int here.
+                    return self.parse_int();
+                }
                 Ok(())
             }
             '&' => {
-                if self.expect("&&") {
+                if self.peek(1) == Some('&') {
+                    self.idx += 2;
                     self.tokens.push(Token::And);
                     Ok(())
                 } else {
@@ -334,7 +353,8 @@ impl Tokenizer {
                 }
             }
             '|' => {
-                if self.expect("||") {
+                if self.peek(1) == Some('|') {
+                    self.idx += 2;
                     self.tokens.push(Token::Or);
                     Ok(())
                 } else {
@@ -342,9 +362,7 @@ impl Tokenizer {
                 }
             }
             '+' => {
-                if let Some(&c) = self.chars.get(self.idx + 1)
-                    && c.is_ascii_digit()
-                {
+                if self.peek(1).is_some_and(|next| next.is_ascii_digit()) {
                     return self.parse_num();
                 }
                 self.idx += 1;
@@ -352,9 +370,7 @@ impl Tokenizer {
                 Ok(())
             }
             '-' => {
-                if let Some(&c) = self.chars.get(self.idx + 1)
-                    && c.is_ascii_digit()
-                {
+                if self.peek(1).is_some_and(|next| next.is_ascii_digit()) {
                     return self.parse_num();
                 }
                 self.idx += 1;
@@ -367,7 +383,8 @@ impl Tokenizer {
                 Ok(())
             }
             '/' => {
-                if self.expect("//") {
+                if self.peek(1) == Some('/') {
+                    self.idx += 2;
                     // Skip single-line comment
                     while !self.eof() {
                         let c = self.chars[self.idx];
@@ -390,7 +407,8 @@ impl Tokenizer {
             }
             '@' => self.parse_at_list(),
             '=' => {
-                if self.expect("==") {
+                if self.peek(1) == Some('=') {
+                    self.idx += 2;
                     self.tokens.push(Token::Eq);
                     Ok(())
                 } else {
@@ -398,7 +416,8 @@ impl Tokenizer {
                 }
             }
             '!' => {
-                if self.expect("!=") {
+                if self.peek(1) == Some('=') {
+                    self.idx += 2;
                     self.tokens.push(Token::Ne);
                     Ok(())
                 } else {
@@ -408,7 +427,8 @@ impl Tokenizer {
                 }
             }
             '>' => {
-                if self.expect(">=") {
+                if self.peek(1) == Some('=') {
+                    self.idx += 2;
                     self.tokens.push(Token::Ge);
                     Ok(())
                 } else {
@@ -418,7 +438,8 @@ impl Tokenizer {
                 }
             }
             '<' => {
-                if self.expect("<=") {
+                if self.peek(1) == Some('=') {
+                    self.idx += 2;
                     self.tokens.push(Token::Le);
                     Ok(())
                 } else {
@@ -445,15 +466,13 @@ impl Tokenizer {
                 '0'..='9' => {
                     self.parse_num()?;
                 }
-                // true false nil in
-                't' | 'f' | 'n' | 'i' => {
-                    self.parse_keywords()?;
-                }
                 _ => {
                     if self.is_punctuation(c) {
                         self.parse_punctuations()?;
+                    } else if Self::is_id_start(c) {
+                        self.parse_ident_or_keyword()?;
                     } else {
-                        self.parse_id()?;
+                        return Err(anyhow!(self.err("Invalid identifier start")));
                     }
                 }
             }

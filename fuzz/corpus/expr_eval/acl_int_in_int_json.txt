@@ -1,0 +1,3 @@
+@req.user.id in @record.granted
+--CTX--
+{"req":{"user":{"id":1,"role":"user"}},"record":{"granted":999,"owner":999}}

@@ -1,0 +1,13 @@
+# Ignore libFuzzer-generated hash corpus files by default.
+*
+
+# Keep the directory structure and curated seeds.
+!.gitignore
+!*/
+!*.txt
+!*.qcl
+!*.jsoncase
+!*.bin
+!*.json
+!*.yaml
+!*.toml

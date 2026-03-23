@@ -1,0 +1,7 @@
+auto
+--DATA--
+[req.user]
+id = 1
+role = "user"
+[record]
+granted = 999

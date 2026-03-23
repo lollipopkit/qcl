@@ -1,0 +1,3 @@
+@req.user.role != "banned"
+--CTX--
+{"req":{"user":{}}}

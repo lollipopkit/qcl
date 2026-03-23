@@ -45,6 +45,26 @@ mod tests {
     test_op!(mod_mixed1, %, 7, 2.5, 2.0);
     test_op!(mod_mixed2, %, 7.5, 2, 1.5);
 
+    #[test]
+    fn division_and_modulo_by_zero_return_errors() {
+        assert!((&Val::Int(1) / &Val::Int(0)).is_err());
+        assert!((&Val::Float(1.0) / &Val::Float(0.0)).is_err());
+        assert!((&Val::Float(1.0) / &Val::Int(0)).is_err());
+        assert!((&Val::Int(1) / &Val::Float(0.0)).is_err());
+        assert!((&Val::Int(1) % &Val::Int(0)).is_err());
+        assert!((&Val::Float(1.0) % &Val::Float(0.0)).is_err());
+        assert!((&Val::Float(1.0) % &Val::Int(0)).is_err());
+        assert!((&Val::Int(1) % &Val::Float(0.0)).is_err());
+    }
+
+    #[test]
+    fn integer_overflow_returns_error() {
+        assert!((&Val::Int(i64::MAX) + &Val::Int(1)).is_err());
+        assert!((&Val::Int(i64::MIN) - &Val::Int(1)).is_err());
+        assert!((&Val::Int(i64::MAX) * &Val::Int(2)).is_err());
+        assert!((&Val::Int(i64::MIN) / &Val::Int(-1)).is_err());
+    }
+
     #[cfg(feature = "adv_arith")]
     mod adv_arith_tests {
         use super::*;
@@ -115,6 +135,43 @@ mod tests {
             let result = (&l - &r).unwrap();
 
             assert_eq!(result, Val::Map(expected.into()));
+        }
+
+        #[test]
+        fn large_list_sub_list_uses_indexed_membership() {
+            let mut left = Vec::new();
+            for i in 0..128 {
+                left.push(Val::Int(i));
+            }
+            left.push(Val::Str("keep".into()));
+            left.push(Val::Bool(true));
+            left.push(Val::Bool(false));
+
+            let mut complex = HashMap::new();
+            complex.insert("name".to_string(), Val::Str("Alice".into()));
+            complex.insert("age".to_string(), Val::Int(30));
+            let complex = Val::Map(complex.into());
+            left.push(complex.clone());
+
+            let mut right = Vec::new();
+            for i in (0..128).step_by(2) {
+                right.push(Val::Int(i));
+            }
+            right.push(Val::Str("keep".into()));
+            right.push(Val::Bool(false));
+            right.push(complex.clone());
+
+            let result = (&Val::List(left.clone().into()) - &Val::List(right.into())).unwrap();
+
+            let mut expected = Vec::new();
+            for i in 0..128 {
+                if i % 2 == 1 {
+                    expected.push(Val::Int(i));
+                }
+            }
+            expected.push(Val::Bool(true));
+
+            assert_eq!(result, Val::List(expected.into()));
         }
     }
 
@@ -286,7 +343,7 @@ mod tests {
         // Test list display
         let list = Val::List(vec![Val::Int(1), Val::Str("hello".into()), Val::Bool(true)].into());
         let display = format!("{}", list);
-        assert!(display.contains("1") && display.contains("hello") && display.contains("true"));
+        assert_eq!(display, r#"[1,"hello",true]"#);
 
         // Test map display
         let mut map = HashMap::new();
@@ -295,8 +352,26 @@ mod tests {
         let val = Val::Map(map.into());
         let display = format!("{}", val);
         assert!(
-            display.contains("name") && display.contains("Alice") && display.contains("age") && display.contains("30")
+            display.starts_with('{')
+                && display.ends_with('}')
+                && display.contains(r#""name":"Alice""#)
+                && display.contains(r#""age":30"#)
         );
+    }
+
+    #[test]
+    fn test_display_formatting_nested_and_escaped() {
+        let mut inner = HashMap::new();
+        inner.insert("line".to_string(), Val::Str("hello\n\"world\"".into()));
+        inner.insert("none".to_string(), Val::Nil);
+
+        let list = Val::List(vec![Val::Map(inner.into()), Val::Str("path\\segment".into())].into());
+        let display = format!("{}", list);
+
+        assert!(display.starts_with('[') && display.ends_with(']'));
+        assert!(display.contains(r#""line":"hello\n\"world\"""#));
+        assert!(display.contains(r#""none":null"#));
+        assert!(display.contains(r#""path\\segment""#));
     }
 
     #[test]
@@ -410,6 +485,13 @@ mod tests {
         // Complex YAML
         assert_eq!(detect_format("person:\n  name: John\n  age: 30"), Format::Yaml);
         assert_eq!(detect_format("# Comment\nkey: value"), Format::Yaml);
+
+        #[cfg(feature = "json")]
+        {
+            assert_eq!(detect_format("note --- not a yaml doc"), Format::Json);
+            assert_eq!(detect_format("note ... not a yaml doc"), Format::Json);
+            assert_eq!(detect_format("https://example.test/path"), Format::Json);
+        }
     }
 
     #[test]
@@ -440,6 +522,8 @@ mod tests {
         assert_eq!(detect_format("null"), Format::Json); // Valid JSON
         assert_eq!(detect_format("true"), Format::Json); // Valid JSON
         assert_eq!(detect_format("42"), Format::Json); // Valid JSON
+        assert_eq!(detect_format("prefix --- suffix"), Format::Json);
+        assert_eq!(detect_format("prefix ... suffix"), Format::Json);
     }
 
     #[test]
@@ -465,13 +549,17 @@ mod tests {
     #[test]
     #[cfg(feature = "yaml")]
     fn test_parse_with_format_yaml() {
-        use crate::de::{Format, parse_with_format};
+        use crate::de::{Format, parse_auto, parse_with_format};
 
-        // Auto-detect YAML
+        // Default parser is JSON-only when JSON support is compiled in.
         let yaml_input = "name: Bob\nage: 25";
-        let result = parse_with_format(yaml_input, None).unwrap();
+        #[cfg(feature = "json")]
+        assert!(parse_with_format(yaml_input, None).is_err());
+
+        let (_, result) = parse_auto(yaml_input).unwrap();
         assert_eq!(result.access(&Val::Str("name".into())), Some(&Val::Str("Bob".into())));
         assert_eq!(result.access(&Val::Str("age".into())), Some(&Val::Int(25)));
+        assert!(parse_auto("plain text without structured markers").is_err());
 
         // Force YAML format
         let yaml_input2 = "name: Dave\nage: 40";
@@ -482,19 +570,21 @@ mod tests {
     #[test]
     #[cfg(all(feature = "json", feature = "yaml"))]
     fn test_parse_with_format_all() {
-        use crate::de::{Format, parse_with_format};
+        use crate::de::{Format, parse_auto, parse_with_format};
 
-        // Auto-detect JSON
+        // Default parser keeps JSON semantics.
         let json_input = r#"{"name": "Alice", "age": 30}"#;
         let result = parse_with_format(json_input, None).unwrap();
         assert_eq!(result.access(&Val::Str("name".into())), Some(&Val::Str("Alice".into())));
         assert_eq!(result.access(&Val::Str("age".into())), Some(&Val::Int(30)));
 
-        // Auto-detect YAML
+        // YAML auto-detect now requires explicit parse_auto opt-in.
         let yaml_input = "name: Bob\nage: 25";
-        let result = parse_with_format(yaml_input, None).unwrap();
+        assert!(parse_with_format(yaml_input, None).is_err());
+        let (_, result) = parse_auto(yaml_input).unwrap();
         assert_eq!(result.access(&Val::Str("name".into())), Some(&Val::Str("Bob".into())));
         assert_eq!(result.access(&Val::Str("age".into())), Some(&Val::Int(25)));
+        assert!(parse_auto("plain text without structured markers").is_err());
 
         // Force JSON format
         let yaml_as_json = r#"{"name": "Charlie", "age": 35}"#;

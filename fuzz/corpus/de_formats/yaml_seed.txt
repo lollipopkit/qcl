@@ -1,0 +1,8 @@
+yaml
+--DATA--
+req:
+  user:
+    id: 1
+items:
+  - 1
+  - 2
