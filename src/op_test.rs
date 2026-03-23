@@ -112,7 +112,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "json")]
-    fn missing_and_primitive_in_are_rejected() {
+    fn missing_membership_is_fail_closed_but_primitive_in_is_rejected() {
         let ctx = json!({
             "lhs": 1,
             "map": {"1": true}
@@ -131,16 +131,15 @@ mod tests {
         let r_missing: Expr = "@missing".try_into().unwrap();
         assert!(BinOp::In.eval(&l, &r_missing, &ctx_missing).is_err());
 
-        let r: Expr = "@rhs".try_into().unwrap();
-        assert!(BinOp::In.eval(&l, &r, &ctx).is_err());
-    }
+        let l_missing: Expr = "@missing".try_into().unwrap();
+        let r_list: Expr = "[1, 2, 3]".try_into().unwrap();
+        assert_eq!(
+            BinOp::In.eval(&l_missing, &r_list, &ctx_missing).unwrap(),
+            Val::Bool(false)
+        );
 
-    #[test]
-    fn missing_comparisons_remain_fail_closed() {
-        assert!(!BinOp::Eq.cmp(&Val::Missing, &Val::Int(1)).unwrap());
-        assert!(!BinOp::Ne.cmp(&Val::Missing, &Val::Int(1)).unwrap());
-        assert!(!BinOp::Eq.cmp(&Val::Int(1), &Val::Missing).unwrap());
-        assert!(!BinOp::Ne.cmp(&Val::Int(1), &Val::Missing).unwrap());
+        let r: Expr = "@rhs".try_into().unwrap();
+        assert!(BinOp::In.eval(&l, &r, &ctx_missing).is_err());
     }
 
     #[test]

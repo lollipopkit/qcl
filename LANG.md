@@ -36,11 +36,10 @@ QCL values include:
 - `Float`
 - `Bool`
 - `Nil`
-- `Missing`
 - `List`
 - `Map`
 
-`Nil` is an explicit null-like value. `Missing` is produced by failed access and is not a literal.
+`Nil` is an explicit null-like value.
 
 ## Literals
 
@@ -107,7 +106,7 @@ Path segments may be:
 - another `@` access
 
 The first path segment selects a top-level context key. List indices are zero-based.
-Out-of-bounds access and missing map keys return `Missing`.
+Out-of-bounds access and missing map keys return `nil`.
 
 Examples:
 
@@ -162,12 +161,10 @@ Examples:
 
 ## Special Semantics
 
-- Failed access returns `Missing`.
-- `Missing` is distinct from `nil`.
-- Any comparison involving `Missing` evaluates to `false`, including `==` and `!=`.
-- `@nonexistent == nil` is `false`.
-- `@nonexistent != nil` is also `false`.
-- `@nonexistent != 1` is also `false`.
+- Failed access returns `nil`.
+- `@nonexistent == nil` is `true`.
+- `@nonexistent != nil` is `false`.
+- `@nonexistent != 1` is `true`.
 
 ## Feature Flags
 

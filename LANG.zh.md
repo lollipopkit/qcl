@@ -36,11 +36,10 @@ QCL 中的值类型包括：
 - `Float`
 - `Bool`
 - `Nil`
-- `Missing`
 - `List`
 - `Map`
 
-`Nil` 是显式的、类似 null 的值。`Missing` 由访问失败产生，不是字面量。
+`Nil` 是显式的、类似 null 的值。
 
 ## 字面量
 
@@ -107,7 +106,7 @@ nil
 - 另一个 `@` 访问
 
 第一个路径片段用于选择顶层上下文 key。List 索引从 0 开始。
-越界访问和缺失的 map key 会返回 `Missing`。
+越界访问和缺失的 map key 会返回 `nil`。
 
 示例：
 
@@ -162,12 +161,10 @@ nil
 
 ## 特殊语义
 
-- 访问失败会返回 `Missing`。
-- `Missing` 与 `nil` 是不同的概念。
-- 只要任一侧是 `Missing`，所有比较操作都会返回 `false`，包括 `==` 和 `!=`。
-- `@nonexistent == nil` 的结果是 `false`。
-- `@nonexistent != nil` 的结果也同样是 `false`。
-- `@nonexistent != 1` 的结果也同样是 `false`。
+- 访问失败会返回 `nil`。
+- `@nonexistent == nil` 的结果是 `true`。
+- `@nonexistent != nil` 的结果是 `false`。
+- `@nonexistent != 1` 的结果是 `true`。
 
 ## 特性开关
 

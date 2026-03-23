@@ -186,6 +186,6 @@ fuzz_target!(|data: &[u8]| {
         missing
             .eval(&ctx)
             .expect("missing path evaluation should remain deterministic"),
-        Val::Missing
+        Val::Nil
     );
 });

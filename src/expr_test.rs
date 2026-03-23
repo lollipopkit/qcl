@@ -402,18 +402,18 @@ mod test {
     #[test]
     #[cfg(feature = "json")]
     fn test_nil_handling() {
-        expect("@nonexistent", Val::Missing);
+        expect("@nonexistent", None::<Val>);
         expect("@existing_null == nil", true);
-        expect("@nonexistent == nil", false);
+        expect("@nonexistent == nil", true);
         expect("@nonexistent != nil", false);
-        expect("@nonexistent != 1", false);
-        expect("@nonexistent.field == nil", false);
+        expect("@nonexistent != 1", true);
+        expect("@nonexistent.field == nil", true);
         expect("nil", None::<Val>);
     }
 
     #[test]
     #[cfg(feature = "json")]
-    fn missing_fields_fail_closed() {
+    fn nil_field_access() {
         let ctx: Val = json!({
             "req": {"user": {"id": 7}},
             "record": {}
@@ -424,10 +424,10 @@ mod test {
         assert_eq!(expr.eval(&ctx).unwrap(), Val::Bool(false));
 
         let expr = Expr::try_from(r#"@req.user.status != "blocked""#).unwrap();
-        assert_eq!(expr.eval(&ctx).unwrap(), Val::Bool(false));
+        assert_eq!(expr.eval(&ctx).unwrap(), Val::Bool(true));
 
         let expr = Expr::try_from(r#"@req.user.status != "blocked" && @req.user.id == 7"#).unwrap();
-        assert_eq!(expr.eval(&ctx).unwrap(), Val::Bool(false));
+        assert_eq!(expr.eval(&ctx).unwrap(), Val::Bool(true));
     }
 
     #[test]

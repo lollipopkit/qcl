@@ -25,8 +25,6 @@ pub enum Val {
     Map(Arc<HashMap<String, Val>>),
     /// List type, wrapped in Arc<Vec> for efficient cloning
     List(Arc<Vec<Val>>),
-    /// Missing field access is distinct from a real `nil` payload.
-    Missing,
     /// Nil represents the absence of a value, similar to `null` in JSON or `None` in Rust.
     #[default]
     Nil,
@@ -505,7 +503,6 @@ impl Serialize for Val {
             Val::Bool(b) => serializer.serialize_bool(*b),
             Val::Map(m) => (**m).serialize(serializer),
             Val::List(l) => (**l).serialize(serializer),
-            Val::Missing => serializer.serialize_unit(),
             Val::Nil => serializer.serialize_unit(),
         }
     }
@@ -520,7 +517,6 @@ impl core::fmt::Display for Val {
             Val::Str(s) => write!(f, "{}", s.as_ref()),
             Val::Map(m) => fmt_map(f, m),
             Val::List(l) => fmt_list(f, l),
-            Val::Missing => write!(f, "missing"),
             Val::Nil => write!(f, "nil"),
         }
     }
@@ -562,7 +558,7 @@ fn fmt_json_value(f: &mut core::fmt::Formatter<'_>, value: &Val) -> core::fmt::R
         Val::Bool(b) => write!(f, "{b}"),
         Val::Map(m) => fmt_map(f, m),
         Val::List(l) => fmt_list(f, l),
-        Val::Missing | Val::Nil => f.write_str("null"),
+        Val::Nil => f.write_str("null"),
     }
 }
 

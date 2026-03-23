@@ -37,7 +37,7 @@ fn vals_equivalent(left: &Val, right: &Val) -> bool {
                     .zip(b.iter())
                     .all(|(left_val, right_val)| vals_equivalent(left_val, right_val))
         }
-        (Val::Missing, Val::Missing) | (Val::Nil, Val::Nil) => true,
+        (Val::Nil, Val::Nil) => true,
         _ => false,
     }
 }

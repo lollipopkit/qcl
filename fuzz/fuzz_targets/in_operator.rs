@@ -112,7 +112,7 @@ fuzz_target!(|data: &[u8]| {
                     Val::Int(i) => Some(i.to_string()),
                     Val::Float(f) => Some(f.to_string()),
                     Val::Bool(b) => Some(b.to_string()),
-                    Val::Nil | Val::Missing | Val::Map(_) | Val::List(_) => None,
+                    Val::Nil | Val::Map(_) | Val::List(_) => None,
                 }) else {
                     continue;
                 };

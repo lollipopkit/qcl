@@ -201,7 +201,7 @@ impl Expr {
 
                     val = match val.access(key) {
                         Some(v) => v,
-                        None => return Ok(Val::Missing),
+                        None => return Ok(Val::Nil),
                     };
                 }
                 // Return a clone only at the end of evaluation to reduce allocations
@@ -220,7 +220,7 @@ impl Expr {
 
                 match val.access(field_val) {
                     Some(v) => Ok(v.clone()),
-                    None => Ok(Val::Missing),
+                    None => Ok(Val::Nil),
                 }
             }
             Expr::List(exprs) => {
@@ -452,7 +452,7 @@ impl Expr {
                     if let Some(res_val) = base_val.access(field_val) {
                         return Expr::Val(res_val.clone());
                     } else {
-                        return Expr::Val(Val::Missing);
+                        return Expr::Val(Val::Nil);
                     }
                 }
                 Expr::Access(Box::new(base), Box::new(field))

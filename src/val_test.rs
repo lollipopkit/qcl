@@ -364,7 +364,6 @@ mod tests {
         let mut inner = HashMap::new();
         inner.insert("line".to_string(), Val::Str("hello\n\"world\"".into()));
         inner.insert("none".to_string(), Val::Nil);
-        inner.insert("missing".to_string(), Val::Missing);
 
         let list = Val::List(vec![Val::Map(inner.into()), Val::Str("path\\segment".into())].into());
         let display = format!("{}", list);
@@ -372,7 +371,6 @@ mod tests {
         assert!(display.starts_with('[') && display.ends_with(']'));
         assert!(display.contains(r#""line":"hello\n\"world\"""#));
         assert!(display.contains(r#""none":null"#));
-        assert!(display.contains(r#""missing":null"#));
         assert!(display.contains(r#""path\\segment""#));
     }
 

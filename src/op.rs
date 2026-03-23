@@ -154,15 +154,6 @@ impl BinOp {
     }
 
     pub(crate) fn cmp(&self, l: &Val, r: &Val) -> Result<bool> {
-        if matches!(l, Val::Missing) || matches!(r, Val::Missing) {
-            // Missing field access stays fail-closed for ACL-style expressions, so
-            // both `==` and `!=` remain false when either side is Missing.
-            return match self {
-                BinOp::Eq | BinOp::Ne => Ok(false),
-                _ => err_op(l, self, r),
-            };
-        }
-
         match self {
             BinOp::Eq => Ok(l == r),
             BinOp::Ne => Ok(l != r),
@@ -218,34 +209,8 @@ impl BinOp {
     }
 
     pub(crate) fn eval(&self, l: &Expr, r: &Expr, ctx: &Val) -> Result<Val> {
-        // For comparison operators, we can optimize by only evaluating the left side first
-        if self.is_cmp() && matches!(self, BinOp::Eq | BinOp::Ne) {
+        if self.is_cmp() {
             let l_val = l.eval(ctx)?;
-
-            // Missing-field comparisons are fail-closed.
-            if matches!(l_val, Val::Missing) {
-                return Ok(Val::Bool(false));
-            }
-
-            // Short-circuit for nil comparisons
-            match (&l_val, self) {
-                (Val::Nil, BinOp::Eq) => {
-                    let r_val = r.eval(ctx)?;
-                    if matches!(r_val, Val::Missing) {
-                        return Ok(Val::Bool(false));
-                    }
-                    return Ok(Val::Bool(matches!(r_val, Val::Nil)));
-                }
-                (Val::Nil, BinOp::Ne) => {
-                    let r_val = r.eval(ctx)?;
-                    if matches!(r_val, Val::Missing) {
-                        return Ok(Val::Bool(false));
-                    }
-                    return Ok(Val::Bool(!matches!(r_val, Val::Nil)));
-                }
-                _ => {}
-            }
-
             let r_val = r.eval(ctx)?;
             return Ok(Val::Bool(self.cmp(&l_val, &r_val)?));
         }
