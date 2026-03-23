@@ -94,7 +94,7 @@ validate-fuzz-target:
 	fi
 
 fuzz: validate-fuzz-target
-	@mkdir -p $(ARTIFACT_PREFIX)
+	@mkdir -p $(ARTIFACT_PREFIX) $(CORPUS)
 	$(CARGO_FUZZ) run $(TARGET) $(CORPUS) -- $(FUZZ_ARGS)
 
 fuzz-all:
@@ -114,7 +114,7 @@ fuzz-all:
 		$(CARGO_FUZZ) run "$$target" "$$corpus" -- $$args; \
 	done
 
-fuzz-quick: MAX_TIME ?= 10
+fuzz-quick: MAX_TIME = 10
 fuzz-quick: fuzz-all
 
 fuzz-check:

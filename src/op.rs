@@ -185,12 +185,12 @@ impl BinOp {
                         return Ok(false);
                     }
 
-                    if l.len() <= LARGE_LIST_MEMBERSHIP_THRESHOLD || r.len() <= LARGE_LIST_MEMBERSHIP_THRESHOLD {
-                        return Ok((**l).iter().all(|x| list_contains(r, x)));
+                    if r.len() > LARGE_LIST_MEMBERSHIP_THRESHOLD {
+                        let index = MembershipIndex::new(r);
+                        return Ok((**l).iter().all(|x| index.contains(x)));
                     }
 
-                    let index = MembershipIndex::new(r);
-                    Ok((**l).iter().all(|x| index.contains(x)))
+                    Ok((**l).iter().all(|x| list_contains(r, x)))
                 }
 
                 // Single element membership

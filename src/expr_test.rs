@@ -528,8 +528,16 @@ mod test {
     fn collect_exprs_for_shard(target_shard: usize, count: usize) -> Vec<String> {
         let mut exprs = Vec::with_capacity(count);
         let mut i = 0usize;
+        let mut attempts = 0usize;
+        let max_attempts = count.saturating_mul(10_000).max(10_000);
 
         while exprs.len() < count {
+            attempts += 1;
+            assert!(
+                attempts <= max_attempts,
+                "failed to collect expressions for shard {target_shard} after {attempts} attempts"
+            );
+
             let expr = format!("{i} == {i}");
             if parse_cache_shard_idx_for_tests(expr.as_str()) == target_shard {
                 exprs.push(expr);
