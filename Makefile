@@ -19,7 +19,7 @@ CARGO_FUZZ ?= cargo fuzz
 DICT_ARG = $(if $(filter $(TARGET),$(DICT_TARGETS)),-dict="$(DICT)",)
 FUZZ_ARGS = -artifact_prefix="$(ARTIFACT_PREFIX)" -max_total_time=$(MAX_TIME) $(DICT_ARG) $(RUN_ARGS)
 
-.PHONY: all clean help check check-all-features test test-all-features fmt fmt-check clippy bench run fuzz fuzz-all fuzz-quick fuzz-check fuzz-install fuzz-clean fuzz-list fuzz-replay validate-fuzz-target
+.PHONY: clean help check test fmt fmt-check clippy bench run fuzz fuzz-all fuzz-quick fuzz-check fuzz-install fuzz-clean fuzz-list fuzz-replay validate-fuzz-target wasm ffi python
 
 help:
 	@printf '%s\n' \
@@ -35,18 +35,15 @@ help:
 		'  make fuzz-all MAX_TIME=60' \
 		'' \
 		'Targets:' \
-		'  all          Compatibility entry point for cargo check' \
 		'  help         Show this message' \
-		'  check        cargo check' \
-		'  check-all-features cargo check --features all' \
+		'  check        cargo check --features all' \
 		'  clean        cargo clean plus fuzz outputs' \
-		'  test         cargo test -- --nocapture' \
-		'  test-all-features cargo test --features all -- --nocapture' \
+		'  test         cargo test --features all -- --nocapture' \
 		'  fmt          cargo fmt' \
 		'  fmt-check    cargo fmt --check' \
 		'  clippy       cargo clippy --all-targets --all-features -- -D warnings' \
-		'  bench        cargo bench' \
-		'  run          cargo run -- $$(ARGS)' \
+		'  bench        cargo bench --features all' \
+		'  run          cargo run --features all -- $$(ARGS)' \
 		'  fuzz         Run one fuzz target with inferred corpus and dict' \
 		'  fuzz-all     Run all fuzz targets sequentially' \
 		'  fuzz-quick   Short smoke run across all targets (default MAX_TIME=10)' \
@@ -56,6 +53,11 @@ help:
 		'  fuzz-list    Print supported fuzz targets' \
 		'  fuzz-replay  Replay saved red-team commands' \
 		'' \
+		'Bindings:' \
+		'  wasm         Build WASM package (requires wasm-pack)' \
+		'  ffi          Build C shared library (libqcl.so / libqcl.dylib)' \
+		'  python       Build Python wheel and install into active venv (requires maturin)' \
+		'' \
 		'Variables:' \
 		'  TARGET       One of: $(TARGETS)' \
 		'  CORPUS       Defaults to fuzz/corpus/$(TARGET)' \
@@ -64,18 +66,10 @@ help:
 		'  ARGS         Extra args passed to cargo run after --' \
 		'  ARTIFACT_PREFIX Defaults to fuzz/artifacts/$(TARGET)/'
 
-all: check
-
 check:
-	$(CARGO) check
-
-check-all-features:
 	$(CARGO) check --features all
 
 test:
-	$(CARGO) test -- --nocapture
-
-test-all-features:
 	$(CARGO) test --features all -- --nocapture
 
 fmt:
@@ -88,10 +82,23 @@ clippy:
 	$(CARGO) clippy --all-targets --all-features -- -D warnings
 
 bench:
-	$(CARGO) bench
+	$(CARGO) bench --features all
 
 run:
-	$(CARGO) run -- $(ARGS)
+	$(CARGO) run --features all -- $(ARGS)
+
+# --- Binding targets ---
+
+wasm:
+	wasm-pack build --target web --release -- --features wasm
+
+ffi:
+	$(CARGO) build --lib --features ffi --release
+
+python:
+	maturin develop --features python --release
+
+# --- Fuzz targets ---
 
 validate-fuzz-target:
 	@if [ -z "$(filter $(TARGET),$(TARGETS))" ]; then \

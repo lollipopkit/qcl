@@ -7,28 +7,49 @@ authors = ["lollipopkit <a@lpkt.cn>"]
 license = "Apache-2.0"
 repository = "https://github.com/lollipopkit/qcl"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [package.metadata.cargo-test]
 args = ["--", "--nocapture"]
 
 [dependencies]
-anyhow = "^1"
-serde = { version = "^1", features = ["derive"] }
+serde = { version = "^1", default-features = false, features = [
+    "derive",
+    "alloc",
+] }
 serde_json = { version = "^1", optional = true }
 serde_yaml = { version = "^0.9", optional = true }
 toml = { version = "^0.8", optional = true }
-once_cell = "1"
+once_cell = { version = "1", optional = true }
+hashbrown = { version = "0.15", features = ["serde"] }
+wasm-bindgen = { version = "0.2", optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
+pyo3 = { version = "0.24", optional = true, features = ["extension-module"] }
 
 [features]
-default = ["sem_arith", "json"]
+default = ["std", "sem_arith", "json"]
+# Enable std (required for parse cache and format parsers)
+std = ["dep:once_cell", "serde/std"]
 # Semantic arith: 3 / 2 = 1.5, not 1
 sem_arith = []
 # Advanced arithmetic support: Map + Map, List + Val etc.
 adv_arith = []
 # Input format features
-json = ["serde_json"]
-yaml = ["serde_yaml"]
-toml = ["dep:toml"]
-all = ["sem_arith", "adv_arith", "json", "yaml", "toml"]
+json = ["std", "dep:serde_json"]
+yaml = ["std", "dep:serde_yaml"]
+toml = ["std", "dep:toml"]
+# WASM bindings via wasm-bindgen
+wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "std", "json"]
+# C FFI
+ffi = ["std", "json"]
+# Python bindings via PyO3
+python = ["dep:pyo3", "std", "json"]
+all = ["std", "sem_arith", "adv_arith", "json", "yaml", "toml"]
+
+[[bin]]
+name = "qcl"
+required-features = ["std"]
 
 [dev-dependencies]
 criterion = "0.3"

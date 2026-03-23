@@ -1,6 +1,6 @@
 use crate::val::Val;
+use hashbrown::HashMap;
 use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
-use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -87,20 +87,20 @@ impl<'de> Deserialize<'de> for Val {
 
 /// Direct JSON string to Val conversion avoiding intermediate serde_json::Value
 #[cfg(feature = "json")]
-pub fn from_json_str(input: &str) -> anyhow::Result<Val> {
-    serde_json::from_str::<Val>(input).map_err(|e| anyhow::anyhow!(e))
+pub fn from_json_str(input: &str) -> crate::error::Result<Val> {
+    serde_json::from_str::<Val>(input).map_err(|e| crate::error::Error::Deserialize(e.to_string()))
 }
 
 /// Direct YAML string to Val conversion avoiding intermediate serde_yaml::Value
 #[cfg(feature = "yaml")]
-pub fn from_yaml_str(input: &str) -> anyhow::Result<Val> {
-    serde_yaml::from_str::<Val>(input).map_err(|e| anyhow::anyhow!(e))
+pub fn from_yaml_str(input: &str) -> crate::error::Result<Val> {
+    serde_yaml::from_str::<Val>(input).map_err(|e| crate::error::Error::Deserialize(e.to_string()))
 }
 
 /// Direct TOML string to Val conversion avoiding intermediate toml::Value
 #[cfg(feature = "toml")]
-pub fn from_toml_str(input: &str) -> anyhow::Result<Val> {
-    toml::from_str::<Val>(input).map_err(|e| anyhow::anyhow!(e))
+pub fn from_toml_str(input: &str) -> crate::error::Result<Val> {
+    toml::from_str::<Val>(input).map_err(|e| crate::error::Error::Deserialize(e.to_string()))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -170,9 +170,11 @@ pub fn detect_format(input: &str) -> Format {
 }
 
 /// Parse input by trying supported formats, returning the detected format and parsed value.
-pub fn parse_auto(input: &str) -> anyhow::Result<(Format, Val)> {
+pub fn parse_auto(input: &str) -> crate::error::Result<(Format, Val)> {
     let format = detect_format_confident(input).ok_or_else(|| {
-        anyhow::anyhow!("Auto-detect requires explicit format selection or recognizable JSON/YAML/TOML markers")
+        crate::error::Error::Deserialize(
+            "Auto-detect requires explicit format selection or recognizable JSON/YAML/TOML markers".to_string(),
+        )
     })?;
     let value = match format {
         #[cfg(feature = "json")]
@@ -338,7 +340,7 @@ fn looks_like_json_number(input: &str) -> bool {
 }
 
 /// Parse input using automatic format detection or specified format
-pub fn parse_with_format(input: &str, format_override: Option<Format>) -> anyhow::Result<Val> {
+pub fn parse_with_format(input: &str, format_override: Option<Format>) -> crate::error::Result<Val> {
     if let Some(format) = format_override {
         return match format {
             #[cfg(feature = "json")]

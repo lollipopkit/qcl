@@ -233,7 +233,7 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let expected = Expr::Val(Val::Map(Arc::new(std::collections::HashMap::new())));
+        let expected = Expr::Val(Val::Map(Arc::new(hashbrown::HashMap::new())));
         assert_eq!(parsed, expected);
     }
 
@@ -243,7 +243,7 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let mut expected_map = std::collections::HashMap::new();
+        let mut expected_map = hashbrown::HashMap::new();
         expected_map.insert("name".to_string(), Val::Str("Alice".into()));
         expected_map.insert("age".to_string(), Val::Int(30));
         let expected = Expr::Val(Val::Map(Arc::new(expected_map)));
@@ -256,7 +256,7 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let mut expected_map = std::collections::HashMap::new();
+        let mut expected_map = hashbrown::HashMap::new();
         expected_map.insert("sum".to_string(), Val::Int(3));
         expected_map.insert("product".to_string(), Val::Int(12));
         let expected = Expr::Val(Val::Map(Arc::new(expected_map)));
@@ -269,7 +269,7 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let mut expected_map = std::collections::HashMap::new();
+        let mut expected_map = hashbrown::HashMap::new();
         expected_map.insert("42".to_string(), Val::Str("number".into()));
         expected_map.insert("true".to_string(), Val::Str("bool".into()));
         expected_map.insert("key".to_string(), Val::Str("string".into()));
@@ -283,10 +283,10 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let mut inner_map = std::collections::HashMap::new();
+        let mut inner_map = hashbrown::HashMap::new();
         inner_map.insert("name".to_string(), Val::Str("Alice".into()));
         inner_map.insert("age".to_string(), Val::Int(30));
-        let mut outer_map = std::collections::HashMap::new();
+        let mut outer_map = hashbrown::HashMap::new();
         outer_map.insert("user".to_string(), Val::Map(Arc::new(inner_map)));
         let expected = Expr::Val(Val::Map(Arc::new(outer_map)));
         assert_eq!(parsed, expected);
@@ -298,7 +298,7 @@ mod test {
 
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let mut expected_map = std::collections::HashMap::new();
+        let mut expected_map = hashbrown::HashMap::new();
         expected_map.insert("a".to_string(), Val::Int(1));
         expected_map.insert("b".to_string(), Val::Int(2));
         let expected = Expr::Val(Val::Map(Arc::new(expected_map)));
@@ -312,14 +312,14 @@ mod test {
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
 
-        let mut alice_map = std::collections::HashMap::new();
+        let mut alice_map = hashbrown::HashMap::new();
         alice_map.insert("name".to_string(), Val::Str("Alice".into()));
         alice_map.insert(
             "scores".to_string(),
             Val::List(Arc::new(vec![Val::Int(90), Val::Int(85)])),
         );
 
-        let mut bob_map = std::collections::HashMap::new();
+        let mut bob_map = hashbrown::HashMap::new();
         bob_map.insert("name".to_string(), Val::Str("Bob".into()));
         bob_map.insert(
             "scores".to_string(),
@@ -398,7 +398,7 @@ mod test {
         let r = r#"{"key": 1, }"#;
         let ts = Tokenizer::new(r).unwrap();
         let parsed = Parser::new(&ts).parse().unwrap();
-        let mut expected_map = std::collections::HashMap::new();
+        let mut expected_map = hashbrown::HashMap::new();
         expected_map.insert("key".to_string(), Val::Int(1));
         let expected = Expr::Val(Val::Map(Arc::new(expected_map)));
         assert_eq!(parsed, expected);
@@ -439,6 +439,22 @@ mod test {
     fn overly_long_context_access_path_is_rejected() {
         let expr = format!("@a.{}", vec!["a"; 300].join("."));
         assert!(Expr::try_from(expr.as_str()).is_err());
+    }
+
+    #[test]
+    fn deeply_nested_ternary_is_rejected() {
+        // Build: true ? true : true ? true : ... (chain of 300 ternaries)
+        let mut expr = "true".to_string();
+        for _ in 0..300 {
+            expr = format!("true ? true : {expr}");
+        }
+        let result = Expr::try_from(expr.as_str());
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("nesting is too deep"),
+            "expected nesting error, got: {err_msg}"
+        );
     }
 
     #[test]
@@ -621,6 +637,86 @@ mod test {
                 Box::new(Expr::Val(false.into())),
             )),
         );
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn ternary_parse() {
+        // condition ? true_expr : false_expr
+        let ts = Tokenizer::new("@a ? 1 : 2").unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
+        let expected = Expr::Ternary(
+            Box::new(Expr::At(vec![Box::new(Expr::Val("a".into()))])),
+            Box::new(Expr::Val(1.into())),
+            Box::new(Expr::Val(2.into())),
+        );
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn ternary_precedence_below_or() {
+        // Ternary condition can contain ||
+        let ts = Tokenizer::new("@a || @b ? 1 : 2").unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
+        let expected = Expr::Ternary(
+            Box::new(Expr::Or(
+                Box::new(Expr::At(vec![Box::new(Expr::Val("a".into()))])),
+                Box::new(Expr::At(vec![Box::new(Expr::Val("b".into()))])),
+            )),
+            Box::new(Expr::Val(1.into())),
+            Box::new(Expr::Val(2.into())),
+        );
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn coalesce_parse() {
+        let ts = Tokenizer::new("@a ?? 42").unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
+        let expected = Expr::Coalesce(
+            Box::new(Expr::At(vec![Box::new(Expr::Val("a".into()))])),
+            Box::new(Expr::Val(42.into())),
+        );
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn coalesce_chained() {
+        // Left-associative: a ?? b ?? c => (a ?? b) ?? c
+        let ts = Tokenizer::new("@a ?? @b ?? 0").unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
+        let expected = Expr::Coalesce(
+            Box::new(Expr::Coalesce(
+                Box::new(Expr::At(vec![Box::new(Expr::Val("a".into()))])),
+                Box::new(Expr::At(vec![Box::new(Expr::Val("b".into()))])),
+            )),
+            Box::new(Expr::Val(0.into())),
+        );
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn coalesce_precedence_with_or() {
+        // ?? and || are at the same precedence level (coalesce sits between or and ternary)
+        // @a || @b ?? @c  ==>  (@a || @b) ?? @c
+        let ts = Tokenizer::new("@a || @b ?? @c").unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
+        let expected = Expr::Coalesce(
+            Box::new(Expr::Or(
+                Box::new(Expr::At(vec![Box::new(Expr::Val("a".into()))])),
+                Box::new(Expr::At(vec![Box::new(Expr::Val("b".into()))])),
+            )),
+            Box::new(Expr::At(vec![Box::new(Expr::Val("c".into()))])),
+        );
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn hex_octal_tokens_parse_as_int() {
+        // 0xFF + 0o77 = 255 + 63 = 318, constant-folded at parse time
+        let ts = Tokenizer::new("0xFF + 0o77").unwrap();
+        let parsed = Parser::new(&ts).parse().unwrap();
+        let expected = Expr::Val(318.into());
         assert_eq!(parsed, expected);
     }
 }

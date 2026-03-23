@@ -1,13 +1,14 @@
+use alloc::{boxed::Box, format, string::String, sync::Arc, vec::Vec};
+
 use crate::{
+    error::{Error, Result},
     expr::Expr,
     op::{BinOp, UnaryOp},
     token::Token,
     val::Val,
 };
-use anyhow::{Result, anyhow};
-use std::sync::Arc;
 
-const MAX_PARSE_DEPTH: usize = 256;
+const MAX_PARSE_DEPTH: usize = 128;
 const MAX_BINARY_CHAIN_LEN: usize = 256;
 const MAX_AT_PATH_SEGMENTS: usize = 256;
 static NIL_TOKEN: Token = Token::Nil;
@@ -39,7 +40,7 @@ impl<'a> Parser<'a> {
 
     fn ensure_not_eof(&self, msg: &str) -> Result<()> {
         if self.eof() {
-            return Err(anyhow!(self.err(msg)));
+            return Err(Error::Parse(self.err(msg)));
         }
         Ok(())
     }
@@ -50,7 +51,7 @@ impl<'a> Parser<'a> {
         }
 
         let msg = format!("Expecting '{symbol}', found {:?}", self.current_token_or_nil());
-        Err(anyhow!(self.err(&msg)))
+        Err(Error::Parse(self.err(&msg)))
     }
 
     fn expect_expr_start(&self, msg: &str) -> Result<()> {
@@ -59,7 +60,7 @@ impl<'a> Parser<'a> {
         }
 
         let msg = format!("{msg}: {:?}", self.current_token_or_nil());
-        Err(anyhow!(self.err(&msg)))
+        Err(Error::Parse(self.err(&msg)))
     }
 
     fn finish_parenthesized_expr(&mut self) -> Result<Expr> {
@@ -73,7 +74,7 @@ impl<'a> Parser<'a> {
             Token::Id(_) | Token::LParen | Token::Str(_) => Ok(()),
             other => {
                 let msg = format!("Expecting field name, found {:?}", other);
-                Err(anyhow!(self.err(&msg)))
+                Err(Error::Parse(self.err(&msg)))
             }
         }
     }
@@ -113,7 +114,7 @@ impl<'a> Parser<'a> {
 
             if self.eof() {
                 let msg = format!("Expecting '{closing_label}', found {:?}", self.current_token_or_nil());
-                return Err(anyhow!(self.err(&msg)));
+                return Err(Error::Parse(self.err(&msg)));
             }
 
             if self.consume_if(&Token::Comma) {
@@ -130,7 +131,7 @@ impl<'a> Parser<'a> {
                     self.current_token_or_nil()
                 )
             });
-            return Err(anyhow!(self.err(&msg)));
+            return Err(Error::Parse(self.err(&msg)));
         }
     }
 
@@ -150,7 +151,7 @@ impl<'a> Parser<'a> {
         let exp = self.parse_expr()?;
 
         if !self.eof() {
-            return Err(anyhow!(self.err("Unexpected tokens at end")));
+            return Err(Error::Parse(self.err("Unexpected tokens at end")));
         }
 
         // All sub-expressions parsed, apply constant folding optimization
@@ -159,9 +160,48 @@ impl<'a> Parser<'a> {
 
     fn parse_expr(&mut self) -> Result<Expr> {
         self.enter_nested("Expression nesting is too deep")?;
-        let result = self.parse_or();
+        let result = self.parse_ternary();
         self.leave_nested();
         result
+    }
+
+    /// `expr ? expr : expr` (right-associative ternary)
+    fn parse_ternary(&mut self) -> Result<Expr> {
+        let expr = self.parse_coalesce()?;
+        if !self.eof() && self.tokens[self.pos] == Token::Question {
+            self.pos += 1;
+            self.enter_nested("Expression nesting is too deep")?;
+            let true_expr = self.parse_ternary()?;
+            self.leave_nested();
+            self.expect_punctuation(Token::Colon, ":")?;
+            self.enter_nested("Expression nesting is too deep")?;
+            let false_expr = self.parse_ternary()?;
+            self.leave_nested();
+            Ok(Expr::Ternary(Box::new(expr), Box::new(true_expr), Box::new(false_expr)))
+        } else {
+            Ok(expr)
+        }
+    }
+
+    /// `expr ?? expr` (left-associative nullish coalescing)
+    fn parse_coalesce(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_or()?;
+        let mut chain_len = 0usize;
+        while !self.eof() {
+            match self.tokens[self.pos] {
+                Token::QuestionQuestion => {
+                    chain_len += 1;
+                    if chain_len > MAX_BINARY_CHAIN_LEN {
+                        return Err(Error::Parse(self.err("Coalesce chain is too long")));
+                    }
+                    self.pos += 1;
+                    let right = self.parse_or()?;
+                    expr = Expr::Coalesce(Box::new(expr), Box::new(right));
+                }
+                _ => break,
+            }
+        }
+        Ok(expr)
     }
 
     /// - `expr || expr`
@@ -173,7 +213,7 @@ impl<'a> Parser<'a> {
                 Token::Or => {
                     chain_len += 1;
                     if chain_len > MAX_BINARY_CHAIN_LEN {
-                        return Err(anyhow!(self.err("Logical OR chain is too long")));
+                        return Err(Error::Parse(self.err("Logical OR chain is too long")));
                     }
                     self.pos += 1;
                     let right = self.parse_and()?;
@@ -194,7 +234,7 @@ impl<'a> Parser<'a> {
                 Token::And => {
                     chain_len += 1;
                     if chain_len > MAX_BINARY_CHAIN_LEN {
-                        return Err(anyhow!(self.err("Logical AND chain is too long")));
+                        return Err(Error::Parse(self.err("Logical AND chain is too long")));
                     }
                     self.pos += 1;
                     let right = self.parse_cmp()?;
@@ -225,7 +265,7 @@ impl<'a> Parser<'a> {
             };
             chain_len += 1;
             if chain_len > MAX_BINARY_CHAIN_LEN {
-                return Err(anyhow!(self.err("Comparison chain is too long")));
+                return Err(Error::Parse(self.err("Comparison chain is too long")));
             }
             self.pos += 1;
             let right = self.parse_add_sub()?;
@@ -247,7 +287,7 @@ impl<'a> Parser<'a> {
             };
             chain_len += 1;
             if chain_len > MAX_BINARY_CHAIN_LEN {
-                return Err(anyhow!(self.err("Add/sub chain is too long")));
+                return Err(Error::Parse(self.err("Add/sub chain is too long")));
             }
             self.pos += 1;
             let right = self.parse_mul_div()?;
@@ -270,7 +310,7 @@ impl<'a> Parser<'a> {
             };
             chain_len += 1;
             if chain_len > MAX_BINARY_CHAIN_LEN {
-                return Err(anyhow!(self.err("Mul/div chain is too long")));
+                return Err(Error::Parse(self.err("Mul/div chain is too long")));
             }
             self.pos += 1;
             let right = self.parse_unary()?;
@@ -280,10 +320,11 @@ impl<'a> Parser<'a> {
     }
 
     /// - `!expr`
+    /// - `-expr`
     /// - `expr`
     fn parse_unary(&mut self) -> Result<Expr> {
         if self.eof() {
-            return Err(anyhow!(self.err("Unexpected end of expression")));
+            return Err(Error::Parse(self.err("Unexpected end of expression")));
         }
 
         match &self.tokens[self.pos] {
@@ -294,6 +335,14 @@ impl<'a> Parser<'a> {
                 self.leave_nested();
                 let expr = expr?;
                 Ok(Expr::Unary(UnaryOp::Not, Box::new(expr)))
+            }
+            Token::Sub => {
+                self.enter_nested("Unary nesting is too deep")?;
+                self.pos += 1;
+                let expr = self.parse_unary();
+                self.leave_nested();
+                let expr = expr?;
+                Ok(Expr::Unary(UnaryOp::Neg, Box::new(expr)))
             }
             _ => self.parse_postfix(),
         }
@@ -336,7 +385,7 @@ impl<'a> Parser<'a> {
     /// - `{...}`
     fn parse_primary(&mut self) -> Result<Expr> {
         if self.eof() {
-            return Err(anyhow!(self.err("Unexpected end of expression")));
+            return Err(Error::Parse(self.err("Unexpected end of expression")));
         }
 
         let token = &self.tokens[self.pos];
@@ -384,7 +433,7 @@ impl<'a> Parser<'a> {
                 }
                 _ => {
                     let msg = format!("Unexpected token: {:?}", self.tokens[self.pos]);
-                    Err(anyhow!(self.err(&msg)))
+                    Err(Error::Parse(self.err(&msg)))
                 }
             }
         }
@@ -445,7 +494,7 @@ impl<'a> Parser<'a> {
             Token::At => self.parse_at(),
             _ => {
                 let msg = format!("Unexpected token in field accessor: {:?}", self.tokens[self.pos]);
-                Err(anyhow!(self.err(&msg)))
+                Err(Error::Parse(self.err(&msg)))
             }
         }
     }
@@ -471,7 +520,7 @@ impl<'a> Parser<'a> {
                 }
 
                 if paths.len() >= MAX_AT_PATH_SEGMENTS {
-                    return Err(anyhow!(self.err("Context access path is too deep")));
+                    return Err(Error::Parse(self.err("Context access path is too deep")));
                 }
 
                 paths.push(Box::new(self.parse_field_accessor()?));
@@ -509,6 +558,7 @@ impl<'a> Parser<'a> {
                 | Token::LBrace
                 | Token::LParen
                 | Token::Not
+                | Token::Sub
         )
     }
 }
@@ -549,7 +599,7 @@ impl<'a> Parser<'a> {
 
     fn enter_nested(&mut self, msg: &str) -> Result<()> {
         if self.depth >= MAX_PARSE_DEPTH {
-            return Err(anyhow!(self.err(msg)));
+            return Err(Error::Parse(self.err(msg)));
         }
         self.depth += 1;
         Ok(())

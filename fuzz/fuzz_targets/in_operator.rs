@@ -112,8 +112,18 @@ fuzz_target!(|data: &[u8]| {
                 map.insert(key, value_atom.into_val());
             }
 
-            let actual = eval_membership(needle, Val::Map(Arc::new(map)));
-            assert!(actual.is_err(), "map membership should now fail closed");
+            let actual = eval_membership(needle.clone(), Val::Map(Arc::new(map.clone())));
+            match &needle {
+                Val::Str(s) => {
+                    let expected = map.contains_key(s.as_ref());
+                    let actual = actual.expect("string-in-map should be supported");
+                    assert_eq!(actual, expected);
+                }
+                _ => {
+                    // Non-string keys against maps should still error
+                    assert!(actual.is_err(), "non-string key in map should fail: {needle:?}");
+                }
+            }
         }
     }
 });

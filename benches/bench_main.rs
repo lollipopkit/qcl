@@ -1,7 +1,7 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use hashbrown::HashMap;
 use qcl::expr::Expr;
 use qcl::val::Val;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 // Prepare context data for benchmarking (contains various types)
@@ -417,6 +417,33 @@ fn bench_complex_arithmetic(c: &mut Criterion) {
 #[cfg(not(feature = "adv_arith"))]
 fn bench_complex_arithmetic(_: &mut Criterion) {}
 
+// Benchmark 10: Ternary and nullish coalesce evaluation
+fn bench_ternary_coalesce(c: &mut Criterion) {
+    let ctx = make_context();
+
+    let expr_ternary = Expr::parse_cached("@req.user.role == 'admin' ? 'allowed' : 'denied'").unwrap();
+    let expr_coalesce = Expr::parse_cached("@nonexistent ?? @req.user.role").unwrap();
+    let expr_chained = Expr::parse_cached("@missing1 ?? @missing2 ?? 'fallback'").unwrap();
+
+    c.bench_function("eval_ternary", |b| {
+        b.iter(|| {
+            black_box(expr_ternary.eval(&ctx).unwrap());
+        })
+    });
+
+    c.bench_function("eval_coalesce", |b| {
+        b.iter(|| {
+            black_box(expr_coalesce.eval(&ctx).unwrap());
+        })
+    });
+
+    c.bench_function("eval_coalesce_chained", |b| {
+        b.iter(|| {
+            black_box(expr_chained.eval(&ctx).unwrap());
+        })
+    });
+}
+
 // Criterion benchmark group definition
 criterion_group!(
     benches,
@@ -428,6 +455,7 @@ criterion_group!(
     bench_val_operations,
     bench_string_operations,
     bench_memory_allocation,
-    bench_complex_arithmetic
+    bench_complex_arithmetic,
+    bench_ternary_coalesce
 );
 criterion_main!(benches);

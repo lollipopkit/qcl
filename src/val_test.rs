@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::val::Val;
-    use std::collections::HashMap;
+    use hashbrown::HashMap;
 
     macro_rules! test_op {
         ($name:ident, $op:tt, $l:expr, $r:expr, $res:expr) => {
@@ -210,9 +210,15 @@ mod tests {
     fn test_access_negative_index() {
         let list = vec![10, 20, 30];
         let val: Val = list.into();
-        let index = Val::Int(-1);
 
-        assert_eq!(val.access(&index), None);
+        // -1 returns last element
+        assert_eq!(val.access(&Val::Int(-1)), Some(&Val::Int(30)));
+        // -2 returns second-to-last
+        assert_eq!(val.access(&Val::Int(-2)), Some(&Val::Int(20)));
+        // -3 returns first
+        assert_eq!(val.access(&Val::Int(-3)), Some(&Val::Int(10)));
+        // -4 is out of bounds
+        assert_eq!(val.access(&Val::Int(-4)), None);
     }
 
     // Literal creation tests
@@ -598,5 +604,16 @@ mod tests {
         let json_as_yaml = "name: Dave\nage: 40";
         let result = parse_with_format(json_as_yaml, Some(Format::Yaml)).unwrap();
         assert_eq!(result.access(&Val::Str("name".into())), Some(&Val::Str("Dave".into())));
+    }
+
+    #[test]
+    fn test_access_large_index_returns_none() {
+        let list = Val::List(std::sync::Arc::new(vec![Val::Int(1), Val::Int(2)]));
+        // i64::MAX should not panic or truncate, just return None
+        assert_eq!(list.access(&Val::Int(i64::MAX)), None);
+        // A value larger than u32::MAX on 32-bit targets
+        assert_eq!(list.access(&Val::Int(u32::MAX as i64 + 1)), None);
+        // Very negative value
+        assert_eq!(list.access(&Val::Int(i64::MIN)), None);
     }
 }
