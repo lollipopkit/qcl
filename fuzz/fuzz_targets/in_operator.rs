@@ -9,14 +9,7 @@ use libfuzzer_sys::fuzz_target;
 use qcl::{expr::Expr, val::Val};
 
 fn list_contains(list: &[Val], needle: &Val) -> bool {
-    match needle {
-        Val::Int(i) => list.iter().any(|value| matches!(value, Val::Int(x) if x == i)),
-        Val::Str(s) => list
-            .iter()
-            .any(|value| matches!(value, Val::Str(t) if t.as_ref() == s.as_ref())),
-        Val::Bool(b) => list.iter().any(|value| matches!(value, Val::Bool(x) if x == b)),
-        _ => list.contains(needle),
-    }
+    list.iter().any(|value| value == needle)
 }
 
 fn atoms_to_vals(atoms: Vec<common::Atom>) -> Vec<Val> {
