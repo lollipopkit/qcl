@@ -87,15 +87,8 @@ fn list_minus_list_indexed(left: &[Val], right: &[Val]) -> Val {
     }
 
     if left.len() <= 32 || right.len() <= 32 {
-        let mut result = Vec::with_capacity(left.len());
-        'outer: for left_val in left.iter() {
-            for right_val in right.iter() {
-                if left_val == right_val {
-                    continue 'outer;
-                }
-            }
-            result.push(left_val.clone());
-        }
+        let mut result = left.to_vec();
+        result.retain(|left_val| !right.iter().any(|right_val| left_val == right_val));
         return Val::List(Arc::new(result));
     }
 
@@ -119,19 +112,13 @@ fn list_minus_list_indexed(left: &[Val], right: &[Val]) -> Val {
         }
     }
 
-    let mut result = Vec::with_capacity(left.len());
-    for left_val in left {
-        let keep = match left_val {
-            Val::Int(i) => !int_set.contains(i),
-            Val::Str(s) => !str_set.contains(s.as_ref()),
-            Val::Bool(b) => !bool_set.contains(b),
-            _ => !complex_right.contains(&left_val),
-        };
-
-        if keep {
-            result.push(left_val.clone());
-        }
-    }
+    let mut result = left.to_vec();
+    result.retain(|left_val| match left_val {
+        Val::Int(i) => !int_set.contains(i),
+        Val::Str(s) => !str_set.contains(s.as_ref()),
+        Val::Bool(b) => !bool_set.contains(b),
+        _ => !complex_right.contains(&left_val),
+    });
 
     Val::List(Arc::new(result))
 }
@@ -151,7 +138,15 @@ impl Add for &Val {
             (Val::Float(a), Val::Float(b)) => Ok(Val::Float(a + b)),
             (Val::Float(a), Val::Int(b)) => Ok(Val::Float(a + *b as f64)),
             (Val::Int(a), Val::Float(b)) => Ok(Val::Float(*a as f64 + b)),
-            (Val::Str(a), Val::Str(b)) => Ok(Val::concat_strings(a.as_ref(), b.as_ref())),
+            (Val::Str(a), Val::Str(b)) => {
+                if a.is_empty() {
+                    Ok(Val::Str(Arc::clone(b)))
+                } else if b.is_empty() {
+                    Ok(Val::Str(Arc::clone(a)))
+                } else {
+                    Ok(Val::concat_strings(a.as_ref(), b.as_ref()))
+                }
+            }
             #[cfg(feature = "adv_arith")]
             (Val::Str(a), Val::Int(b)) => {
                 let b_str = b.to_string();
@@ -175,17 +170,29 @@ impl Add for &Val {
             #[cfg(feature = "adv_arith")]
             (Val::Map(l), Val::Map(r)) => {
                 // Map + Map: right side overrides left side for same keys.
+                if r.is_empty() {
+                    return Ok(self.clone());
+                }
+                if l.is_empty() {
+                    return Ok(other.clone());
+                }
+                if l.len() >= r.len()
+                    && r
+                        .iter()
+                        .all(|(k, v)| matches!(l.get(k), Some(existing) if existing == v))
+                {
+                    return Ok(self.clone());
+                }
+
                 // Prefer cloning the larger side to avoid re-hashing every entry.
                 if l.len() >= r.len() {
                     let mut merged = (**l).clone();
-                    merged.reserve(r.len());
                     for (k, v) in r.iter() {
                         merged.insert(k.clone(), v.clone());
                     }
                     Ok(merged.into())
                 } else {
                     let mut merged = (**r).clone();
-                    merged.reserve(l.len());
                     for (k, v) in l.iter() {
                         match merged.entry(k.clone()) {
                             Entry::Vacant(e) => {
@@ -199,17 +206,14 @@ impl Add for &Val {
             }
             #[cfg(feature = "adv_arith")]
             (Val::List(l), Val::List(r)) => {
-                // Use with_capacity for better performance
-                let mut merged = Vec::with_capacity(l.len() + r.len());
-                merged.extend(l.iter().cloned());
+                let mut merged = (**l).clone();
+                merged.reserve(r.len());
                 merged.extend(r.iter().cloned());
                 Ok(merged.into())
             }
             #[cfg(feature = "adv_arith")]
             (Val::List(l), r) => {
-                // Use with_capacity for better performance
-                let mut new_list = Vec::with_capacity(l.len() + 1);
-                new_list.extend(l.iter().cloned());
+                let mut new_list = (**l).clone();
                 new_list.push(r.clone());
                 Ok(new_list.into())
             }
@@ -247,23 +251,35 @@ impl Sub for &Val {
             }
             #[cfg(feature = "adv_arith")]
             (Val::Map(l), Val::Map(r)) => {
-                let mut result = HashMap::with_capacity(l.len());
-                for (k, v) in l.iter() {
-                    if !r.contains_key(k) {
-                        result.insert(k.clone(), v.clone());
-                    }
+                if r.is_empty() {
+                    return Ok(self.clone());
                 }
-                Ok(result.into())
+
+                if r.len() * 4 <= l.len() {
+                    let mut result = (**l).clone();
+                    for key in r.keys() {
+                        result.remove(key);
+                    }
+                    Ok(result.into())
+                } else {
+                    let mut result = HashMap::with_capacity(l.len());
+                    for (k, v) in l.iter() {
+                        if !r.contains_key(k) {
+                            result.insert(k.clone(), v.clone());
+                        }
+                    }
+                    Ok(result.into())
+                }
             }
             #[cfg(feature = "adv_arith")]
             (Val::Map(l), r) => {
                 if let Val::Str(k) = r {
-                    let mut result = HashMap::with_capacity(l.len());
-                    for (existing_k, v) in l.iter() {
-                        if existing_k != k.as_ref() {
-                            result.insert(existing_k.clone(), v.clone());
-                        }
+                    if !l.contains_key(k.as_ref()) {
+                        return Ok(self.clone());
                     }
+
+                    let mut result = (**l).clone();
+                    result.remove(k.as_ref());
                     return Ok(result.into());
                 }
                 err_op(self, BinOp::Sub, other)

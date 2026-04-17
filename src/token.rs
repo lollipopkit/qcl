@@ -110,11 +110,19 @@ impl Tokenizer {
     }
 
     fn is_id_start(c: char) -> bool {
-        c.is_alphabetic() || c == '_'
+        if c.is_ascii() {
+            c.is_ascii_alphabetic() || c == '_'
+        } else {
+            c.is_alphabetic() || c == '_'
+        }
     }
 
     fn is_id_continue(c: char) -> bool {
-        c.is_alphanumeric() || c == '_' || c == '-'
+        if c.is_ascii() {
+            c.is_ascii_alphanumeric() || c == '_' || c == '-'
+        } else {
+            c.is_alphanumeric() || c == '_' || c == '-'
+        }
     }
 
     fn parse_str(&mut self) -> Result<()> {

@@ -10,6 +10,8 @@ use crate::{
 };
 
 const LARGE_LIST_MEMBERSHIP_THRESHOLD: usize = 16;
+const LIST_IN_LIST_INDEX_MIN_PROBES: usize = 32;
+const SINGLE_ITEM_INDEX_BUILD_THRESHOLD: usize = 1024;
 
 fn list_contains(list: &[Val], needle: &Val) -> bool {
     match needle {
@@ -185,7 +187,7 @@ impl BinOp {
                         return Ok(false);
                     }
 
-                    if r.len() > LARGE_LIST_MEMBERSHIP_THRESHOLD {
+                    if r.len() > LARGE_LIST_MEMBERSHIP_THRESHOLD && l.len() > LIST_IN_LIST_INDEX_MIN_PROBES {
                         let index = MembershipIndex::new(r);
                         return Ok((**l).iter().all(|x| index.contains(x)));
                     }
@@ -195,7 +197,7 @@ impl BinOp {
 
                 // Single element membership
                 (_, Val::List(r)) => {
-                    if r.len() > LARGE_LIST_MEMBERSHIP_THRESHOLD {
+                    if r.len() > SINGLE_ITEM_INDEX_BUILD_THRESHOLD {
                         let index = MembershipIndex::new(r);
                         return Ok(index.contains(l));
                     }
@@ -227,22 +229,14 @@ impl BinOp {
     }
 
     pub(crate) fn eval(&self, l: &Expr, r: &Expr, ctx: &Val) -> Result<Val> {
-        if self.is_cmp() {
-            let l_val = l.eval(ctx)?;
-            let r_val = r.eval(ctx)?;
-            return Ok(Val::Bool(self.cmp(&l_val, &r_val)?));
-        }
-
-        // For arithmetic operations
         let l_val = l.eval(ctx)?;
         let r_val = r.eval(ctx)?;
 
-        if self.is_arith() {
-            self.arith(&l_val, &r_val)
-        } else if self.is_cmp() {
-            Ok(Val::Bool(self.cmp(&l_val, &r_val)?))
-        } else {
-            Err(Error::Eval(format!("Invalid eval: {l_val} {self:?} {r_val}")))
+        match self {
+            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => self.arith(&l_val, &r_val),
+            BinOp::Eq | BinOp::Ne | BinOp::Gt | BinOp::Lt | BinOp::Ge | BinOp::Le | BinOp::In => {
+                Ok(Val::Bool(self.cmp(&l_val, &r_val)?))
+            }
         }
     }
 }

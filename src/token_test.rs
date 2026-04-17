@@ -738,10 +738,7 @@ mod tests {
 
         // After identifier
         let t = Tokenizer::new("@x+1").unwrap();
-        assert_eq!(
-            t,
-            vec![Token::At, id("x"), Token::Add, Token::Int(1)]
-        );
+        assert_eq!(t, vec![Token::At, id("x"), Token::Add, Token::Int(1)]);
 
         // After closing paren
         let t = Tokenizer::new("(1)-2").unwrap();
@@ -769,7 +766,13 @@ mod tests {
         let t = Tokenizer::new("[-1, +2]").unwrap();
         assert_eq!(
             t,
-            vec![Token::LBracket, Token::Int(-1), Token::Comma, Token::Int(2), Token::RBracket]
+            vec![
+                Token::LBracket,
+                Token::Int(-1),
+                Token::Comma,
+                Token::Int(2),
+                Token::RBracket
+            ]
         );
     }
 }

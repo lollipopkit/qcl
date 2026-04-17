@@ -34,6 +34,8 @@ const MAX_PARSE_CACHE_ENTRIES: usize = 4096;
 const MAX_CACHED_EXPR_LEN: usize = 4096;
 #[cfg(feature = "std")]
 const PARSE_CACHE_SHARDS: usize = 16;
+#[cfg(feature = "std")]
+const MAX_LITERAL_CONTAINER_CACHE_ENTRIES: usize = 1024;
 
 /// Grammar:
 /// exp      ::= ternary
@@ -170,6 +172,10 @@ static PARSE_CACHE: Lazy<Box<[ParseCacheShard]>> = Lazy::new(|| {
 });
 
 #[cfg(feature = "std")]
+static LITERAL_CONTAINER_CACHE: Lazy<RwLock<HashMap<usize, Val>>> =
+    Lazy::new(|| RwLock::new(HashMap::new()));
+
+#[cfg(feature = "std")]
 #[inline]
 const fn parse_cache_entries_per_shard() -> usize {
     MAX_PARSE_CACHE_ENTRIES.div_ceil(PARSE_CACHE_SHARDS)
@@ -189,40 +195,64 @@ fn parse_cache_shard(expression: &str) -> &'static ParseCacheShard {
     &PARSE_CACHE[parse_cache_shard_idx(expression)]
 }
 
+#[cfg(feature = "std")]
+#[inline]
+fn literal_container_cache_key(expr: &Expr) -> usize {
+    expr as *const Expr as usize
+}
+
+#[cfg(feature = "std")]
+fn literal_container_cache_get(expr: &Expr) -> Option<Val> {
+    LITERAL_CONTAINER_CACHE
+        .read()
+        .unwrap()
+        .get(&literal_container_cache_key(expr))
+        .cloned()
+}
+
+#[cfg(feature = "std")]
+fn literal_container_cache_insert(expr: &Expr, value: &Val) {
+    let mut cache = LITERAL_CONTAINER_CACHE.write().unwrap();
+    if cache.len() >= MAX_LITERAL_CONTAINER_CACHE_ENTRIES {
+        cache.clear();
+    }
+    cache.insert(literal_container_cache_key(expr), value.clone());
+}
+
 impl Expr {
     pub fn eval(&self, ctx: &Val) -> Result<Val> {
         match self {
             Expr::Bin(l, op, r) => op.eval(l, r, ctx),
             Expr::Unary(op, expr) => op.eval(expr, ctx),
-            Expr::And(e1, e2) => {
-                let l = e1.eval(ctx)?;
-                // Short-circuit evaluation to improve performance
-                if let Val::Bool(false) = l {
-                    return Ok(Val::Bool(false));
+            Expr::And(e1, e2) => match e1.eval(ctx)? {
+                Val::Bool(false) => Ok(Val::Bool(false)),
+                Val::Bool(true) => match e2.eval(ctx)? {
+                    Val::Bool(b) => Ok(Val::Bool(b)),
+                    r => err_op(&Val::Bool(true), "&&", &r),
+                },
+                l => {
+                    let r = e2.eval(ctx)?;
+                    err_op(&l, "&&", &r)
                 }
-                let r = e2.eval(ctx)?;
-                match (&l, &r) {
-                    (Val::Bool(true), Val::Bool(true)) => Ok(Val::Bool(true)),
-                    (Val::Bool(_), Val::Bool(_)) => Ok(Val::Bool(false)),
-                    _ => err_op(&l, "&&", &r),
+            },
+            Expr::Or(e1, e2) => match e1.eval(ctx)? {
+                Val::Bool(true) => Ok(Val::Bool(true)),
+                Val::Bool(false) => match e2.eval(ctx)? {
+                    Val::Bool(b) => Ok(Val::Bool(b)),
+                    r => err_op(&Val::Bool(false), "||", &r),
+                },
+                l => {
+                    let r = e2.eval(ctx)?;
+                    err_op(&l, "||", &r)
                 }
-            }
-            Expr::Or(e1, e2) => {
-                let l = e1.eval(ctx)?;
-                // Short-circuit evaluation to improve performance
-                if let Val::Bool(true) = l {
-                    return Ok(Val::Bool(true));
-                }
-                let r = e2.eval(ctx)?;
-                match (&l, &r) {
-                    (Val::Bool(_), Val::Bool(true)) => Ok(Val::Bool(true)),
-                    (Val::Bool(_), Val::Bool(_)) => Ok(Val::Bool(false)),
-                    _ => err_op(&l, "||", &r),
-                }
-            }
+            },
             Expr::Coalesce(l, r) => {
                 let left = l.eval(ctx)?;
-                if left == Val::Nil { r.eval(ctx) } else { Ok(left) }
+                if matches!(left, Val::Nil) {
+                    r.eval(ctx)
+                } else {
+                    Ok(left)
+                }
             }
             Expr::Ternary(cond, t, f) => {
                 let cond_val = cond.eval(ctx)?;
@@ -273,19 +303,54 @@ impl Expr {
                 }
             }
             Expr::List(exprs) => {
+                #[cfg(feature = "std")]
+                if exprs.iter().all(|expr| matches!(&**expr, Expr::Val(_))) {
+                    if let Some(cached) = literal_container_cache_get(self) {
+                        return Ok(cached);
+                    }
+                }
+
                 let mut values = Vec::with_capacity(exprs.len());
                 for expr in exprs {
-                    values.push(expr.eval(ctx)?);
+                    values.push(match &**expr {
+                        Expr::Val(v) => v.clone(),
+                        _ => expr.eval(ctx)?,
+                    });
                 }
-                Ok(Val::List(Arc::new(values)))
+                let result = Val::List(Arc::new(values));
+                #[cfg(feature = "std")]
+                if exprs.iter().all(|expr| matches!(&**expr, Expr::Val(_))) {
+                    literal_container_cache_insert(self, &result);
+                }
+                Ok(result)
             }
             Expr::Map(pairs) => {
+                #[cfg(feature = "std")]
+                if pairs
+                    .iter()
+                    .all(|(key, value)| matches!(&**key, Expr::Val(_)) && matches!(&**value, Expr::Val(_)))
+                {
+                    if let Some(cached) = literal_container_cache_get(self) {
+                        return Ok(cached);
+                    }
+                }
+
                 let mut map = hashbrown::HashMap::with_capacity(pairs.len());
                 for (key_expr, value_expr) in pairs {
-                    let key_val = key_expr.eval(ctx)?;
-                    let value_val = value_expr.eval(ctx)?;
+                    let key_tmp;
+                    let key_val = match &**key_expr {
+                        Expr::Val(v) => v,
+                        _ => {
+                            key_tmp = key_expr.eval(ctx)?;
+                            &key_tmp
+                        }
+                    };
+                    let value_val = match &**value_expr {
+                        Expr::Val(v) => v.clone(),
+                        _ => value_expr.eval(ctx)?,
+                    };
 
-                    let Some(key_str) = primitive_map_key_to_string(&key_val) else {
+                    let Some(key_str) = primitive_map_key_to_string(key_val) else {
                         return Err(Error::Eval(format!(
                             "Map key must be a primitive type, got: {:?}",
                             key_val
@@ -294,7 +359,15 @@ impl Expr {
 
                     map.insert(key_str, value_val);
                 }
-                Ok(Val::Map(Arc::new(map)))
+                let result = Val::Map(Arc::new(map));
+                #[cfg(feature = "std")]
+                if pairs
+                    .iter()
+                    .all(|(key, value)| matches!(&**key, Expr::Val(_)) && matches!(&**value, Expr::Val(_)))
+                {
+                    literal_container_cache_insert(self, &result);
+                }
+                Ok(result)
             }
             Expr::Paren(expr) => expr.eval(ctx),
             Expr::Val(val) => Ok(val.clone()), // Clone necessary as eval returns owned Val
