@@ -19,7 +19,9 @@ serde = { version = "^1", default-features = false, features = [
     "alloc",
 ] }
 serde_json = { version = "^1", optional = true }
-serde_yaml = { version = "^0.9", optional = true }
+# serde_yaml 0.9 is unmaintained (RUSTSEC-2024-0320); use the maintained
+# drop-in fork under the original crate name so downstream code is unchanged.
+serde_yaml = { package = "serde_yaml_ng", version = "^0.10", optional = true }
 toml = { version = "^0.8", optional = true }
 once_cell = { version = "1", optional = true }
 hashbrown = { version = "0.15", features = ["serde"] }
