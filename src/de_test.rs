@@ -524,4 +524,31 @@ role = "user"
         assert!(!has_toml_indicators("- item"));
         assert!(!has_toml_indicators(""));
     }
+
+    // A `serde_json::Value` used as a Deserializer has no recursion limit (that
+    // only applies when parsing text), so it exercises Val's own depth guard —
+    // the same guard that protects limit-less backends such as serde_wasm_bindgen.
+    #[test]
+    #[cfg(feature = "json")]
+    fn rejects_input_deeper_than_limit() {
+        use serde::de::Deserialize;
+        let mut v = serde_json::Value::from(1);
+        for _ in 0..300 {
+            v = serde_json::Value::Array(vec![v]);
+        }
+        let result = Val::deserialize(v);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("too deep"));
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn accepts_input_within_limit() {
+        use serde::de::Deserialize;
+        let mut v = serde_json::Value::from(1);
+        for _ in 0..100 {
+            v = serde_json::Value::Array(vec![v]);
+        }
+        assert!(Val::deserialize(v).is_ok());
+    }
 }

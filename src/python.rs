@@ -8,8 +8,16 @@ use alloc::{string::ToString, sync::Arc, vec::Vec};
 
 use crate::{de, expr::Expr, val::Val};
 
+/// Cap on nesting when converting between Python objects and `Val`, mirroring
+/// the deserialize/parser limits so a deeply nested host object cannot overflow
+/// the stack during the recursive conversion.
+const MAX_DEPTH: usize = 128;
+
 /// Convert a Python object to a QCL Val.
-fn py_to_val(obj: &Bound<'_, PyAny>) -> PyResult<Val> {
+fn py_to_val(obj: &Bound<'_, PyAny>, depth: usize) -> PyResult<Val> {
+    if depth >= MAX_DEPTH {
+        return Err(PyValueError::new_err("input nesting is too deep"));
+    }
     if obj.is_none() {
         Ok(Val::Nil)
     } else if let Ok(b) = obj.downcast::<PyBool>() {
@@ -21,7 +29,10 @@ fn py_to_val(obj: &Bound<'_, PyAny>) -> PyResult<Val> {
     } else if let Ok(s) = obj.downcast::<PyString>() {
         Ok(Val::from(s.to_str()?))
     } else if let Ok(list) = obj.downcast::<PyList>() {
-        let items: Vec<Val> = list.iter().map(|item| py_to_val(&item)).collect::<PyResult<_>>()?;
+        let items: Vec<Val> = list
+            .iter()
+            .map(|item| py_to_val(&item, depth + 1))
+            .collect::<PyResult<_>>()?;
         Ok(Val::List(Arc::new(items)))
     } else if let Ok(dict) = obj.downcast::<PyDict>() {
         let mut map = hashbrown::HashMap::with_capacity(dict.len());
@@ -31,7 +42,7 @@ fn py_to_val(obj: &Bound<'_, PyAny>) -> PyResult<Val> {
                 .map_err(|_| PyValueError::new_err("dict keys must be strings"))?
                 .to_str()?
                 .to_string();
-            map.insert(key, py_to_val(&v)?);
+            map.insert(key, py_to_val(&v, depth + 1)?);
         }
         Ok(Val::Map(Arc::new(map)))
     } else {
@@ -43,7 +54,10 @@ fn py_to_val(obj: &Bound<'_, PyAny>) -> PyResult<Val> {
 }
 
 /// Convert a QCL Val to a Python object.
-fn val_to_py(py: Python<'_>, val: &Val) -> PyResult<PyObject> {
+fn val_to_py(py: Python<'_>, val: &Val, depth: usize) -> PyResult<PyObject> {
+    if depth >= MAX_DEPTH {
+        return Err(PyValueError::new_err("value nesting is too deep"));
+    }
     match val {
         Val::Nil => Ok(py.None()),
         Val::Bool(b) => Ok(b.into_pyobject(py)?.to_owned().into_any().unbind()),
@@ -51,13 +65,13 @@ fn val_to_py(py: Python<'_>, val: &Val) -> PyResult<PyObject> {
         Val::Float(f) => Ok(f.into_pyobject(py)?.into_any().unbind()),
         Val::Str(s) => Ok(s.as_ref().into_pyobject(py)?.into_any().unbind()),
         Val::List(l) => {
-            let items: Vec<PyObject> = l.iter().map(|v| val_to_py(py, v)).collect::<PyResult<_>>()?;
+            let items: Vec<PyObject> = l.iter().map(|v| val_to_py(py, v, depth + 1)).collect::<PyResult<_>>()?;
             Ok(PyList::new(py, items)?.into_any().unbind())
         }
         Val::Map(m) => {
             let dict = PyDict::new(py);
             for (k, v) in m.iter() {
-                dict.set_item(k, val_to_py(py, v)?)?;
+                dict.set_item(k, val_to_py(py, v, depth + 1)?)?;
             }
             Ok(dict.into_any().unbind())
         }
@@ -74,10 +88,10 @@ fn val_to_py(py: Python<'_>, val: &Val) -> PyResult<PyObject> {
 ///     The evaluation result as a Python object
 #[pyfunction]
 fn eval(py: Python<'_>, expression: &str, context: &Bound<'_, PyAny>) -> PyResult<PyObject> {
-    let ctx = py_to_val(context)?;
+    let ctx = py_to_val(context, 0)?;
     let expr = Expr::parse_cached_arc(expression).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let result = expr.eval(&ctx).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    val_to_py(py, &result)
+    val_to_py(py, &result, 0)
 }
 
 /// Evaluate a QCL expression against a JSON string context.
@@ -93,7 +107,7 @@ fn eval_json(py: Python<'_>, expression: &str, json_ctx: &str) -> PyResult<PyObj
     let ctx: Val = de::from_json_str(json_ctx).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let expr = Expr::parse_cached_arc(expression).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let result = expr.eval(&ctx).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    val_to_py(py, &result)
+    val_to_py(py, &result, 0)
 }
 
 /// Check if a QCL expression evaluates to truthy.
@@ -106,7 +120,7 @@ fn eval_json(py: Python<'_>, expression: &str, json_ctx: &str) -> PyResult<PyObj
 ///     True if the result is truthy, False otherwise
 #[pyfunction]
 fn check(expression: &str, context: &Bound<'_, PyAny>) -> PyResult<bool> {
-    let ctx = py_to_val(context)?;
+    let ctx = py_to_val(context, 0)?;
     let expr = Expr::parse_cached_arc(expression).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let result = expr.eval(&ctx).map_err(|e| PyValueError::new_err(e.to_string()))?;
     Ok(!matches!(result, Val::Bool(false) | Val::Nil))

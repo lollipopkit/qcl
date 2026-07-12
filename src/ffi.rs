@@ -7,7 +7,7 @@
 use alloc::{ffi::CString, format};
 use core::ffi::{CStr, c_char, c_int};
 
-use crate::{ast::Parser, token::Tokenizer, val::Val};
+use crate::{expr::Expr, val::Val};
 
 /// Parse and evaluate a QCL expression against a JSON context string.
 ///
@@ -46,11 +46,7 @@ pub unsafe extern "C" fn qcl_eval_json(expression: *const c_char, json_ctx: *con
 /// This lower-level function takes a raw expression string and evaluates it.
 /// Context must be built separately.
 fn eval_inner(expression: &str, ctx: &Val) -> *mut c_char {
-    let tokens = match Tokenizer::new(expression) {
-        Ok(t) => t,
-        Err(e) => return set_err(format!("{e}")),
-    };
-    let expr = match Parser::new(&tokens).parse() {
+    let expr = match Expr::parse_cached_arc(expression) {
         Ok(e) => e,
         Err(e) => return set_err(format!("{e}")),
     };
@@ -127,14 +123,7 @@ pub unsafe extern "C" fn qcl_check_json(expression: *const c_char, json_ctx: *co
         }
     };
 
-    let tokens = match Tokenizer::new(expr_str) {
-        Ok(t) => t,
-        Err(e) => {
-            set_err(format!("{e}"));
-            return -1;
-        }
-    };
-    let expr = match Parser::new(&tokens).parse() {
+    let expr = match Expr::parse_cached_arc(expr_str) {
         Ok(e) => e,
         Err(e) => {
             set_err(format!("{e}"));

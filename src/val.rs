@@ -36,10 +36,54 @@ pub enum Val {
     Nil,
 }
 
+/// Formats an `i64` into a fixed stack buffer so a map lookup by integer index
+/// (`a.1`) can borrow a `&str` key without allocating. i64 decimal is at most
+/// 20 bytes ("-9223372036854775808").
+struct IntKey {
+    buf: [u8; 20],
+    len: usize,
+}
+
+impl core::fmt::Write for IntKey {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let bytes = s.as_bytes();
+        let end = self.len + bytes.len();
+        if end > self.buf.len() {
+            return Err(core::fmt::Error);
+        }
+        self.buf[self.len..end].copy_from_slice(bytes);
+        self.len = end;
+        Ok(())
+    }
+}
+
+impl IntKey {
+    #[inline]
+    fn new(n: i64) -> Self {
+        use core::fmt::Write as _;
+        let mut key = IntKey { buf: [0; 20], len: 0 };
+        // Infallible: an i64 never needs more than 20 bytes.
+        let _ = write!(key, "{n}");
+        key
+    }
+
+    #[inline]
+    fn as_str(&self) -> &str {
+        // Only ASCII digits and '-' are written, so this is always valid UTF-8.
+        core::str::from_utf8(&self.buf[..self.len]).unwrap_or("")
+    }
+}
+
 impl Val {
     pub(crate) fn access(&self, field: &Val) -> Option<&Val> {
         match (self, field) {
             (Val::Map(m), Val::Str(s)) => m.get(s.as_ref()),
+            // `a.1` is equivalent to `a."1"`: map keys are string-valued, so an
+            // integer index is normalized to its decimal string form.
+            (Val::Map(m), Val::Int(i)) => {
+                let key = IntKey::new(*i);
+                m.get(key.as_str())
+            }
             (Val::List(l), Val::Int(i)) => {
                 let idx = if *i < 0 {
                     let adjusted = l.len() as i64 + *i;
@@ -432,68 +476,109 @@ impl From<()> for Val {
     }
 }
 
+/// Depth cap for `serde_*::Value` -> `Val` conversion, mirroring the deserialize
+/// guard. These `From` impls recurse directly (they don't go through the
+/// depth-bounded `ValVisitor`), so a deeply nested `Value` — e.g. built by
+/// `Val::try_from` via `serde_json::to_value`, which itself has no text-parse
+/// recursion limit — would otherwise overflow the stack. Subtrees deeper than
+/// this are converted to `Nil` (fail-safe truncation rather than a crash).
+#[cfg(any(feature = "json", feature = "yaml"))]
+const MAX_VALUE_CONVERSION_DEPTH: usize = 128;
+
 #[cfg(feature = "json")]
 impl From<serde_json::Value> for Val {
     fn from(val: serde_json::Value) -> Self {
-        match val {
-            serde_json::Value::String(s) => Val::Str(Arc::<str>::from(s.into_boxed_str())),
-            serde_json::Value::Number(n) => {
-                if let Some(i) = n.as_i64() {
-                    Val::Int(i)
-                } else if let Some(f) = n.as_f64() {
-                    Val::Float(f)
-                } else {
-                    Val::Nil
-                }
+        json_value_to_val(val, 0)
+    }
+}
+
+#[cfg(feature = "json")]
+fn json_value_to_val(val: serde_json::Value, depth: usize) -> Val {
+    match val {
+        serde_json::Value::String(s) => Val::Str(Arc::<str>::from(s.into_boxed_str())),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Val::Int(i)
+            } else if let Some(f) = n.as_f64() {
+                Val::Float(f)
+            } else {
+                Val::Nil
             }
-            serde_json::Value::Bool(b) => Val::Bool(b),
-            serde_json::Value::Array(a) => {
-                let v = a.into_iter().map(Val::from).collect();
-                Val::List(Arc::new(v))
-            }
-            serde_json::Value::Object(o) => {
-                let m = o.into_iter().map(|(k, v)| (k, Val::from(v))).collect();
-                Val::Map(Arc::new(m))
-            }
-            serde_json::Value::Null => Val::Nil,
         }
+        serde_json::Value::Bool(b) => Val::Bool(b),
+        serde_json::Value::Array(a) => {
+            if depth >= MAX_VALUE_CONVERSION_DEPTH {
+                return Val::Nil;
+            }
+            let v = a.into_iter().map(|e| json_value_to_val(e, depth + 1)).collect();
+            Val::List(Arc::new(v))
+        }
+        serde_json::Value::Object(o) => {
+            if depth >= MAX_VALUE_CONVERSION_DEPTH {
+                return Val::Nil;
+            }
+            let m = o
+                .into_iter()
+                .map(|(k, v)| (k, json_value_to_val(v, depth + 1)))
+                .collect();
+            Val::Map(Arc::new(m))
+        }
+        serde_json::Value::Null => Val::Nil,
     }
 }
 
 #[cfg(feature = "yaml")]
 impl From<serde_yaml::Value> for Val {
     fn from(val: serde_yaml::Value) -> Self {
-        match val {
-            serde_yaml::Value::String(s) => Val::Str(Arc::<str>::from(s.into_boxed_str())),
-            serde_yaml::Value::Number(n) => {
-                if let Some(i) = n.as_i64() {
-                    Val::Int(i)
-                } else if let Some(f) = n.as_f64() {
-                    Val::Float(f)
-                } else {
-                    Val::Nil
-                }
+        yaml_value_to_val(val, 0)
+    }
+}
+
+#[cfg(feature = "yaml")]
+fn yaml_value_to_val(val: serde_yaml::Value, depth: usize) -> Val {
+    match val {
+        serde_yaml::Value::String(s) => Val::Str(Arc::<str>::from(s.into_boxed_str())),
+        serde_yaml::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Val::Int(i)
+            } else if let Some(f) = n.as_f64() {
+                Val::Float(f)
+            } else {
+                Val::Nil
             }
-            serde_yaml::Value::Bool(b) => Val::Bool(b),
-            serde_yaml::Value::Sequence(a) => {
-                let v = a.into_iter().map(Val::from).collect();
-                Val::List(Arc::new(v))
+        }
+        serde_yaml::Value::Bool(b) => Val::Bool(b),
+        serde_yaml::Value::Sequence(a) => {
+            if depth >= MAX_VALUE_CONVERSION_DEPTH {
+                return Val::Nil;
             }
-            serde_yaml::Value::Mapping(o) => {
-                let m = o
-                    .into_iter()
-                    .filter_map(|(k, v)| {
-                        if let serde_yaml::Value::String(key) = k {
-                            Some((key, Val::from(v)))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                Val::Map(Arc::new(m))
+            let v = a.into_iter().map(|e| yaml_value_to_val(e, depth + 1)).collect();
+            Val::List(Arc::new(v))
+        }
+        serde_yaml::Value::Mapping(o) => {
+            if depth >= MAX_VALUE_CONVERSION_DEPTH {
+                return Val::Nil;
             }
-            serde_yaml::Value::Null => Val::Nil,
-            serde_yaml::Value::Tagged(tagged) => Val::from(tagged.value),
+            let m = o
+                .into_iter()
+                .filter_map(|(k, v)| {
+                    if let serde_yaml::Value::String(key) = k {
+                        Some((key, yaml_value_to_val(v, depth + 1)))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            Val::Map(Arc::new(m))
+        }
+        serde_yaml::Value::Null => Val::Nil,
+        serde_yaml::Value::Tagged(tagged) => {
+            // A `Tagged` wraps another value and can itself nest, so it must
+            // count toward the budget to keep the recursion bounded.
+            if depth >= MAX_VALUE_CONVERSION_DEPTH {
+                return Val::Nil;
+            }
+            yaml_value_to_val(tagged.value, depth + 1)
         }
     }
 }

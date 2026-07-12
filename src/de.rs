@@ -1,11 +1,39 @@
 use crate::val::Val;
 use hashbrown::HashMap;
-use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
+use serde::de::{Deserialize, DeserializeSeed, Deserializer, Error as DeError, MapAccess, SeqAccess, Visitor};
 use std::fmt;
 use std::sync::Arc;
 
-/// Custom Visitor for deserializing any JSON value to Val enum
-struct ValVisitor;
+/// Cap on container nesting during deserialization. Deeply nested input would
+/// otherwise recurse (visit_seq/visit_map) and, once built, a deep `Val` would
+/// overflow the stack when dropped/traversed. serde_json/yaml/toml each have
+/// their own recursion limits, but this also guards backends that don't (e.g.
+/// serde_wasm_bindgen) and keeps the resulting `Val` depth bounded.
+const MAX_DESERIALIZE_DEPTH: usize = 128;
+
+/// Bound preallocation from a possibly attacker-influenced `size_hint`.
+const MAX_PREALLOC: usize = 4096;
+
+/// Seed carrying the current nesting depth so recursion can be bounded.
+struct ValSeed {
+    depth: usize,
+}
+
+impl<'de> DeserializeSeed<'de> for ValSeed {
+    type Value = Val;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Val, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_any(ValVisitor { depth: self.depth })
+    }
+}
+
+/// Custom Visitor for deserializing any JSON/YAML/TOML value to a `Val`.
+struct ValVisitor {
+    depth: usize,
+}
 
 impl<'de> Visitor<'de> for ValVisitor {
     type Value = Val;
@@ -55,9 +83,12 @@ impl<'de> Visitor<'de> for ValVisitor {
     where
         A: SeqAccess<'de>,
     {
-        let size_hint = seq.size_hint().unwrap_or(0);
+        if self.depth >= MAX_DESERIALIZE_DEPTH {
+            return Err(A::Error::custom("input nesting is too deep"));
+        }
+        let size_hint = seq.size_hint().unwrap_or(0).min(MAX_PREALLOC);
         let mut elements = Vec::with_capacity(size_hint);
-        while let Some(elem) = seq.next_element::<Val>()? {
+        while let Some(elem) = seq.next_element_seed(ValSeed { depth: self.depth + 1 })? {
             elements.push(elem);
         }
         Ok(Val::List(Arc::new(elements)))
@@ -67,9 +98,13 @@ impl<'de> Visitor<'de> for ValVisitor {
     where
         M: MapAccess<'de>,
     {
-        let size_hint = map_access.size_hint().unwrap_or(0);
+        if self.depth >= MAX_DESERIALIZE_DEPTH {
+            return Err(M::Error::custom("input nesting is too deep"));
+        }
+        let size_hint = map_access.size_hint().unwrap_or(0).min(MAX_PREALLOC);
         let mut map = HashMap::with_capacity(size_hint);
-        while let Some((key, value)) = map_access.next_entry::<String, Val>()? {
+        while let Some(key) = map_access.next_key::<String>()? {
+            let value = map_access.next_value_seed(ValSeed { depth: self.depth + 1 })?;
             map.insert(key, value);
         }
         Ok(Val::Map(Arc::new(map)))
@@ -81,7 +116,7 @@ impl<'de> Deserialize<'de> for Val {
     where
         D: Deserializer<'de>,
     {
-        deserializer.deserialize_any(ValVisitor)
+        ValSeed { depth: 0 }.deserialize(deserializer)
     }
 }
 

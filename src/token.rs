@@ -3,6 +3,12 @@ use core::fmt::Debug;
 
 use crate::error::{Error, Result};
 
+/// Cap on up-front token-vector allocation. `s.len() / 4` is a fine estimate for
+/// normal expressions, but a huge (possibly untrusted) input would otherwise
+/// force a multi-hundred-MB reservation before a single token is produced. The
+/// vector still grows on demand past this for genuinely large token streams.
+const MAX_TOKEN_PREALLOC: usize = 4096;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     LParen,           // (
@@ -61,7 +67,7 @@ impl<'a> Tokenizer<'a> {
             bytes: s.as_bytes(),
             idx: 0,
             len: s.len(),
-            tokens: Vec::with_capacity(s.len() / 4), // Preallocate a reasonable size
+            tokens: Vec::with_capacity((s.len() / 4).min(MAX_TOKEN_PREALLOC)),
         };
         t.parse()?;
         Ok(t.tokens)
