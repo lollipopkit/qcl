@@ -34,8 +34,6 @@ const MAX_PARSE_CACHE_ENTRIES: usize = 4096;
 const MAX_CACHED_EXPR_LEN: usize = 4096;
 #[cfg(feature = "std")]
 const PARSE_CACHE_SHARDS: usize = 16;
-#[cfg(feature = "std")]
-const MAX_LITERAL_CONTAINER_CACHE_ENTRIES: usize = 1024;
 
 /// Grammar:
 /// exp      ::= ternary
@@ -115,8 +113,14 @@ struct ParseCacheShard {
 }
 
 #[cfg(feature = "std")]
+struct CacheEntry {
+    expr: Arc<Expr>,
+    last_used: AtomicU64,
+}
+
+#[cfg(feature = "std")]
 struct ParseCacheState {
-    entries: HashMap<String, (Arc<Expr>, u64)>,
+    entries: HashMap<String, CacheEntry>,
 }
 
 #[cfg(feature = "std")]
@@ -130,10 +134,17 @@ impl ParseCacheState {
         }
     }
 
-    fn get(&mut self, expression: &str) -> Option<Arc<Expr>> {
-        let entry = self.entries.get_mut(expression)?;
-        entry.1 = CACHE_CLOCK.fetch_add(1, Ordering::Relaxed);
-        Some(entry.0.clone())
+    /// Look up under a shared (read) lock. The LRU timestamp lives in an atomic
+    /// so a cache hit — the hot path for repeated ACL checks — only needs a
+    /// shared lock and never serializes readers within a shard.
+    fn get(&self, expression: &str) -> Option<Arc<Expr>> {
+        let entry = self.entries.get(expression)?;
+        // fetch_max keeps last_used monotonic: two readers racing under the
+        // shared lock cannot let an earlier ticket overwrite a later one's.
+        entry
+            .last_used
+            .fetch_max(CACHE_CLOCK.fetch_add(1, Ordering::Relaxed), Ordering::Relaxed);
+        Some(entry.expr.clone())
     }
 
     fn insert(&mut self, expression: String, expr: Arc<Expr>) {
@@ -146,14 +157,20 @@ impl ParseCacheState {
         }
 
         let ts = CACHE_CLOCK.fetch_add(1, Ordering::Relaxed);
-        self.entries.insert(expression, (expr, ts));
+        self.entries.insert(
+            expression,
+            CacheEntry {
+                expr,
+                last_used: AtomicU64::new(ts),
+            },
+        );
     }
 
     fn evict_oldest(&mut self) {
         if let Some(oldest_key) = self
             .entries
             .iter()
-            .min_by_key(|(_, (_, ts))| *ts)
+            .min_by_key(|(_, entry)| entry.last_used.load(Ordering::Relaxed))
             .map(|(k, _)| k.clone())
         {
             self.entries.remove(&oldest_key);
@@ -170,10 +187,6 @@ static PARSE_CACHE: Lazy<Box<[ParseCacheShard]>> = Lazy::new(|| {
         .collect::<Vec<_>>()
         .into_boxed_slice()
 });
-
-#[cfg(feature = "std")]
-static LITERAL_CONTAINER_CACHE: Lazy<RwLock<HashMap<usize, Val>>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
 
 #[cfg(feature = "std")]
 #[inline]
@@ -193,30 +206,6 @@ fn parse_cache_shard_idx(expression: &str) -> usize {
 #[inline]
 fn parse_cache_shard(expression: &str) -> &'static ParseCacheShard {
     &PARSE_CACHE[parse_cache_shard_idx(expression)]
-}
-
-#[cfg(feature = "std")]
-#[inline]
-fn literal_container_cache_key(expr: &Expr) -> usize {
-    expr as *const Expr as usize
-}
-
-#[cfg(feature = "std")]
-fn literal_container_cache_get(expr: &Expr) -> Option<Val> {
-    LITERAL_CONTAINER_CACHE
-        .read()
-        .unwrap()
-        .get(&literal_container_cache_key(expr))
-        .cloned()
-}
-
-#[cfg(feature = "std")]
-fn literal_container_cache_insert(expr: &Expr, value: &Val) {
-    let mut cache = LITERAL_CONTAINER_CACHE.write().unwrap();
-    if cache.len() >= MAX_LITERAL_CONTAINER_CACHE_ENTRIES {
-        cache.clear();
-    }
-    cache.insert(literal_container_cache_key(expr), value.clone());
 }
 
 impl Expr {
@@ -303,13 +292,6 @@ impl Expr {
                 }
             }
             Expr::List(exprs) => {
-                #[cfg(feature = "std")]
-                if exprs.iter().all(|expr| matches!(&**expr, Expr::Val(_))) {
-                    if let Some(cached) = literal_container_cache_get(self) {
-                        return Ok(cached);
-                    }
-                }
-
                 let mut values = Vec::with_capacity(exprs.len());
                 for expr in exprs {
                     values.push(match &**expr {
@@ -317,24 +299,9 @@ impl Expr {
                         _ => expr.eval(ctx)?,
                     });
                 }
-                let result = Val::List(Arc::new(values));
-                #[cfg(feature = "std")]
-                if exprs.iter().all(|expr| matches!(&**expr, Expr::Val(_))) {
-                    literal_container_cache_insert(self, &result);
-                }
-                Ok(result)
+                Ok(Val::List(Arc::new(values)))
             }
             Expr::Map(pairs) => {
-                #[cfg(feature = "std")]
-                if pairs
-                    .iter()
-                    .all(|(key, value)| matches!(&**key, Expr::Val(_)) && matches!(&**value, Expr::Val(_)))
-                {
-                    if let Some(cached) = literal_container_cache_get(self) {
-                        return Ok(cached);
-                    }
-                }
-
                 let mut map = hashbrown::HashMap::with_capacity(pairs.len());
                 for (key_expr, value_expr) in pairs {
                     let key_tmp;
@@ -359,15 +326,7 @@ impl Expr {
 
                     map.insert(key_str, value_val);
                 }
-                let result = Val::Map(Arc::new(map));
-                #[cfg(feature = "std")]
-                if pairs
-                    .iter()
-                    .all(|(key, value)| matches!(&**key, Expr::Val(_)) && matches!(&**value, Expr::Val(_)))
-                {
-                    literal_container_cache_insert(self, &result);
-                }
-                Ok(result)
+                Ok(Val::Map(Arc::new(map)))
             }
             Expr::Paren(expr) => expr.eval(ctx),
             Expr::Val(val) => Ok(val.clone()), // Clone necessary as eval returns owned Val
@@ -474,7 +433,7 @@ impl Expr {
     pub fn parse_cached_arc(expression: &str) -> Result<Arc<Expr>> {
         if expression.len() <= MAX_CACHED_EXPR_LEN {
             let shard = parse_cache_shard(expression);
-            if let Some(cached) = shard.state.write().unwrap().get(expression) {
+            if let Some(cached) = shard.state.read().unwrap().get(expression) {
                 return Ok(cached);
             }
         }

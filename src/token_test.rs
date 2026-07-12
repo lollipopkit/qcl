@@ -775,4 +775,52 @@ mod tests {
             ]
         );
     }
+
+    // The tokenizer indexes UTF-8 bytes directly; these guard that multibyte
+    // source content (not just \u escapes) advances by full char widths.
+    #[test]
+    fn multibyte_string_literal_content() {
+        let t = Tokenizer::new(r#""你好, мир 🌍""#);
+        assert_eq!(t.unwrap(), vec![str_token("你好, мир 🌍")]);
+    }
+
+    #[test]
+    fn multibyte_string_with_escape() {
+        let t = Tokenizer::new(r#""café\n世界""#);
+        assert_eq!(t.unwrap(), vec![str_token("café\n世界")]);
+    }
+
+    #[test]
+    fn multibyte_unicode_identifier() {
+        // Bare identifiers are Id tokens; unicode letters are valid id chars.
+        let t = Tokenizer::new("café");
+        assert_eq!(t.unwrap(), vec![id("café")]);
+
+        let t = Tokenizer::new("@订单.状态");
+        assert_eq!(t.unwrap(), vec![Token::At, id("订单"), Token::Dot, id("状态")]);
+    }
+
+    #[test]
+    fn multibyte_line_comment() {
+        let t = Tokenizer::new("1 // 中文注释 with 🌍\n+ 2");
+        assert_eq!(t.unwrap(), vec![Token::Int(1), Token::Add, Token::Int(2)]);
+    }
+
+    #[test]
+    fn multibyte_block_comment() {
+        let t = Tokenizer::new("1 /* 嵌套 /* 世界 */ 注释 */ + 2");
+        assert_eq!(t.unwrap(), vec![Token::Int(1), Token::Add, Token::Int(2)]);
+    }
+
+    #[test]
+    fn unterminated_string_with_multibyte_does_not_panic() {
+        // Must return an error, not slice mid-char.
+        assert!(Tokenizer::new(r#""你好"#).is_err());
+    }
+
+    #[test]
+    fn unicode_escape_followed_by_multibyte_does_not_panic() {
+        // \u with fewer than 4 hex digits then a multibyte char: error, no panic.
+        assert!(Tokenizer::new(r#""\u4世界""#).is_err());
+    }
 }

@@ -19,13 +19,14 @@ CARGO_FUZZ ?= cargo fuzz
 DICT_ARG = $(if $(filter $(TARGET),$(DICT_TARGETS)),-dict="$(DICT)",)
 FUZZ_ARGS = -artifact_prefix="$(ARTIFACT_PREFIX)" -max_total_time=$(MAX_TIME) $(DICT_ARG) $(RUN_ARGS)
 
-.PHONY: clean help check test fmt fmt-check clippy bench run fuzz fuzz-all fuzz-quick fuzz-check fuzz-install fuzz-clean fuzz-list fuzz-replay validate-fuzz-target wasm ffi python
+.PHONY: clean help check check-nostd test fmt fmt-check clippy bench run fuzz fuzz-all fuzz-quick fuzz-check fuzz-install fuzz-clean fuzz-list fuzz-replay validate-fuzz-target wasm ffi python
 
 help:
 	@printf '%s\n' \
 		'Usage:' \
 		'  make all' \
 		'  make check' \
+		'  make check-nostd' \
 		'  make clean' \
 		'  make test' \
 		'  make fmt' \
@@ -37,6 +38,7 @@ help:
 		'Targets:' \
 		'  help         Show this message' \
 		'  check        cargo check --features all' \
+		'  check-nostd  no_std rlib build check (no default features)' \
 		'  clean        cargo clean plus fuzz outputs' \
 		'  test         cargo test --features all -- --nocapture' \
 		'  fmt          cargo fmt' \
@@ -68,6 +70,13 @@ help:
 
 check:
 	$(CARGO) check --features all
+
+# no_std is consumed as an rlib (the downstream binary supplies the global
+# allocator / panic handler). A bare `cargo check --no-default-features` would
+# instead try to link the cdylib artifact and fail for lack of those, so verify
+# no_std against the rlib crate-type.
+check-nostd:
+	$(CARGO) rustc --no-default-features --features sem_arith --crate-type rlib
 
 test:
 	$(CARGO) test --features all -- --nocapture
