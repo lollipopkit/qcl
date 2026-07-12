@@ -139,9 +139,11 @@ impl ParseCacheState {
     /// shared lock and never serializes readers within a shard.
     fn get(&self, expression: &str) -> Option<Arc<Expr>> {
         let entry = self.entries.get(expression)?;
+        // fetch_max keeps last_used monotonic: two readers racing under the
+        // shared lock cannot let an earlier ticket overwrite a later one's.
         entry
             .last_used
-            .store(CACHE_CLOCK.fetch_add(1, Ordering::Relaxed), Ordering::Relaxed);
+            .fetch_max(CACHE_CLOCK.fetch_add(1, Ordering::Relaxed), Ordering::Relaxed);
         Some(entry.expr.clone())
     }
 
