@@ -797,10 +797,7 @@ mod tests {
         assert_eq!(t.unwrap(), vec![id("café")]);
 
         let t = Tokenizer::new("@订单.状态");
-        assert_eq!(
-            t.unwrap(),
-            vec![Token::At, id("订单"), Token::Dot, id("状态")]
-        );
+        assert_eq!(t.unwrap(), vec![Token::At, id("订单"), Token::Dot, id("状态")]);
     }
 
     #[test]
