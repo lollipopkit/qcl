@@ -14,3 +14,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - run: cargo test --all-features
+      # Verify the no_std build via the rlib crate-type; a bare
+      # `cargo check --no-default-features` would try to link the cdylib and
+      # fail for lack of a downstream-provided allocator / panic handler.
+      - name: no_std (rlib) build check
+        run: cargo rustc --no-default-features --features sem_arith --crate-type rlib
