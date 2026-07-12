@@ -442,6 +442,40 @@ mod test {
     }
 
     #[test]
+    fn deeply_nested_postfix_access_is_rejected() {
+        // `nil.a.a.a...` builds a left-leaning Access spine; without a depth
+        // bound this overflowed the stack in fold_constants/eval/Drop.
+        let mut expr = "nil".to_string();
+        for _ in 0..5000 {
+            expr.push_str(".a");
+        }
+        let result = Expr::try_from(expr.as_str());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("too deep"));
+    }
+
+    #[test]
+    fn deeply_multiplied_paren_chain_is_rejected() {
+        // Parens (bounded) times binary chains (bounded) previously composed
+        // into an unbounded AST spine that overflowed the stack.
+        let mut expr = "1".to_string();
+        for _ in 0..200 {
+            expr = format!("({expr})");
+            expr.push_str(&"*1".repeat(200));
+        }
+        let result = Expr::try_from(expr.as_str());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("too deep"));
+    }
+
+    #[test]
+    fn long_binary_chain_is_rejected() {
+        // A single very long operator chain builds a deep left-leaning tree.
+        let expr = format!("1{}", "+1".repeat(5000));
+        assert!(Expr::try_from(expr.as_str()).is_err());
+    }
+
+    #[test]
     fn deeply_nested_ternary_is_rejected() {
         // Build: true ? true : true ? true : ... (chain of 300 ternaries)
         let mut expr = "true".to_string();
