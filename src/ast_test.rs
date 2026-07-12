@@ -476,6 +476,21 @@ mod test {
     }
 
     #[test]
+    fn nesting_at_exactly_max_depth_parses() {
+        use crate::ast::MAX_PARSE_DEPTH;
+        // `MAX_PARSE_DEPTH - 1` nested parens drive the depth guard to exactly
+        // MAX_PARSE_DEPTH and must still parse; one more level is rejected.
+        let boundary = MAX_PARSE_DEPTH - 1;
+        let ok = format!("{}1{}", "(".repeat(boundary), ")".repeat(boundary));
+        assert!(Expr::try_from(ok.as_str()).is_ok());
+
+        let too_deep = format!("{}1{}", "(".repeat(MAX_PARSE_DEPTH), ")".repeat(MAX_PARSE_DEPTH));
+        let result = Expr::try_from(too_deep.as_str());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("too deep"));
+    }
+
+    #[test]
     fn deeply_nested_ternary_is_rejected() {
         // Build: true ? true : true ? true : ... (chain of 300 ternaries)
         let mut expr = "true".to_string();

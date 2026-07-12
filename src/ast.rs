@@ -8,7 +8,7 @@ use crate::{
     val::Val,
 };
 
-const MAX_PARSE_DEPTH: usize = 128;
+pub(crate) const MAX_PARSE_DEPTH: usize = 128;
 const MAX_AT_PATH_SEGMENTS: usize = 256;
 static NIL_TOKEN: Token = Token::Nil;
 
@@ -186,60 +186,69 @@ impl<'a> Parser<'a> {
     fn parse_coalesce(&mut self) -> Result<Expr> {
         let mut expr = self.parse_or()?;
         let mut nested = 0usize;
-        while !self.eof() {
-            match self.tokens[self.pos] {
-                Token::QuestionQuestion => {
-                    self.enter_nested("Coalesce chain is too deep")?;
-                    nested += 1;
-                    self.pos += 1;
-                    let right = self.parse_or()?;
-                    expr = Expr::Coalesce(Box::new(expr), Box::new(right));
+        let result = (|| -> Result<Expr> {
+            while !self.eof() {
+                match self.tokens[self.pos] {
+                    Token::QuestionQuestion => {
+                        self.enter_nested("Coalesce chain is too deep")?;
+                        nested += 1;
+                        self.pos += 1;
+                        let right = self.parse_or()?;
+                        expr = Expr::Coalesce(Box::new(expr), Box::new(right));
+                    }
+                    _ => break,
                 }
-                _ => break,
             }
-        }
+            Ok(expr)
+        })();
         self.leave_nested_n(nested);
-        Ok(expr)
+        result
     }
 
     /// - `expr || expr`
     fn parse_or(&mut self) -> Result<Expr> {
         let mut expr = self.parse_and()?;
         let mut nested = 0usize;
-        while !self.eof() {
-            match self.tokens[self.pos] {
-                Token::Or => {
-                    self.enter_nested("Logical OR chain is too deep")?;
-                    nested += 1;
-                    self.pos += 1;
-                    let right = self.parse_and()?;
-                    expr = Expr::Or(Box::new(expr), Box::new(right));
+        let result = (|| -> Result<Expr> {
+            while !self.eof() {
+                match self.tokens[self.pos] {
+                    Token::Or => {
+                        self.enter_nested("Logical OR chain is too deep")?;
+                        nested += 1;
+                        self.pos += 1;
+                        let right = self.parse_and()?;
+                        expr = Expr::Or(Box::new(expr), Box::new(right));
+                    }
+                    _ => break,
                 }
-                _ => break,
             }
-        }
+            Ok(expr)
+        })();
         self.leave_nested_n(nested);
-        Ok(expr)
+        result
     }
 
     /// `expr && expr`
     fn parse_and(&mut self) -> Result<Expr> {
         let mut expr = self.parse_cmp()?;
         let mut nested = 0usize;
-        while !self.eof() {
-            match self.tokens[self.pos] {
-                Token::And => {
-                    self.enter_nested("Logical AND chain is too deep")?;
-                    nested += 1;
-                    self.pos += 1;
-                    let right = self.parse_cmp()?;
-                    expr = Expr::And(Box::new(expr), Box::new(right));
+        let result = (|| -> Result<Expr> {
+            while !self.eof() {
+                match self.tokens[self.pos] {
+                    Token::And => {
+                        self.enter_nested("Logical AND chain is too deep")?;
+                        nested += 1;
+                        self.pos += 1;
+                        let right = self.parse_cmp()?;
+                        expr = Expr::And(Box::new(expr), Box::new(right));
+                    }
+                    _ => break,
                 }
-                _ => break,
             }
-        }
+            Ok(expr)
+        })();
         self.leave_nested_n(nested);
-        Ok(expr)
+        result
     }
 
     /// - `expr == expr`
@@ -248,25 +257,28 @@ impl<'a> Parser<'a> {
     fn parse_cmp(&mut self) -> Result<Expr> {
         let mut expr = self.parse_add_sub()?;
         let mut nested = 0usize;
-        while !self.eof() {
-            let op = match self.tokens[self.pos] {
-                Token::Eq => BinOp::Eq,
-                Token::Ne => BinOp::Ne,
-                Token::Gt => BinOp::Gt,
-                Token::Lt => BinOp::Lt,
-                Token::Ge => BinOp::Ge,
-                Token::Le => BinOp::Le,
-                Token::In => BinOp::In,
-                _ => break,
-            };
-            self.enter_nested("Comparison chain is too deep")?;
-            nested += 1;
-            self.pos += 1;
-            let right = self.parse_add_sub()?;
-            expr = Expr::Bin(Box::new(expr), op, Box::new(right));
-        }
+        let result = (|| -> Result<Expr> {
+            while !self.eof() {
+                let op = match self.tokens[self.pos] {
+                    Token::Eq => BinOp::Eq,
+                    Token::Ne => BinOp::Ne,
+                    Token::Gt => BinOp::Gt,
+                    Token::Lt => BinOp::Lt,
+                    Token::Ge => BinOp::Ge,
+                    Token::Le => BinOp::Le,
+                    Token::In => BinOp::In,
+                    _ => break,
+                };
+                self.enter_nested("Comparison chain is too deep")?;
+                nested += 1;
+                self.pos += 1;
+                let right = self.parse_add_sub()?;
+                expr = Expr::Bin(Box::new(expr), op, Box::new(right));
+            }
+            Ok(expr)
+        })();
         self.leave_nested_n(nested);
-        Ok(expr)
+        result
     }
 
     /// - `expr + expr`
@@ -274,20 +286,23 @@ impl<'a> Parser<'a> {
     fn parse_add_sub(&mut self) -> Result<Expr> {
         let mut expr = self.parse_mul_div()?;
         let mut nested = 0usize;
-        while !self.eof() {
-            let op = match self.tokens[self.pos] {
-                Token::Add => BinOp::Add,
-                Token::Sub => BinOp::Sub,
-                _ => break,
-            };
-            self.enter_nested("Add/sub chain is too deep")?;
-            nested += 1;
-            self.pos += 1;
-            let right = self.parse_mul_div()?;
-            expr = Expr::Bin(Box::new(expr), op, Box::new(right));
-        }
+        let result = (|| -> Result<Expr> {
+            while !self.eof() {
+                let op = match self.tokens[self.pos] {
+                    Token::Add => BinOp::Add,
+                    Token::Sub => BinOp::Sub,
+                    _ => break,
+                };
+                self.enter_nested("Add/sub chain is too deep")?;
+                nested += 1;
+                self.pos += 1;
+                let right = self.parse_mul_div()?;
+                expr = Expr::Bin(Box::new(expr), op, Box::new(right));
+            }
+            Ok(expr)
+        })();
         self.leave_nested_n(nested);
-        Ok(expr)
+        result
     }
 
     /// - `expr * expr`
@@ -295,21 +310,24 @@ impl<'a> Parser<'a> {
     fn parse_mul_div(&mut self) -> Result<Expr> {
         let mut expr = self.parse_unary()?;
         let mut nested = 0usize;
-        while !self.eof() {
-            let op = match self.tokens[self.pos] {
-                Token::Mul => BinOp::Mul,
-                Token::Div => BinOp::Div,
-                Token::Mod => BinOp::Mod,
-                _ => break,
-            };
-            self.enter_nested("Mul/div chain is too deep")?;
-            nested += 1;
-            self.pos += 1;
-            let right = self.parse_unary()?;
-            expr = Expr::Bin(Box::new(expr), op, Box::new(right));
-        }
+        let result = (|| -> Result<Expr> {
+            while !self.eof() {
+                let op = match self.tokens[self.pos] {
+                    Token::Mul => BinOp::Mul,
+                    Token::Div => BinOp::Div,
+                    Token::Mod => BinOp::Mod,
+                    _ => break,
+                };
+                self.enter_nested("Mul/div chain is too deep")?;
+                nested += 1;
+                self.pos += 1;
+                let right = self.parse_unary()?;
+                expr = Expr::Bin(Box::new(expr), op, Box::new(right));
+            }
+            Ok(expr)
+        })();
         self.leave_nested_n(nested);
-        Ok(expr)
+        result
     }
 
     /// - `!expr`
@@ -348,35 +366,39 @@ impl<'a> Parser<'a> {
         let mut expr = self.parse_primary()?;
         let mut nested = 0usize;
 
-        // 处理点访问
-        while !self.eof() && self.tokens[self.pos] == Token::Dot {
-            self.pos += 1;
-            self.ensure_not_eof("Expecting field after '.'")?;
+        // 在结果作用域内构建访问链,末尾无条件归还深度(含出错路径)。
+        let result = (|| -> Result<Expr> {
+            // 处理点访问
+            while !self.eof() && self.tokens[self.pos] == Token::Dot {
+                self.pos += 1;
+                self.ensure_not_eof("Expecting field after '.'")?;
 
-            let field = self.parse_field_accessor()?;
+                let field = self.parse_field_accessor()?;
 
-            match expr {
-                Expr::At(mut paths) => {
-                    // `@a` 后接的 `.b` 直接并入路径向量,eval 时按迭代展开,
-                    // 不加深 AST;仍需限制段数以防内存被无界撑大。
-                    if paths.len() >= MAX_AT_PATH_SEGMENTS {
-                        return Err(Error::Parse(self.err("Context access path is too deep")));
+                match expr {
+                    Expr::At(mut paths) => {
+                        // `@a` 后接的 `.b` 直接并入路径向量,eval 时按迭代展开,
+                        // 不加深 AST;仍需限制段数以防内存被无界撑大。
+                        if paths.len() >= MAX_AT_PATH_SEGMENTS {
+                            return Err(Error::Parse(self.err("Context access path is too deep")));
+                        }
+                        paths.push(Box::new(field));
+                        expr = Expr::At(paths);
                     }
-                    paths.push(Box::new(field));
-                    expr = Expr::At(paths);
-                }
-                _ => {
-                    // 每个 Access 节点都会加深 AST,eval/fold/Drop 都按此深度递归,
-                    // 必须纳入深度守卫以防栈溢出。
-                    self.enter_nested("Access chain is too deep")?;
-                    nested += 1;
-                    expr = Expr::Access(Box::new(expr), Box::new(field));
+                    _ => {
+                        // 每个 Access 节点都会加深 AST,eval/fold/Drop 都按此深度递归,
+                        // 必须纳入深度守卫以防栈溢出。
+                        self.enter_nested("Access chain is too deep")?;
+                        nested += 1;
+                        expr = Expr::Access(Box::new(expr), Box::new(field));
+                    }
                 }
             }
-        }
+            Ok(expr)
+        })();
 
         self.leave_nested_n(nested);
-        Ok(expr)
+        result
     }
 
     /// - `nil`
