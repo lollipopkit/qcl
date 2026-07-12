@@ -198,6 +198,21 @@ mod tests {
     }
 
     #[test]
+    fn test_map_access_by_int_index() {
+        // `a.1` on a map normalizes the integer to its string key: equivalent to `a."1"`.
+        let mut map = HashMap::new();
+        map.insert("1", "one".to_string());
+        map.insert("-2", "neg".to_string());
+
+        let val: Val = map.into();
+
+        assert_eq!(val.access(&Val::Int(1)), Some(&Val::Str("one".into())));
+        assert_eq!(val.access(&Val::Str("1".into())), Some(&Val::Str("one".into())));
+        assert_eq!(val.access(&Val::Int(-2)), Some(&Val::Str("neg".into())));
+        assert_eq!(val.access(&Val::Int(9)), None);
+    }
+
+    #[test]
     fn test_access_out_of_bounds() {
         let list = vec![10, 20, 30];
         let val: Val = list.into();
@@ -615,5 +630,44 @@ mod tests {
         assert_eq!(list.access(&Val::Int(u32::MAX as i64 + 1)), None);
         // Very negative value
         assert_eq!(list.access(&Val::Int(i64::MIN)), None);
+    }
+
+    // The From<serde_json::Value> impl recurses directly (not via the
+    // depth-bounded deserializer), so it must guard against deep nesting.
+    #[test]
+    #[cfg(feature = "json")]
+    fn from_json_value_truncates_beyond_depth_limit() {
+        let mut v = serde_json::Value::from(1);
+        for _ in 0..300 {
+            v = serde_json::Value::Array(vec![v]);
+        }
+        let val = Val::from(v); // must not overflow
+        let mut cur = &val;
+        let mut walked = 0;
+        while let Val::List(l) = cur {
+            assert_eq!(l.len(), 1);
+            cur = &l[0];
+            walked += 1;
+            if walked > 400 {
+                break;
+            }
+        }
+        // Past the limit the subtree is truncated to Nil rather than Int(1).
+        assert!(matches!(cur, Val::Nil));
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn from_json_value_preserves_within_limit() {
+        let mut v = serde_json::Value::from(7);
+        for _ in 0..100 {
+            v = serde_json::Value::Array(vec![v]);
+        }
+        let val = Val::from(v);
+        let mut cur = &val;
+        while let Val::List(l) = cur {
+            cur = &l[0];
+        }
+        assert_eq!(cur, &Val::Int(7));
     }
 }
