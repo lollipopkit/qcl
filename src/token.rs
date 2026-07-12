@@ -41,71 +41,130 @@ pub enum Token {
     Id(Arc<str>),     // identifier
 }
 
-/// [chars] and [idx] can be used for syntax error reporting.
-pub struct Tokenizer {
-    chars: Vec<char>,
+/// Byte-oriented tokenizer. `input`/`idx` index UTF-8 bytes directly, avoiding a
+/// full `Vec<char>` copy of the source; identifiers and string literals without
+/// escapes are sliced straight out of `input` with no intermediate allocation.
+/// `idx` is always kept on a UTF-8 char boundary.
+pub struct Tokenizer<'a> {
+    input: &'a str,
+    bytes: &'a [u8],
     idx: usize,
     len: usize,
     pub tokens: Vec<Token>,
 }
 
-impl Tokenizer {
+impl<'a> Tokenizer<'a> {
     #[allow(clippy::new_ret_no_self)]
     pub fn new(s: &str) -> Result<Vec<Token>> {
-        let chars: Vec<char> = s.chars().collect();
-        let len = chars.len();
         let mut t = Tokenizer {
-            chars,
+            input: s,
+            bytes: s.as_bytes(),
             idx: 0,
-            len,
+            len: s.len(),
             tokens: Vec::with_capacity(s.len() / 4), // Preallocate a reasonable size
         };
         t.parse()?;
         Ok(t.tokens)
     }
 
+    #[inline]
     fn eof(&self) -> bool {
         self.idx >= self.len
     }
 
-    fn peek(&self, offset: usize) -> Option<char> {
-        self.chars.get(self.idx + offset).copied()
+    /// Current byte. Only call when `!self.eof()`.
+    #[inline]
+    fn cur_byte(&self) -> u8 {
+        self.bytes[self.idx]
+    }
+
+    #[inline]
+    fn byte_at(&self, i: usize) -> Option<u8> {
+        self.bytes.get(i).copied()
+    }
+
+    /// Decode the char starting at `byte_idx` (must be a char boundary).
+    #[inline]
+    fn char_at(&self, byte_idx: usize) -> Option<char> {
+        self.input.get(byte_idx..).and_then(|s| s.chars().next())
+    }
+
+    #[inline]
+    fn cur_char(&self) -> Option<char> {
+        self.char_at(self.idx)
+    }
+
+    /// The char immediately after the current one. All call sites have an ASCII
+    /// (single-byte) current char, so `idx + 1` is a valid boundary there.
+    #[inline]
+    fn peek1(&self) -> Option<char> {
+        self.char_at(self.idx + 1)
     }
 
     fn err<T: AsRef<str>>(&self, msg: T) -> String {
         // Compute line:col from idx by scanning from start
         let mut line = 1usize;
         let mut col = 1usize;
-        for i in 0..self.idx.min(self.len) {
-            if self.chars[i] == '\n' {
+        let scanned = self.idx.min(self.len);
+        for c in self.input[..scanned].chars() {
+            if c == '\n' {
                 line += 1;
                 col = 1;
             } else {
                 col += 1;
             }
         }
-        // Collect near 10(max) chars around the error position
-        let r_idx = if self.idx + 5 < self.len {
-            self.idx + 5
+        // Collect near ~10 chars around the error position (char-boundary safe)
+        let l_idx = self.char_window_start(5);
+        let r_idx = self.char_window_end(5);
+        let near = &self.input[l_idx..r_idx];
+        let c = self.cur_char();
+        let ctx = if let Some(c) = c {
+            format!("'{}' at {}:{}, near '{}'", c, line, col, near)
         } else {
-            self.len
-        };
-        let l_idx = self.idx.saturating_sub(5);
-        let r_idx = if r_idx > self.len { self.len } else { r_idx };
-        let chars = &self.chars[l_idx..r_idx];
-        let chars: String = chars.iter().collect();
-        let c = self.chars.get(self.idx);
-        let ctx = if let Some(&c) = c {
-            format!("'{}' at {}:{}, near '{}'", c, line, col, chars)
-        } else {
-            format!("at end ({}:{}), near '{}'", line, col, chars)
+            format!("at end ({}:{}), near '{}'", line, col, near)
         };
         format!("Syntax error:\n{} ({})", msg.as_ref(), ctx)
     }
 
+    /// Byte offset ~`n` chars before `idx`, clamped to a char boundary.
+    fn char_window_start(&self, n: usize) -> usize {
+        let mut idx = self.idx.min(self.len);
+        for _ in 0..n {
+            if idx == 0 {
+                break;
+            }
+            idx -= 1;
+            while idx > 0 && !self.input.is_char_boundary(idx) {
+                idx -= 1;
+            }
+        }
+        idx
+    }
+
+    /// Byte offset ~`n` chars after `idx`, clamped to a char boundary.
+    fn char_window_end(&self, n: usize) -> usize {
+        let mut idx = self.idx.min(self.len);
+        for _ in 0..n {
+            if idx >= self.len {
+                break;
+            }
+            idx += 1;
+            while idx < self.len && !self.input.is_char_boundary(idx) {
+                idx += 1;
+            }
+        }
+        idx
+    }
+
     fn skip_whitespace(&mut self) {
-        while self.idx < self.len && self.chars[self.idx].is_whitespace() {
-            self.idx += 1;
+        while !self.eof() {
+            let c = self.cur_char().unwrap();
+            if c.is_whitespace() {
+                self.idx += c.len_utf8();
+            } else {
+                break;
+            }
         }
     }
 
@@ -127,11 +186,11 @@ impl Tokenizer {
 
     fn parse_str(&mut self) -> Result<()> {
         let mut s = String::new();
-        let quote = self.chars[self.idx];
+        let quote = self.cur_char().unwrap(); // ' or " (ASCII)
         self.idx += 1;
 
         while !self.eof() {
-            let c = self.chars[self.idx];
+            let c = self.cur_char().unwrap();
             match c {
                 '\\' => {
                     self.idx += 1;
@@ -139,7 +198,8 @@ impl Tokenizer {
                         return Err(Error::Tokenize(self.err("Invalid escape sequence")));
                     }
 
-                    let escaped = match self.chars[self.idx] {
+                    let next = self.cur_char().unwrap();
+                    let escaped = match next {
                         '\\' => '\\',
                         '"' => '"',
                         '\'' => '\'',
@@ -152,8 +212,15 @@ impl Tokenizer {
                             if self.idx + 4 > self.len {
                                 return Err(Error::Tokenize(self.err("Invalid \\uXXXX escape, need 4 hex digits")));
                             }
-                            let hex: String = self.chars[self.idx..self.idx + 4].iter().collect();
-                            let code = u32::from_str_radix(&hex, 16)
+                            // Validate on raw bytes first so the &str slice below is
+                            // guaranteed to land on a char boundary.
+                            let hb = &self.bytes[self.idx..self.idx + 4];
+                            if !hb.iter().all(|b| b.is_ascii_hexdigit()) {
+                                let shown = core::str::from_utf8(hb).unwrap_or("????");
+                                return Err(Error::Tokenize(self.err(format!("Invalid unicode escape: \\u{shown}"))));
+                            }
+                            let hex = &self.input[self.idx..self.idx + 4];
+                            let code = u32::from_str_radix(hex, 16)
                                 .map_err(|_| Error::Tokenize(self.err(format!("Invalid unicode escape: \\u{hex}"))))?;
                             let ch = char::from_u32(code).ok_or_else(|| {
                                 Error::Tokenize(self.err(format!("Invalid unicode codepoint: \\u{hex}")))
@@ -169,7 +236,7 @@ impl Tokenizer {
                         }
                     };
                     s.push(escaped);
-                    self.idx += 1;
+                    self.idx += 1; // escape letter is ASCII
                 }
                 c if c == quote => {
                     self.idx += 1;
@@ -178,7 +245,7 @@ impl Tokenizer {
                 }
                 _ => {
                     s.push(c);
-                    self.idx += 1;
+                    self.idx += c.len_utf8();
                 }
             }
         }
@@ -215,18 +282,16 @@ impl Tokenizer {
         let start_idx = self.idx;
 
         // Handle optional sign prefix
-        if !self.eof() && (self.chars[self.idx] == '-' || self.chars[self.idx] == '+') {
+        if !self.eof() && matches!(self.cur_byte(), b'-' | b'+') {
             self.idx += 1;
         }
 
         // Check for hex (0x) or octal (0o) prefix
         if !self.eof()
-            && self.chars[self.idx] == '0'
-            && self.idx + 1 < self.len
-            && (self.chars[self.idx + 1] == 'x'
-                || self.chars[self.idx + 1] == 'X'
-                || self.chars[self.idx + 1] == 'o'
-                || self.chars[self.idx + 1] == 'O')
+            && self.cur_byte() == b'0'
+            && self
+                .byte_at(self.idx + 1)
+                .is_some_and(|b| matches!(b, b'x' | b'X' | b'o' | b'O'))
         {
             self.idx = start_idx;
             return self.parse_int();
@@ -236,27 +301,27 @@ impl Tokenizer {
         self.idx = start_idx;
         let mut dot_count = 0;
         while !self.eof() {
-            let c = self.chars[self.idx];
-            if c.is_ascii_digit() {
+            let b = self.cur_byte();
+            if b.is_ascii_digit() {
                 self.idx += 1;
-            } else if c == '.' {
+            } else if b == b'.' {
                 if dot_count > 0 {
                     return Err(Error::Tokenize(self.err("Invalid float, multiple '.'")));
                 }
                 self.idx += 1;
                 dot_count += 1;
-            } else if (c == '-' || c == '+') && self.idx == start_idx {
+            } else if matches!(b, b'-' | b'+') && self.idx == start_idx {
                 self.idx += 1;
             } else {
                 break;
             }
         }
 
-        if self.idx > start_idx && self.chars[self.idx - 1] == '.' {
+        if self.idx > start_idx && self.bytes[self.idx - 1] == b'.' {
             return Err(Error::Tokenize(self.err("Invalid float, ends with '.'")));
         }
 
-        let num_str: String = self.chars[start_idx..self.idx].iter().collect();
+        let num_str = &self.input[start_idx..self.idx];
 
         let num = if dot_count > 0 {
             match num_str.parse() {
@@ -274,7 +339,7 @@ impl Tokenizer {
     }
 
     fn parse_id(&mut self) -> Result<()> {
-        if self.eof() || !Self::is_id_start(self.chars[self.idx]) {
+        if self.eof() || !self.cur_char().is_some_and(Self::is_id_start) {
             return Err(Error::Tokenize(self.err("Invalid identifier start")));
         }
 
@@ -285,20 +350,27 @@ impl Tokenizer {
     }
 
     fn scan_id_end(&self, start_idx: usize) -> usize {
-        let mut end = start_idx + 1;
-        while end < self.len && Self::is_id_continue(self.chars[end]) {
-            end += 1;
+        // Caller guarantees the char at start_idx is an id-start.
+        let first = self.char_at(start_idx).unwrap();
+        let mut end = start_idx + first.len_utf8();
+        while end < self.len {
+            let c = self.char_at(end).unwrap();
+            if Self::is_id_continue(c) {
+                end += c.len_utf8();
+            } else {
+                break;
+            }
         }
         end
     }
 
     fn push_id_token(&mut self, start_idx: usize, end_idx: usize) {
-        let id: String = self.chars[start_idx..end_idx].iter().collect();
+        let id = &self.input[start_idx..end_idx];
         self.tokens.push(Token::Id(Arc::<str>::from(id)));
     }
 
     fn parse_ident_or_keyword(&mut self) -> Result<()> {
-        if self.eof() || !Self::is_id_start(self.chars[self.idx]) {
+        if self.eof() || !self.cur_char().is_some_and(Self::is_id_start) {
             return Err(Error::Tokenize(self.err("Invalid identifier start")));
         }
 
@@ -306,11 +378,11 @@ impl Tokenizer {
         let end_idx = self.scan_id_end(start_idx);
         self.idx = end_idx;
 
-        let token = match &self.chars[start_idx..end_idx] {
-            ['t', 'r', 'u', 'e'] => Token::Bool(true),
-            ['f', 'a', 'l', 's', 'e'] => Token::Bool(false),
-            ['n', 'i', 'l'] => Token::Nil,
-            ['i', 'n'] => Token::In,
+        let token = match &self.input[start_idx..end_idx] {
+            "true" => Token::Bool(true),
+            "false" => Token::Bool(false),
+            "nil" => Token::Nil,
+            "in" => Token::In,
             _ => {
                 self.push_id_token(start_idx, end_idx);
                 return Ok(());
@@ -323,11 +395,11 @@ impl Tokenizer {
     /// - `@a.(@b - 1)` -> [At, Id("a"), Dot, LParen, At, Id("b"), Sub, Int(1), RParen]
     /// - `@a` -> [At, Id("a")]
     fn parse_at_list(&mut self) -> Result<()> {
-        self.idx += 1;
+        self.idx += 1; // '@' is ASCII
         self.tokens.push(Token::At);
 
         while !self.eof() {
-            let c = self.chars[self.idx];
+            let c = self.cur_char().unwrap();
             if Self::is_id_start(c) {
                 self.parse_id()?;
                 continue;
@@ -336,11 +408,12 @@ impl Tokenizer {
                 self.parse_int()?;
                 continue;
             }
-            if matches!(c, '+' | '-') && self.tokens.last().is_some_and(|tok| tok == &Token::Dot) {
-                if self.peek(1).is_some_and(|next| next.is_ascii_digit()) {
-                    self.parse_int()?;
-                    continue;
-                }
+            if matches!(c, '+' | '-')
+                && self.tokens.last().is_some_and(|tok| tok == &Token::Dot)
+                && self.peek1().is_some_and(|next| next.is_ascii_digit())
+            {
+                self.parse_int()?;
+                continue;
             }
 
             if c == '.' {
@@ -356,28 +429,26 @@ impl Tokenizer {
     fn parse_int(&mut self) -> Result<()> {
         let start_idx = self.idx;
 
-        if !self.eof() && (self.chars[self.idx] == '-' || self.chars[self.idx] == '+') {
+        if !self.eof() && matches!(self.cur_byte(), b'-' | b'+') {
             self.idx += 1;
         }
 
         if !self.eof()
-            && self.chars[self.idx] == '0'
-            && self.idx + 1 < self.len
-            && (self.chars[self.idx + 1] == 'x'
-                || self.chars[self.idx + 1] == 'X'
-                || self.chars[self.idx + 1] == 'o'
-                || self.chars[self.idx + 1] == 'O')
+            && self.cur_byte() == b'0'
+            && self
+                .byte_at(self.idx + 1)
+                .is_some_and(|b| matches!(b, b'x' | b'X' | b'o' | b'O'))
         {
-            let is_hex = self.chars[self.idx + 1] == 'x' || self.chars[self.idx + 1] == 'X';
+            let is_hex = matches!(self.byte_at(self.idx + 1), Some(b'x') | Some(b'X'));
             let radix = if is_hex { 16 } else { 8 };
             self.idx += 2; // skip '0x' or '0o'
             let digits_start = self.idx;
             while !self.eof() {
-                let c = self.chars[self.idx];
+                let b = self.cur_byte();
                 let valid = if is_hex {
-                    c.is_ascii_hexdigit()
+                    b.is_ascii_hexdigit()
                 } else {
-                    matches!(c, '0'..='7')
+                    matches!(b, b'0'..=b'7')
                 };
                 if valid {
                     self.idx += 1;
@@ -389,11 +460,11 @@ impl Tokenizer {
                 let label = if is_hex { "hex" } else { "octal" };
                 return Err(Error::Tokenize(self.err(format!("Invalid {label} literal, no digits"))));
             }
-            let digits: String = self.chars[digits_start..self.idx].iter().collect();
-            let val = i64::from_str_radix(&digits, radix).map_err(|_| {
+            let digits = &self.input[digits_start..self.idx];
+            let val = i64::from_str_radix(digits, radix).map_err(|_| {
                 Error::Tokenize(self.err(format!("Invalid int: 0{}{}", if is_hex { "x" } else { "o" }, digits)))
             })?;
-            let val = if start_idx < self.chars.len() && self.chars[start_idx] == '-' {
+            let val = if self.byte_at(start_idx) == Some(b'-') {
                 val.checked_neg()
                     .ok_or_else(|| Error::Tokenize(self.err("Integer overflow")))?
             } else {
@@ -404,15 +475,15 @@ impl Tokenizer {
         }
 
         while !self.eof() {
-            let c = self.chars[self.idx];
-            if c.is_ascii_digit() {
+            let b = self.cur_byte();
+            if b.is_ascii_digit() {
                 self.idx += 1;
             } else {
                 break;
             }
         }
 
-        let num_str: String = self.chars[start_idx..self.idx].iter().collect();
+        let num_str = &self.input[start_idx..self.idx];
         let num = match num_str.parse() {
             Ok(i) => i,
             Err(_) => return Err(Error::Tokenize(format!("{}: {}", self.err("Invalid int"), num_str))),
@@ -422,7 +493,7 @@ impl Tokenizer {
     }
 
     fn parse_punctuations(&mut self) -> Result<()> {
-        let c = self.chars[self.idx];
+        let c = self.cur_char().unwrap();
         match c {
             '(' => {
                 self.idx += 1;
@@ -478,7 +549,7 @@ impl Tokenizer {
                 Ok(())
             }
             '&' => {
-                if self.peek(1) == Some('&') {
+                if self.peek1() == Some('&') {
                     self.idx += 2;
                     self.tokens.push(Token::And);
                     Ok(())
@@ -487,7 +558,7 @@ impl Tokenizer {
                 }
             }
             '|' => {
-                if self.peek(1) == Some('|') {
+                if self.peek1() == Some('|') {
                     self.idx += 2;
                     self.tokens.push(Token::Or);
                     Ok(())
@@ -496,7 +567,7 @@ impl Tokenizer {
                 }
             }
             '+' => {
-                if self.sign_starts_number() && self.peek(1).is_some_and(|next| next.is_ascii_digit()) {
+                if self.sign_starts_number() && self.peek1().is_some_and(|next| next.is_ascii_digit()) {
                     return self.parse_num();
                 }
                 self.idx += 1;
@@ -504,7 +575,7 @@ impl Tokenizer {
                 Ok(())
             }
             '-' => {
-                if self.sign_starts_number() && self.peek(1).is_some_and(|next| next.is_ascii_digit()) {
+                if self.sign_starts_number() && self.peek1().is_some_and(|next| next.is_ascii_digit()) {
                     return self.parse_num();
                 }
                 self.idx += 1;
@@ -517,34 +588,36 @@ impl Tokenizer {
                 Ok(())
             }
             '/' => {
-                if self.peek(1) == Some('*') {
+                if self.peek1() == Some('*') {
                     // Multi-line comment with nesting support
                     self.idx += 2;
                     let mut depth = 1usize;
                     while !self.eof() && depth > 0 {
-                        if self.chars[self.idx] == '/' && self.peek(1) == Some('*') {
+                        if self.cur_byte() == b'/' && self.peek1() == Some('*') {
                             depth += 1;
                             self.idx += 2;
-                        } else if self.chars[self.idx] == '*' && self.peek(1) == Some('/') {
+                        } else if self.cur_byte() == b'*' && self.peek1() == Some('/') {
                             depth -= 1;
                             self.idx += 2;
                         } else {
-                            self.idx += 1;
+                            // Comment body may hold multibyte UTF-8; advance a full char.
+                            let ch = self.cur_char().unwrap();
+                            self.idx += ch.len_utf8();
                         }
                     }
                     if depth > 0 {
                         return Err(Error::Tokenize(self.err("Unterminated block comment")));
                     }
-                } else if self.peek(1) == Some('/') {
+                } else if self.peek1() == Some('/') {
                     self.idx += 2;
                     // Skip single-line comment
                     while !self.eof() {
-                        let c = self.chars[self.idx];
-                        if c == '\n' {
+                        if self.cur_byte() == b'\n' {
                             self.idx += 1;
                             break;
                         }
-                        self.idx += 1;
+                        let ch = self.cur_char().unwrap();
+                        self.idx += ch.len_utf8();
                     }
                 } else {
                     self.idx += 1;
@@ -559,7 +632,7 @@ impl Tokenizer {
             }
             '@' => self.parse_at_list(),
             '=' => {
-                if self.peek(1) == Some('=') {
+                if self.peek1() == Some('=') {
                     self.idx += 2;
                     self.tokens.push(Token::Eq);
                     Ok(())
@@ -568,7 +641,7 @@ impl Tokenizer {
                 }
             }
             '!' => {
-                if self.peek(1) == Some('=') {
+                if self.peek1() == Some('=') {
                     self.idx += 2;
                     self.tokens.push(Token::Ne);
                     Ok(())
@@ -579,7 +652,7 @@ impl Tokenizer {
                 }
             }
             '>' => {
-                if self.peek(1) == Some('=') {
+                if self.peek1() == Some('=') {
                     self.idx += 2;
                     self.tokens.push(Token::Ge);
                     Ok(())
@@ -590,7 +663,7 @@ impl Tokenizer {
                 }
             }
             '<' => {
-                if self.peek(1) == Some('=') {
+                if self.peek1() == Some('=') {
                     self.idx += 2;
                     self.tokens.push(Token::Le);
                     Ok(())
@@ -601,7 +674,7 @@ impl Tokenizer {
                 }
             }
             '?' => {
-                if self.peek(1) == Some('?') {
+                if self.peek1() == Some('?') {
                     self.idx += 2;
                     self.tokens.push(Token::QuestionQuestion);
                 } else {
@@ -620,7 +693,7 @@ impl Tokenizer {
             if self.eof() {
                 break;
             }
-            let c = self.chars[self.idx];
+            let c = self.cur_char().unwrap();
             match c {
                 '"' | '\'' => {
                     self.parse_str()?;
@@ -675,13 +748,13 @@ impl Tokenizer {
             return false;
         }
 
-        let c = self.chars[self.idx];
-        if c.is_ascii_digit() {
+        let b = self.cur_byte();
+        if b.is_ascii_digit() {
             return true;
         }
 
-        if matches!(c, '+' | '-') {
-            return self.peek(1).is_some_and(|next| next.is_ascii_digit());
+        if matches!(b, b'+' | b'-') {
+            return self.peek1().is_some_and(|next| next.is_ascii_digit());
         }
 
         false
