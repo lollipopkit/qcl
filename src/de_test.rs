@@ -551,4 +551,78 @@ role = "user"
         }
         assert!(Val::deserialize(v).is_ok());
     }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn from_json_str_keep_filters_top_level() {
+        use hashbrown::HashSet;
+        let json = r#"{"a":1,"b":{"x":2},"c":[1,2,3],"d":"skip"}"#;
+        let mut keep = HashSet::new();
+        keep.insert("b".to_string());
+        let val = from_json_str_keep(json, &keep).unwrap();
+        let m = match val {
+            Val::Map(m) => m,
+            _ => panic!("expected map"),
+        };
+        assert_eq!(m.len(), 1);
+        assert!(m.contains_key("b"));
+        assert!(!m.contains_key("a"));
+        // nested b.x is still parsed in full (filtering is top-level only)
+        assert!(matches!(m.get("b"), Some(Val::Map(_))));
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn from_json_str_keep_empty_parses_fully() {
+        use hashbrown::HashSet;
+        let json = r#"{"a":1,"b":2}"#;
+        let keep = HashSet::<String>::new();
+        let val = from_json_str_keep(json, &keep).unwrap();
+        assert!(matches!(val, Val::Map(m) if m.len() == 2));
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn from_json_str_keep_non_object_parses_fully() {
+        use hashbrown::HashSet;
+        let json = r#"[1,2,3]"#;
+        let mut keep = HashSet::new();
+        keep.insert("a".to_string());
+        let val = from_json_str_keep(json, &keep).unwrap();
+        assert!(matches!(val, Val::List(l) if l.len() == 3));
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn from_json_str_keep_preserves_eval_semantics() {
+        use crate::expr::Expr;
+        use hashbrown::HashSet;
+        let json = r#"{"user":{"role":"admin"},"big":"unused"}"#;
+        let mut keep = HashSet::new();
+        keep.insert("user".to_string());
+        let ctx = from_json_str_keep(json, &keep).unwrap();
+        let expr = Expr::try_from("@user.role").unwrap();
+        assert_eq!(expr.eval(&ctx).unwrap(), Val::Str(Arc::from("admin")));
+        // a pruned key behaves like a missing key (Nil)
+        let expr2 = Expr::try_from("@big").unwrap();
+        assert_eq!(expr2.eval(&ctx).unwrap(), Val::Nil);
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn from_json_str_for_exprs_merges_names() {
+        use crate::expr::Expr;
+        let json = r#"{"a":1,"b":2,"c":3,"d":4}"#;
+        let e1 = Expr::try_from("@a + @b").unwrap();
+        let e2 = Expr::try_from("@c").unwrap();
+        let ctx = from_json_str_for_exprs(json, &[&e1, &e2]).unwrap();
+        match ctx {
+            Val::Map(m) => {
+                assert_eq!(m.len(), 3);
+                assert!(m.contains_key("a") && m.contains_key("b") && m.contains_key("c"));
+                assert!(!m.contains_key("d"));
+            }
+            _ => panic!("expected map"),
+        }
+    }
 }

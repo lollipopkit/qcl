@@ -10,8 +10,7 @@ use crate::{
 };
 
 const LARGE_LIST_MEMBERSHIP_THRESHOLD: usize = 16;
-const LIST_IN_LIST_INDEX_MIN_PROBES: usize = 32;
-const SINGLE_ITEM_INDEX_BUILD_THRESHOLD: usize = 1024;
+const LIST_IN_LIST_INDEX_MIN_PROBES: usize = 128;
 
 fn list_contains(list: &[Val], needle: &Val) -> bool {
     match needle {
@@ -195,15 +194,12 @@ impl BinOp {
                     Ok((**l).iter().all(|x| list_contains(r, x)))
                 }
 
-                // Single element membership
-                (_, Val::List(r)) => {
-                    if r.len() > SINGLE_ITEM_INDEX_BUILD_THRESHOLD {
-                        let index = MembershipIndex::new(r);
-                        return Ok(index.contains(l));
-                    }
-
-                    Ok(list_contains(r, l))
-                }
+                // Single element membership. A linear scan is always optimal
+                // here: a MembershipIndex costs O(n) up front (hashing every
+                // element) and only pays off across many lookups, but each `in`
+                // rebuilds it - so the indexed path was strictly slower than
+                // scanning for a single needle.
+                (_, Val::List(r)) => Ok(list_contains(r, l)),
 
                 // Map key membership: "key" in {"key": value}
                 (Val::Str(s), Val::Map(m)) => Ok(m.contains_key(s.as_ref())),

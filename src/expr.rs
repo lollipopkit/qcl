@@ -121,16 +121,17 @@ struct CacheEntry {
 #[cfg(feature = "std")]
 struct ParseCacheState {
     entries: HashMap<String, CacheEntry>,
+    /// Per-shard LRU clock. Local to the shard (not a global static) so hits
+    /// don't bounce a single cache line across all 16 shards.
+    clock: AtomicU64,
 }
-
-#[cfg(feature = "std")]
-static CACHE_CLOCK: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(feature = "std")]
 impl ParseCacheState {
     fn new() -> Self {
         Self {
             entries: HashMap::new(),
+            clock: AtomicU64::new(0),
         }
     }
 
@@ -139,11 +140,16 @@ impl ParseCacheState {
     /// shared lock and never serializes readers within a shard.
     fn get(&self, expression: &str) -> Option<Arc<Expr>> {
         let entry = self.entries.get(expression)?;
+        // LRU timestamps only matter once the shard is near capacity (evictions
+        // only happen at full). Skip the two atomics on every hit while there
+        // is still room - the common case when the working set fits comfortably.
         // fetch_max keeps last_used monotonic: two readers racing under the
         // shared lock cannot let an earlier ticket overwrite a later one's.
-        entry
-            .last_used
-            .fetch_max(CACHE_CLOCK.fetch_add(1, Ordering::Relaxed), Ordering::Relaxed);
+        if self.entries.len() >= parse_cache_entries_per_shard() * 3 / 4 {
+            entry
+                .last_used
+                .fetch_max(self.clock.fetch_add(1, Ordering::Relaxed), Ordering::Relaxed);
+        }
         Some(entry.expr.clone())
     }
 
@@ -156,7 +162,7 @@ impl ParseCacheState {
             self.evict_oldest();
         }
 
-        let ts = CACHE_CLOCK.fetch_add(1, Ordering::Relaxed);
+        let ts = self.clock.fetch_add(1, Ordering::Relaxed);
         self.entries.insert(
             expression,
             CacheEntry {

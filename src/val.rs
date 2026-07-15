@@ -584,14 +584,18 @@ fn yaml_value_to_val(val: serde_yaml::Value, depth: usize) -> Val {
 }
 
 impl Val {
-    #[cfg(feature = "json")]
-    pub fn try_from<T>(val: T) -> Result<Self>
-    where
-        T: serde::Serialize,
-    {
-        Ok(serde_json::to_value(val)
-            .map_err(|e| Error::Eval(e.to_string()))?
-            .into())
+    /// Convert any `serde::Serialize` value into a `Val` directly, without a
+    /// JSON text round-trip or the intermediate `serde_json::Value` that
+    /// `serde_json::to_value` would build. Available on all features (no longer
+    /// gated behind `json`), since it only depends on `serde`.
+    pub fn try_from<T: serde::Serialize>(val: T) -> Result<Self> {
+        crate::ser::to_val(&val).map_err(|e| Error::Deserialize(e.to_string()))
+    }
+
+    /// Construct a `Val` from any `serde::Serialize` value in a single pass.
+    /// See [`crate::ser`] for the representation rules (e.g. enum variants).
+    pub fn from_serialize<T: serde::Serialize + ?Sized>(value: &T) -> Result<Self> {
+        crate::ser::to_val(value).map_err(|e| Error::Deserialize(e.to_string()))
     }
 }
 

@@ -126,11 +126,55 @@ fn check(expression: &str, context: &Bound<'_, PyAny>) -> PyResult<bool> {
     Ok(!matches!(result, Val::Bool(false) | Val::Nil))
 }
 
+/// A pre-parsed QCL context, to amortize JSON parsing across many evaluations.
+///
+/// Build it once with `parse_ctx` and pass it to `eval_ctx` repeatedly:
+/// ```python
+/// ctx = qcl.parse_ctx(json_str)
+/// for expr in exprs:
+///     qcl.eval_ctx(expr, ctx)
+/// ```
+#[pyclass]
+struct Ctx {
+    val: Val,
+}
+
+/// Parse a JSON string into a `Ctx` handle for repeated evaluation.
+///
+/// Args:
+///     json_ctx: JSON string serving as the evaluation context
+///
+/// Returns:
+///     A `Ctx` that can be passed to `eval_ctx` any number of times.
+#[pyfunction]
+fn parse_ctx(json_ctx: &str) -> PyResult<Ctx> {
+    let val = de::from_json_str(json_ctx).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(Ctx { val })
+}
+
+/// Evaluate a QCL expression against a pre-parsed `Ctx`.
+///
+/// Args:
+///     expression: QCL expression string
+///     ctx: a `Ctx` returned by `parse_ctx`
+///
+/// Returns:
+///     The evaluation result as a Python object
+#[pyfunction]
+fn eval_ctx(py: Python<'_>, expression: &str, ctx: &Ctx) -> PyResult<PyObject> {
+    let expr = Expr::parse_cached_arc(expression).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let result = expr.eval(&ctx.val).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    val_to_py(py, &result, 0)
+}
+
 /// QCL Python module.
 #[pymodule]
 fn qcl(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(eval, m)?)?;
     m.add_function(wrap_pyfunction!(eval_json, m)?)?;
     m.add_function(wrap_pyfunction!(check, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_ctx, m)?)?;
+    m.add_function(wrap_pyfunction!(eval_ctx, m)?)?;
+    m.add_class::<Ctx>()?;
     Ok(())
 }
