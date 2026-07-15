@@ -56,6 +56,116 @@ fn eval_inner(expression: &str, ctx: &Val) -> *mut c_char {
     }
 }
 
+/// Parse a JSON context string into an opaque `Val` handle.
+///
+/// The returned handle can be passed to `qcl_eval_ctx` / `qcl_check_ctx` any
+/// number of times, amortizing the JSON parse across many evaluations. The
+/// caller must free it with `qcl_free_ctx` when done.
+///
+/// # Safety
+/// - `json_ctx` must be a valid, non-null, null-terminated C string.
+/// - Returns null on error; call `qcl_last_error` for the message.
+#[cfg(feature = "json")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qcl_parse_ctx(json_ctx: *const c_char) -> *mut Val {
+    if json_ctx.is_null() {
+        set_err("null json_ctx pointer".to_string());
+        return core::ptr::null_mut();
+    }
+    let ctx_str = match unsafe { CStr::from_ptr(json_ctx) }.to_str() {
+        Ok(s) => s,
+        Err(e) => {
+            set_err(format!("invalid json_ctx UTF-8: {e}"));
+            return core::ptr::null_mut();
+        }
+    };
+    match crate::de::from_json_str(ctx_str) {
+        Ok(v) => Box::into_raw(Box::new(v)),
+        Err(e) => {
+            set_err(format!("{e}"));
+            core::ptr::null_mut()
+        }
+    }
+}
+
+/// Evaluate a QCL expression against a pre-parsed context handle.
+///
+/// # Safety
+/// - `expression` must be a valid, non-null, null-terminated C string.
+/// - `ctx` must be a non-null pointer returned by `qcl_parse_ctx` (not yet freed).
+/// - The returned string must be freed via `qcl_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qcl_eval_ctx(expression: *const c_char, ctx: *const Val) -> *mut c_char {
+    if expression.is_null() {
+        return set_err("null expression pointer".to_string());
+    }
+    if ctx.is_null() {
+        return set_err("null ctx pointer".to_string());
+    }
+    let expr_str = match unsafe { CStr::from_ptr(expression) }.to_str() {
+        Ok(s) => s,
+        Err(e) => return set_err(format!("invalid expression UTF-8: {e}")),
+    };
+    // SAFETY: caller guarantees `ctx` is a live `Val` from `qcl_parse_ctx`.
+    let ctx_ref: &Val = unsafe { &*ctx };
+    eval_inner(expr_str, ctx_ref)
+}
+
+/// Check (truthy/falsy) a QCL expression against a pre-parsed context handle.
+/// Returns 1 for truthy, 0 for false/nil, -1 on error.
+///
+/// # Safety
+/// - `expression` and `ctx` must be valid, non-null; `ctx` from `qcl_parse_ctx`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qcl_check_ctx(expression: *const c_char, ctx: *const Val) -> c_int {
+    if expression.is_null() {
+        set_err("null expression pointer".to_string());
+        return -1;
+    }
+    if ctx.is_null() {
+        set_err("null ctx pointer".to_string());
+        return -1;
+    }
+    let expr_str = match unsafe { CStr::from_ptr(expression) }.to_str() {
+        Ok(s) => s,
+        Err(e) => {
+            set_err(format!("invalid expression UTF-8: {e}"));
+            return -1;
+        }
+    };
+    // SAFETY: caller guarantees `ctx` is a live `Val` from `qcl_parse_ctx`.
+    let ctx_ref: &Val = unsafe { &*ctx };
+    let expr = match Expr::parse_cached_arc(expr_str) {
+        Ok(e) => e,
+        Err(e) => {
+            set_err(format!("{e}"));
+            return -1;
+        }
+    };
+    match expr.eval(ctx_ref) {
+        Ok(Val::Bool(true)) => 1,
+        Ok(Val::Bool(false) | Val::Nil) => 0,
+        Ok(_) => 1,
+        Err(e) => {
+            set_err(format!("{e}"));
+            -1
+        }
+    }
+}
+
+/// Free a context handle returned by `qcl_parse_ctx`.
+///
+/// # Safety
+/// `ctx` must be a pointer previously returned by `qcl_parse_ctx`, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qcl_free_ctx(ctx: *mut Val) {
+    if !ctx.is_null() {
+        // SAFETY: caller guarantees `ctx` was produced by `qcl_parse_ctx` and
+        // is not aliased / not previously freed.
+        drop(unsafe { Box::from_raw(ctx) });
+    }
+}
+
 /// Retrieve the last error message.
 ///
 /// # Safety

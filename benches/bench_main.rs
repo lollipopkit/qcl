@@ -54,11 +54,13 @@ fn bench_parsing(c: &mut Criterion) {
         })
     });
 
-    // Parsing with cache (warm up cache then repeatedly parse same expression)
-    let _ = Expr::parse_cached(expr_str).unwrap(); // Warm up cache
+    // Parsing with cache (warm up cache then repeatedly parse same expression).
+    // Uses parse_cached_arc - the path every binding takes - so this reflects
+    // the real cache-hit cost, not the AST deep-clone that parse_cached performs.
+    let _ = Expr::parse_cached_arc(expr_str).unwrap(); // Warm up cache
     c.bench_function("parse_with_cache", |b| {
         b.iter(|| {
-            let expr = Expr::parse_cached(expr_str).unwrap();
+            let expr = Expr::parse_cached_arc(expr_str).unwrap();
             black_box(&expr);
         })
     });
@@ -444,6 +446,59 @@ fn bench_ternary_coalesce(c: &mut Criterion) {
     });
 }
 
+// Benchmark 11: Context parsing - full vs top-level-filtered (方向4)
+fn bench_context_parsing(c: &mut Criterion) {
+    // A large context where a typical ACL check only touches `user`.
+    let mut big = String::from("{\"user\":{\"role\":\"admin\",\"age\":18},\"biglist\":[");
+    for i in 0..1000u32 {
+        if i > 0 {
+            big.push(',');
+        }
+        big.push_str(&i.to_string());
+    }
+    big.push_str("],\"bigmap\":{");
+    for i in 0..100u32 {
+        if i > 0 {
+            big.push(',');
+        }
+        big.push_str(&format!("\"key{i}\":{i}"));
+    }
+    big.push_str("}}");
+
+    let mut keep = hashbrown::HashSet::new();
+    keep.insert("user".to_string());
+
+    c.bench_function("ctx_parse_full", |b| {
+        b.iter(|| {
+            let v = qcl::de::from_json_str(&big).unwrap();
+            black_box(&v);
+        })
+    });
+
+    c.bench_function("ctx_parse_filtered", |b| {
+        b.iter(|| {
+            let v = qcl::de::from_json_str_keep(&big, &keep).unwrap();
+            black_box(&v);
+        })
+    });
+
+    // End-to-end: parse ctx + parse expr + eval, full vs filtered.
+    c.bench_function("e2e_pipeline_full", |b| {
+        b.iter(|| {
+            let ctx = qcl::de::from_json_str(&big).unwrap();
+            let e = Expr::parse_cached_arc("@user.role").unwrap();
+            black_box(e.eval(&ctx).unwrap());
+        })
+    });
+    c.bench_function("e2e_pipeline_filtered", |b| {
+        b.iter(|| {
+            let ctx = qcl::de::from_json_str_keep(&big, &keep).unwrap();
+            let e = Expr::parse_cached_arc("@user.role").unwrap();
+            black_box(e.eval(&ctx).unwrap());
+        })
+    });
+}
+
 // Criterion benchmark group definition
 criterion_group!(
     benches,
@@ -456,6 +511,7 @@ criterion_group!(
     bench_string_operations,
     bench_memory_allocation,
     bench_complex_arithmetic,
-    bench_ternary_coalesce
+    bench_ternary_coalesce,
+    bench_context_parsing
 );
 criterion_main!(benches);

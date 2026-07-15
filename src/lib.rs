@@ -10,6 +10,7 @@ pub mod expr;
 #[cfg(feature = "ffi")]
 pub mod ffi;
 pub mod op;
+pub mod ser;
 #[cfg(feature = "python")]
 pub mod python;
 pub mod token;
@@ -22,5 +23,6 @@ mod ast_test;
 mod de_test;
 mod expr_test;
 mod op_test;
+mod ser_test;
 mod token_test;
 mod val_test;

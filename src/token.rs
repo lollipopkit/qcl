@@ -191,72 +191,130 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn parse_str(&mut self) -> Result<()> {
-        let mut s = String::new();
-        let quote = self.cur_char().unwrap(); // ' or " (ASCII)
-        self.idx += 1;
+        let quote_byte = self.cur_byte(); // ' or " (ASCII)
+        let content_start = self.idx + 1; // skip opening quote
+        self.idx = content_start;
+
+        // Fast path: scan byte-by-byte for the closing quote or a backslash.
+        // Both are ASCII (< 0x80), so they never appear inside a multibyte
+        // UTF-8 sequence; advancing one byte at a time is safe, and the slice
+        // below lands on char boundaries (opening + closing quotes are ASCII).
+        // The common case (no escapes) then needs zero allocation and no
+        // per-char push - the string is sliced straight out of the input.
+        while !self.eof() {
+            let b = self.cur_byte();
+            if b == quote_byte {
+                let s = &self.input[content_start..self.idx];
+                self.idx += 1;
+                self.tokens.push(Token::Str(Arc::<str>::from(s)));
+                return Ok(());
+            }
+            if b == b'\\' {
+                return self.parse_str_slow(content_start);
+            }
+            self.idx += 1;
+        }
+        Err(Error::Tokenize(self.err("String not closed")))
+    }
+
+    /// Slow path for string literals containing escapes. `content_start` is the
+    /// byte offset just after the opening quote; `[content_start, self.idx)`
+    /// has already been scanned and is escape-free, so it seeds the `String`
+    /// without re-pushing char by char.
+    fn parse_str_slow(&mut self, content_start: usize) -> Result<()> {
+        let quote_byte = self.bytes[content_start - 1]; // opening quote
+        let mut s = String::from(&self.input[content_start..self.idx]);
 
         while !self.eof() {
-            let c = self.cur_char().unwrap();
-            match c {
-                '\\' => {
-                    self.idx += 1;
-                    if self.eof() {
-                        return Err(Error::Tokenize(self.err("Invalid escape sequence")));
-                    }
+            let b = self.cur_byte();
+            if b == quote_byte {
+                self.idx += 1;
+                self.tokens.push(Token::Str(Arc::<str>::from(s)));
+                return Ok(());
+            }
+            if b != b'\\' {
+                let c = self.cur_char().unwrap();
+                s.push(c);
+                self.idx += c.len_utf8();
+                continue;
+            }
 
-                    let next = self.cur_char().unwrap();
-                    let escaped = match next {
-                        '\\' => '\\',
-                        '"' => '"',
-                        '\'' => '\'',
-                        'n' => '\n',
-                        'r' => '\r',
-                        't' => '\t',
-                        '0' => '\0',
-                        'u' => {
-                            self.idx += 1;
-                            if self.idx + 4 > self.len {
-                                return Err(Error::Tokenize(self.err("Invalid \\uXXXX escape, need 4 hex digits")));
-                            }
-                            // Validate on raw bytes first so the &str slice below is
-                            // guaranteed to land on a char boundary.
-                            let hb = &self.bytes[self.idx..self.idx + 4];
-                            if !hb.iter().all(|b| b.is_ascii_hexdigit()) {
-                                let shown = core::str::from_utf8(hb).unwrap_or("????");
-                                return Err(Error::Tokenize(self.err(format!("Invalid unicode escape: \\u{shown}"))));
-                            }
-                            let hex = &self.input[self.idx..self.idx + 4];
-                            let code = u32::from_str_radix(hex, 16)
-                                .map_err(|_| Error::Tokenize(self.err(format!("Invalid unicode escape: \\u{hex}"))))?;
-                            let ch = char::from_u32(code).ok_or_else(|| {
-                                Error::Tokenize(self.err(format!("Invalid unicode codepoint: \\u{hex}")))
-                            })?;
-                            self.idx += 4;
-                            s.push(ch);
-                            continue;
-                        }
-                        other => {
-                            return Err(Error::Tokenize(
-                                self.err(format!("Unsupported escape sequence: \\{other}")),
-                            ));
-                        }
-                    };
-                    s.push(escaped);
-                    self.idx += 1; // escape letter is ASCII
+            // backslash escape
+            self.idx += 1;
+            if self.eof() {
+                return Err(Error::Tokenize(self.err("Invalid escape sequence")));
+            }
+            let next = self.cur_char().unwrap();
+            let escaped = match next {
+                '\\' => '\\',
+                '"' => '"',
+                '\'' => '\'',
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                '0' => '\0',
+                'u' => {
+                    self.idx += 1; // past 'u', to the first hex digit
+                    let ch = self.parse_unicode_escape()?;
+                    s.push(ch);
+                    continue;
                 }
-                c if c == quote => {
-                    self.idx += 1;
-                    self.tokens.push(Token::Str(Arc::<str>::from(s)));
-                    return Ok(());
+                other => {
+                    return Err(Error::Tokenize(
+                        self.err(format!("Unsupported escape sequence: \\{other}")),
+                    ));
                 }
-                _ => {
-                    s.push(c);
-                    self.idx += c.len_utf8();
+            };
+            s.push(escaped);
+            self.idx += 1; // escape letter is ASCII
+        }
+        Err(Error::Tokenize(self.err("String not closed")))
+    }
+
+    /// Parse a `\uXXXX` escape. On entry `self.idx` points at the first hex
+    /// digit (just past the `u`); on success it advances past the consumed
+    /// digits. A high surrogate immediately followed by a `\uXXXX` low surrogate
+    /// is combined into the supplementary code point; an unpaired or otherwise
+    /// invalid surrogate is rejected (mirroring `char::from_u32`).
+    fn parse_unicode_escape(&mut self) -> Result<char> {
+        if self.idx + 4 > self.len {
+            return Err(Error::Tokenize(self.err("Invalid \\uXXXX escape, need 4 hex digits")));
+        }
+        // Validate on raw bytes first so the &str slice below is guaranteed to
+        // land on a char boundary.
+        let hb = &self.bytes[self.idx..self.idx + 4];
+        if !hb.iter().all(|b| b.is_ascii_hexdigit()) {
+            let shown = core::str::from_utf8(hb).unwrap_or("????");
+            return Err(Error::Tokenize(self.err(format!("Invalid unicode escape: \\u{shown}"))));
+        }
+        let hex = &self.input[self.idx..self.idx + 4];
+        let code = u32::from_str_radix(hex, 16)
+            .map_err(|_| Error::Tokenize(self.err(format!("Invalid unicode escape: \\u{hex}"))))?;
+        self.idx += 4;
+
+        // High surrogate: combine with an immediately following `\uXXXX` low
+        // surrogate into the supplementary code point.
+        if (0xD800..=0xDBFF).contains(&code)
+            && self.idx + 6 <= self.len
+            && self.bytes[self.idx] == b'\\'
+            && self.bytes[self.idx + 1] == b'u'
+        {
+            let lb = &self.bytes[self.idx + 2..self.idx + 6];
+            if lb.iter().all(|b| b.is_ascii_hexdigit()) {
+                let lhex = &self.input[self.idx + 2..self.idx + 6];
+                if let Ok(low) = u32::from_str_radix(lhex, 16) {
+                    if (0xDC00..=0xDFFF).contains(&low) {
+                        self.idx += 6; // consume the second `\uXXXX`
+                        let combined = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00);
+                        // A well-formed surrogate pair always yields a scalar.
+                        return Ok(char::from_u32(combined).unwrap());
+                    }
                 }
             }
         }
-
-        Err(Error::Tokenize(self.err("String not closed")))
+        // BMP scalar, or an unpaired/invalid surrogate (rejected by from_u32).
+        char::from_u32(code)
+            .ok_or_else(|| Error::Tokenize(self.err(format!("Invalid unicode codepoint: \\u{hex}"))))
     }
 
     /// Check whether a sign (+/-) should be treated as the start of a numeric literal

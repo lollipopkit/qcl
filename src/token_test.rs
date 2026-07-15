@@ -719,6 +719,21 @@ mod tests {
     }
 
     #[test]
+    fn test_unicode_surrogate_pair() {
+        // A high surrogate followed by a low surrogate combines into the
+        // supplementary code point (U+1F600).
+        let t = Tokenizer::new("\"\\uD83D\\uDE00\"");
+        assert_eq!(t.unwrap(), vec![str_token("😀")]);
+
+        // Unpaired high surrogate is rejected.
+        assert!(Tokenizer::new(r#""\uD83D""#).is_err());
+        // Unpaired low surrogate is rejected.
+        assert!(Tokenizer::new(r#""\uDC00""#).is_err());
+        // High surrogate followed by a non-`\u` sequence is rejected.
+        assert!(Tokenizer::new(r#""\uD83Dx""#).is_err());
+    }
+
+    #[test]
     fn test_error_location() {
         let err = Tokenizer::new("1 + ^").unwrap_err();
         let msg = err.to_string();

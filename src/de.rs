@@ -1,6 +1,9 @@
 use crate::val::Val;
-use hashbrown::HashMap;
-use serde::de::{Deserialize, DeserializeSeed, Deserializer, Error as DeError, MapAccess, SeqAccess, Visitor};
+use hashbrown::{HashMap, HashSet};
+use serde::de::{
+    Deserialize, DeserializeSeed, Deserializer, Error as DeError, IgnoredAny, MapAccess, SeqAccess,
+    Visitor,
+};
 use std::fmt;
 use std::sync::Arc;
 
@@ -111,6 +114,43 @@ impl<'de> Visitor<'de> for ValVisitor {
     }
 }
 
+/// Top-level map visitor that drops entries whose key is not in `keep`.
+/// Nested values reuse the regular [`ValVisitor`] (no filtering below the top
+/// level). Used by [`from_json_str_keep`].
+struct FilteredMapVisitor<'a> {
+    depth: usize,
+    keep: &'a HashSet<String>,
+}
+
+impl<'de> Visitor<'de> for FilteredMapVisitor<'_> {
+    type Value = Val;
+
+    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("a JSON object")
+    }
+
+    fn visit_map<M>(self, mut map_access: M) -> Result<Val, M::Error>
+    where
+        M: MapAccess<'de>,
+    {
+        if self.depth >= MAX_DESERIALIZE_DEPTH {
+            return Err(M::Error::custom("input nesting is too deep"));
+        }
+        let mut map =
+            HashMap::with_capacity(map_access.size_hint().unwrap_or(0).min(MAX_PREALLOC));
+        while let Some(key) = map_access.next_key::<String>()? {
+            if self.keep.contains(&key) {
+                let value = map_access.next_value_seed(ValSeed { depth: self.depth + 1 })?;
+                map.insert(key, value);
+            } else {
+                // Skip the value without building a Val for it.
+                let _: IgnoredAny = map_access.next_value()?;
+            }
+        }
+        Ok(Val::Map(Arc::new(map)))
+    }
+}
+
 impl<'de> Deserialize<'de> for Val {
     fn deserialize<D>(deserializer: D) -> Result<Val, D::Error>
     where
@@ -124,6 +164,52 @@ impl<'de> Deserialize<'de> for Val {
 #[cfg(feature = "json")]
 pub fn from_json_str(input: &str) -> crate::error::Result<Val> {
     serde_json::from_str::<Val>(input).map_err(|e| crate::error::Error::Deserialize(e.to_string()))
+}
+
+/// Parse JSON into a `Val`, keeping only the top-level keys listed in `keep`.
+///
+/// Values under skipped top-level keys are not materialized - they are parsed
+/// with `IgnoredAny` - so a large context where an expression references only
+/// a few top-level fields avoids most of the allocation cost. Filtering is
+/// top-level only; nested maps are parsed in full.
+///
+/// If `keep` is empty, or the top level is not a JSON object, no filtering is
+/// applied (full parse). The empty-keep default prevents a caller from
+/// accidentally dropping every field.
+#[cfg(feature = "json")]
+pub fn from_json_str_keep(input: &str, keep: &HashSet<String>) -> crate::error::Result<Val> {
+    let mut de = serde_json::Deserializer::from_str(input);
+    let is_object = input
+        .trim_start()
+        .as_bytes()
+        .first()
+        .is_some_and(|&b| b == b'{');
+    let result = if keep.is_empty() || !is_object {
+        de.deserialize_any(ValVisitor { depth: 0 })
+    } else {
+        de.deserialize_map(FilteredMapVisitor { depth: 0, keep })
+    };
+    let val = result.map_err(|e| crate::error::Error::Deserialize(e.to_string()))?;
+    // Reject trailing non-whitespace, matching serde_json::from_str semantics.
+    de.end().map_err(|e| crate::error::Error::Deserialize(e.to_string()))?;
+    Ok(val)
+}
+
+/// Parse JSON into a `Val`, keeping only the top-level keys referenced by any
+/// of `exprs` (via [`crate::expr::Expr::requested_ctx`]). Convenience wrapper
+/// over [`from_json_str_keep`] that merges the context names from all expressions.
+#[cfg(feature = "json")]
+pub fn from_json_str_for_exprs(
+    input: &str,
+    exprs: &[&crate::expr::Expr],
+) -> crate::error::Result<Val> {
+    let mut keep = HashSet::new();
+    for expr in exprs {
+        for name in expr.requested_ctx() {
+            keep.insert(name);
+        }
+    }
+    from_json_str_keep(input, &keep)
 }
 
 /// Direct YAML string to Val conversion avoiding intermediate serde_yaml::Value
