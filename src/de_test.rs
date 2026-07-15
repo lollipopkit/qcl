@@ -625,4 +625,19 @@ role = "user"
             _ => panic!("expected map"),
         }
     }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn from_json_str_keep_rejects_trailing_garbage() {
+        use hashbrown::HashSet;
+        // Trailing non-whitespace must be rejected, matching from_json_str.
+        let mut keep = HashSet::new();
+        keep.insert("a".to_string());
+        assert!(from_json_str_keep(r#"{"a":1}xxx"#, &keep).is_err());
+        // Empty keep (full-parse path) must also reject.
+        let empty = HashSet::<String>::new();
+        assert!(from_json_str_keep(r#"{"a":1}xxx"#, &empty).is_err());
+        // Sanity: clean input still parses.
+        assert!(from_json_str_keep(r#"{"a":1}"#, &keep).is_ok());
+    }
 }

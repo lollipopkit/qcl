@@ -189,7 +189,10 @@ pub fn from_json_str_keep(input: &str, keep: &HashSet<String>) -> crate::error::
     } else {
         de.deserialize_map(FilteredMapVisitor { depth: 0, keep })
     };
-    result.map_err(|e| crate::error::Error::Deserialize(e.to_string()))
+    let val = result.map_err(|e| crate::error::Error::Deserialize(e.to_string()))?;
+    // Reject trailing non-whitespace, matching serde_json::from_str semantics.
+    de.end().map_err(|e| crate::error::Error::Deserialize(e.to_string()))?;
+    Ok(val)
 }
 
 /// Parse JSON into a `Val`, keeping only the top-level keys referenced by any

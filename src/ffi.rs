@@ -116,7 +116,6 @@ pub unsafe extern "C" fn qcl_eval_ctx(expression: *const c_char, ctx: *const Val
 ///
 /// # Safety
 /// - `expression` and `ctx` must be valid, non-null; `ctx` from `qcl_parse_ctx`.
-#[cfg(feature = "json")]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn qcl_check_ctx(expression: *const c_char, ctx: *const Val) -> c_int {
     if expression.is_null() {

@@ -589,7 +589,7 @@ impl Val {
     /// `serde_json::to_value` would build. Available on all features (no longer
     /// gated behind `json`), since it only depends on `serde`.
     pub fn try_from<T: serde::Serialize>(val: T) -> Result<Self> {
-        crate::ser::to_val(&val).map_err(|e| Error::Deserialize(e.to_string()))
+        Self::from_serialize(&val)
     }
 
     /// Construct a `Val` from any `serde::Serialize` value in a single pass.

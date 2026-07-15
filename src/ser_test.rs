@@ -47,6 +47,32 @@ mod tests {
     }
 
     #[test]
+    fn map_with_int_key_normalizes_to_string() {
+        let mut m = HashMap::new();
+        m.insert(42i64, "answer");
+        let val = to_val(&m).unwrap();
+        match val {
+            Val::Map(m) => {
+                assert_eq!(m.len(), 1);
+                assert_eq!(m.get("42"), Some(&Val::Str("answer".into())));
+            }
+            _ => panic!("expected map"),
+        }
+    }
+
+    #[test]
+    fn map_with_non_primitive_key_errors() {
+        let mut m = HashMap::new();
+        m.insert((1i64, 2i64), "v");
+        let err = to_val(&m).unwrap_err();
+        assert!(
+            err.to_string().contains("map key must be a primitive"),
+            "{}",
+            err
+        );
+    }
+
+    #[test]
     fn struct_to_map() {
         let u = User {
             role: "admin".into(),

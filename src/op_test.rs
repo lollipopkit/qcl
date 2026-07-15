@@ -238,7 +238,7 @@ mod tests {
     }
 
     #[test]
-    fn large_single_value_membership_uses_indexed_lookup() {
+    fn scalar_in_list_membership() {
         let haystack = Val::List(Arc::new((0..64).map(Val::Int).collect()));
 
         assert!(BinOp::In.cmp(&Val::Int(42), &haystack).unwrap());

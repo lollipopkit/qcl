@@ -43,9 +43,22 @@ pub fn eval(expression: &str, ctx: JsValue) -> Result<JsValue, JsError> {
 #[wasm_bindgen]
 pub fn parse_ctx(json_ctx: &str) -> Result<u32, JsError> {
     let val = de::from_json_str(json_ctx).map_err(|e| JsError::new(&e.to_string()))?;
-    let id = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
-    CTX_TABLE.lock().unwrap().insert(id, Arc::new(val));
+    let arc = Arc::new(val);
+    let mut table = CTX_TABLE.lock().unwrap();
+    let id = alloc_handle(&table);
+    table.insert(id, arc);
     Ok(id)
+}
+
+/// Allocate a handle id, skipping the reserved 0 and any id still live in the
+/// table so that counter wraparound can never silently evict a live context.
+fn alloc_handle(table: &HashMap<u32, Arc<Val>>) -> u32 {
+    loop {
+        let id = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
+        if id != 0 && !table.contains_key(&id) {
+            return id;
+        }
+    }
 }
 
 /// Evaluate a QCL expression against a pre-parsed context handle.

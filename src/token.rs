@@ -254,24 +254,8 @@ impl<'a> Tokenizer<'a> {
                 't' => '\t',
                 '0' => '\0',
                 'u' => {
-                    self.idx += 1;
-                    if self.idx + 4 > self.len {
-                        return Err(Error::Tokenize(self.err("Invalid \\uXXXX escape, need 4 hex digits")));
-                    }
-                    // Validate on raw bytes first so the &str slice below is
-                    // guaranteed to land on a char boundary.
-                    let hb = &self.bytes[self.idx..self.idx + 4];
-                    if !hb.iter().all(|b| b.is_ascii_hexdigit()) {
-                        let shown = core::str::from_utf8(hb).unwrap_or("????");
-                        return Err(Error::Tokenize(self.err(format!("Invalid unicode escape: \\u{shown}"))));
-                    }
-                    let hex = &self.input[self.idx..self.idx + 4];
-                    let code = u32::from_str_radix(hex, 16)
-                        .map_err(|_| Error::Tokenize(self.err(format!("Invalid unicode escape: \\u{hex}"))))?;
-                    let ch = char::from_u32(code).ok_or_else(|| {
-                        Error::Tokenize(self.err(format!("Invalid unicode codepoint: \\u{hex}")))
-                    })?;
-                    self.idx += 4;
+                    self.idx += 1; // past 'u', to the first hex digit
+                    let ch = self.parse_unicode_escape()?;
                     s.push(ch);
                     continue;
                 }
@@ -285,6 +269,52 @@ impl<'a> Tokenizer<'a> {
             self.idx += 1; // escape letter is ASCII
         }
         Err(Error::Tokenize(self.err("String not closed")))
+    }
+
+    /// Parse a `\uXXXX` escape. On entry `self.idx` points at the first hex
+    /// digit (just past the `u`); on success it advances past the consumed
+    /// digits. A high surrogate immediately followed by a `\uXXXX` low surrogate
+    /// is combined into the supplementary code point; an unpaired or otherwise
+    /// invalid surrogate is rejected (mirroring `char::from_u32`).
+    fn parse_unicode_escape(&mut self) -> Result<char> {
+        if self.idx + 4 > self.len {
+            return Err(Error::Tokenize(self.err("Invalid \\uXXXX escape, need 4 hex digits")));
+        }
+        // Validate on raw bytes first so the &str slice below is guaranteed to
+        // land on a char boundary.
+        let hb = &self.bytes[self.idx..self.idx + 4];
+        if !hb.iter().all(|b| b.is_ascii_hexdigit()) {
+            let shown = core::str::from_utf8(hb).unwrap_or("????");
+            return Err(Error::Tokenize(self.err(format!("Invalid unicode escape: \\u{shown}"))));
+        }
+        let hex = &self.input[self.idx..self.idx + 4];
+        let code = u32::from_str_radix(hex, 16)
+            .map_err(|_| Error::Tokenize(self.err(format!("Invalid unicode escape: \\u{hex}"))))?;
+        self.idx += 4;
+
+        // High surrogate: combine with an immediately following `\uXXXX` low
+        // surrogate into the supplementary code point.
+        if (0xD800..=0xDBFF).contains(&code)
+            && self.idx + 6 <= self.len
+            && self.bytes[self.idx] == b'\\'
+            && self.bytes[self.idx + 1] == b'u'
+        {
+            let lb = &self.bytes[self.idx + 2..self.idx + 6];
+            if lb.iter().all(|b| b.is_ascii_hexdigit()) {
+                let lhex = &self.input[self.idx + 2..self.idx + 6];
+                if let Ok(low) = u32::from_str_radix(lhex, 16) {
+                    if (0xDC00..=0xDFFF).contains(&low) {
+                        self.idx += 6; // consume the second `\uXXXX`
+                        let combined = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00);
+                        // A well-formed surrogate pair always yields a scalar.
+                        return Ok(char::from_u32(combined).unwrap());
+                    }
+                }
+            }
+        }
+        // BMP scalar, or an unpaired/invalid surrogate (rejected by from_u32).
+        char::from_u32(code)
+            .ok_or_else(|| Error::Tokenize(self.err(format!("Invalid unicode codepoint: \\u{hex}"))))
     }
 
     /// Check whether a sign (+/-) should be treated as the start of a numeric literal
